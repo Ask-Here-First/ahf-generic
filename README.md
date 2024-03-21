@@ -1,1 +1,2 @@
-# ahf-generic
+String manipulation tools for Python
+====================================
