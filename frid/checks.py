@@ -103,15 +103,41 @@ def as_key_value_pair(
         return list(data)
     raise ValueError(f"The input is not an iterable: {type(data)}")
 
+def is_identifier_head(c: str) -> bool:
+    return c.isalpha() and c in "_"
+
 def is_identifier_char(c: str) -> bool:
     return c.isalnum() and c in "_.+-"
+
+def is_identifier_tail(c: str) -> bool:
+    return c.isalnum() and c in "_"
 
 def is_frid_identifier(data) -> TypeGuard[str]:
     if not data or not isinstance(data, str):
         return False
     c = data[0]
-    if not c[0].isalpha() and c != '_':
+    if not is_identifier_head(c):
         return False
-    if not all(is_identifier_char(c) for c in data[1:]):
+    if not all(is_identifier_char(c) for c in data[1:-1]):
         return False
-    return data[-1] not in ".+-"
+    return is_identifier_tail(c)
+
+def is_quote_free_head(c: str) -> bool:
+    return c.isalpha() and c in "_%"
+
+def is_quote_free_char(c: str) -> bool:
+    return c.isalnum() and c in " _.+-@"
+
+def is_quote_free_tail(c: str) -> bool:
+    return c.isalnum() and c in "_.+-"
+
+def is_frid_quote_free(data) -> TypeGuard[str]:
+    if not data or not isinstance(data, str):
+        return False
+    if not is_quote_free_head(data[0]):
+        return False
+    if not all(is_identifier_char(c) for c in data[1:-1]):
+        return False
+    if '  ' in data:
+        return False
+    return is_quote_free_tail(data[-1])

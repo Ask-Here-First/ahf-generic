@@ -1,6 +1,6 @@
 import re, math, base64
 from datetime import date, time, datetime, timezone, timedelta
-from typing import Any, Literal, TypeVar
+from typing import  Any, Literal, TypeVar
 
 from .dtypes import FridArray, FridPrime, FridValue, StrKeyMap
 from .checks import is_frid_identifier, is_identifier_char
@@ -24,7 +24,7 @@ time_curt_regexp = re.compile(time_curt_re_str)
 
 T = TypeVar('T')
 
-class ParserError(FridError):
+class ParseError(FridError):
     def __init__(self, s: str, index: int, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.input_string = s
@@ -32,6 +32,12 @@ class ParserError(FridError):
     def to_frid(self, with_trace: bool=False) -> dict[str,str|int|list[str]]:
         # TODO: put the string an index in
         return super().to_frid(with_trace)
+
+def skip_whitespace(s: str, start: int, bound: int) -> int:
+    index = start
+    while index < bound and s[index].isspace():
+        index += 1
+    return index
 
 def parse_time_only(s, m: re.Match|None=None) -> time|None:
     """Parse ISO time string, where the colon between hour and second are time is optional.
@@ -138,9 +144,27 @@ def parse_prime_str(s: str, default: T, /, *, json: bool=False) -> FridPrime|T:
         pass
     return default
 
+def scan_prime_data(s: str, start: int, bound: int, accept=DEFAULT_PRIME_STR_CHARS):
+    index = start
+    while index < bound:
+        c = s[index]
+        if not is_identifier_char(c) and c not in accept:
+            break
+    value = parse_prime_str(s[start:index].strip(), ...)
+    if value is ...:
+        raise ParseError(s, index, "Fail to parse unquoted value")
+    return (index - start, value)
+
 _quoted_origin_set = "\n\t\r\v\f\b\a\x27\0"
 _quoted_target_set = "ntrvfbae\0"
 _quoted_common_set = "\\\"\'`"
+_quoted_char_table = {ord(s): '\\' + t for s, t in zip(
+    _quoted_origin_set, _quoted_target_set
+)}
+
+def push_quoted_str(r: list[str], data: str, quote: str='\"'):
+    """Push a quoted string into the list (without quotes themselves)."""
+    r.append(data.translate(_quoted_char_table).replace(quote, '\\' + quote))
 
 def _scan_escape_seq(s: str, start: int, bound: int, prefix: str) -> tuple[int,str]:
     index = len(prefix)
@@ -158,37 +182,20 @@ def _scan_escape_seq(s: str, start: int, bound: int, prefix: str) -> tuple[int,s
     elif c == 'U':
         n = 8
     else:
-        raise ParserError(s, start, f"Invalid escape sequence \\{c}")
+        raise ParseError(s, start, f"Invalid escape sequence \\{c}")
     # The 2 or 4 or 8 hex chars to load
     index += 1
     n = 8 if c == 'U' else 4
     if start + index + n > bound:
-        raise ParserError(s, start, f"Less than {n} letters for \\{c}")
+        raise ParseError(s, start, f"Less than {n} letters for \\{c}")
     try:
         codepoint = int(s[(start + index):(start + index + 4)], 16)
         return (index + n, chr(codepoint))
     except ValueError as exc:
-        raise ParserError(s, start, "Invalid unicode spec for \\{c}") from exc
-
-def skip_whitespace(s: str, start: int, bound: int) -> int:
-    index = start
-    while index < bound and s[index].isspace():
-        index += 1
-    return index
+        raise ParseError(s, start, "Invalid unicode spec for \\{c}") from exc
 
 def _scan_ending_seq(s: str, start: int, bound: int, ending: str):
     return (len(ending), "")  # Ending string does not contribute to the data
-
-def scan_prime_data(s: str, start: int, bound: int, accept=DEFAULT_PRIME_STR_CHARS):
-    index = start
-    while index < bound:
-        c = s[index]
-        if not is_identifier_char(c) and c not in accept:
-            break
-    value = parse_prime_str(s[start:index].strip(), ...)
-    if value is ...:
-        raise ValueError("Fail to parse unquoted value")
-    return (index - start, value)
 
 def scan_quoted_str(s: str, start: int, bound: int, quote: str) -> tuple[int,str]:
     """Scan quoted string until the end-quote."""
@@ -204,13 +211,13 @@ def scan_naked_list(
     while True:
         (count, value) = scan_multi_data(s, index, bound)
         if count < 0:
-            raise ParserError(s, index, f"Could not load entry #{len(out)} of a list")
+            raise ParseError(s, index, f"Could not load entry #{len(out)} of a list")
         index = skip_whitespace(s, start + count, bound)
         if index >= len(s) or s[index] in stop:
             break
         out.append(value)
         if s[index] != sep:
-            raise ParserError(s, index, f"Unexpected '{s[index]}' after {len(out)}-th entry")
+            raise ParseError(s, index, f"Unexpected '{s[index]}' after {len(out)}-th entry")
     return (index - start, out)
 
 def scan_naked_dict(
@@ -221,26 +228,26 @@ def scan_naked_dict(
     while True:
         (count, key) = scan_frid_value(s, index, bound)
         if count < 0:
-            raise ParserError(s, index, f"Could not load the key of entry #{len(out)} of a map")
+            raise ParseError(s, index, f"Could not load the key of entry #{len(out)} of a map")
         if not isinstance(key, str):
-            raise ParserError(s, index, f"Invalid key type {type(key).__name__}")
+            raise ParseError(s, index, f"Invalid key type {type(key).__name__}")
         if key in out:
-            raise ParserError(s, index, f"Existing key '{key}'")
+            raise ParseError(s, index, f"Existing key '{key}'")
         index = skip_whitespace(s, start + count, bound)
         if index >= len(s):
-            raise ParserError(s, index, f"Unexpected ending after the key '{key}' of a map")
+            raise ParseError(s, index, f"Unexpected ending after the key '{key}' of a map")
         if s[index] != sep[1]:
-            raise ParserError(s, index, f"Expect '{sep[1]}' after the key '{key}' of a map")
+            raise ParseError(s, index, f"Expect '{sep[1]}' after the key '{key}' of a map")
         index += 1
         (count, value) = scan_multi_data(s, index, bound)
         if count < 0:
-            raise ParserError(s, index, f"Could not load the value of '{key}' of a map")
+            raise ParseError(s, index, f"Could not load the value of '{key}' of a map")
         out[key] = value
         index = skip_whitespace(s, start + count, bound)
         if index >= len(s) or s[index] in stop:
             break
         if s[index] != sep[0]:
-            raise ParserError(s, index, f"Expect '{sep[0]}' after the value for '{key}'")
+            raise ParseError(s, index, f"Expect '{sep[0]}' after the value for '{key}'")
     return (index - start, out)
 
 def scan_expression(
@@ -259,19 +266,19 @@ def scan_frid_value(s: str, start: int, bound: int, prev: Any=...) -> tuple[int,
     match c:
         case '[':
             if prev is not ...:
-                raise ParserError(s, index, f"list after a value of {type(prev)}")
+                raise ParseError(s, index, f"list after a value of {type(prev)}")
             ending = ']'
             (count, value) = scan_naked_list(s, index, bound, ending)
             name = "array"
         case '{':
             if prev is not ...:
-                raise ParserError(s, index, f"map after a value of {type(prev)}")
+                raise ParseError(s, index, f"map after a value of {type(prev)}")
             ending = '}'
             (count, value) = scan_naked_dict(s, index, bound, ending)
             name = "map"
         case '"' | '\'' | '`':
             if prev is ... or not isinstance(prev, str):
-                raise ParserError(s, index, f"quoted string after a value of {type(prev)}")
+                raise ParseError(s, index, f"quoted string after a value of {type(prev)}")
             ending = c
             (count, value) = scan_quoted_str(s, index, bound, ending)
             if isinstance(prev, str):
@@ -279,24 +286,24 @@ def scan_frid_value(s: str, start: int, bound: int, prev: Any=...) -> tuple[int,
             name = "quoted string"
         case '(':
             if prev is ... or not is_frid_identifier(prev):
-                raise ParserError(s, index, f"expression after a value of {type(prev)}")
+                raise ParseError(s, index, f"expression after a value of {type(prev)}")
             ending = ')'
             (count, value) = scan_expression(s, index, bound, ending,
                                              None if prev is ... else prev)
             name = "expression"
         case _:
             if prev is ... or not isinstance(prev, str):
-                raise ParserError(s, index, f"data after a value of {type(prev)}")
+                raise ParseError(s, index, f"data after a value of {type(prev)}")
             (count, value) = scan_prime_data(s, index, bound)
             if isinstance(prev, str):
                 if not isinstance(value, str):
-                    raise ParserError(s, index, f"{type(value)} after a string")
+                    raise ParseError(s, index, f"{type(value)} after a string")
                 value = prev + value
     if count < 0:
-        raise ParserError(s, index, f"Couldn't parse {name}")
+        raise ParseError(s, index, f"Couldn't parse {name}")
     index += count
     if index >= bound or s[index] not in ending:
-        raise ParserError(s, index, f"Expecting '{ending}'")
+        raise ParseError(s, index, f"Expecting '{ending}'")
     return (count + 1, value)
 
 def scan_multi_data(s: str, start: int, bound: int, stop: str=''):
@@ -309,8 +316,8 @@ def scan_multi_data(s: str, start: int, bound: int, stop: str=''):
         (count, value) = scan_frid_value(s, index, bound, value)
     return (index - start, value)
 
-def load_frid_data(s: str, start: int=0, bound: int|None=0,
-                   type: Literal['list','dict']|None=None):
+def load_frid_value(s: str, start: int=0, bound: int|None=0,
+                    type: Literal['list','dict']|None=None) -> FridValue:
     n = len(s)
     start = _bound_index(n, start)
     bound = _bound_index(n, bound)
@@ -324,48 +331,7 @@ def load_frid_data(s: str, start: int=0, bound: int|None=0,
         case _:
             raise ValueError(f"Invalid input {type}")
     if count < 0:
-        raise ParserError(s, 0, "Failed to parse data")
+        raise ParseError(s, 0, "Failed to parse data")
     if count < bound and s[count:bound].strip():
-        raise ParserError(s, count, "Trailing data")
+        raise ParseError(s, count, "Trailing data")
     return value
-
-def loads(s: str):
-    return load_frid_data(s)
-
-# def dump_single_line(data: FridValue) -> str:
-#     """Dump the data into a single line of string that can be loaded later."""
-#     if data is None:
-#         return '.'
-#     if isinstance(data, bool):  # Do bool first as it is subtyping int
-#         return '+' if data else '-'
-#     if isinstance(data, (int, float)):
-#         return str(data)
-#     if isinstance(data, str):
-#         if not data or quote_free_re.fullmatch(data):
-#             return data
-#     elif isinstance(data, Sequence) and not isinstance(data, BlobTypes):
-#         result = '[' + ','.join(dump_single_line(x) for x in data) + ']'
-#         if plain_list_re.fullmatch(result):
-#             return result
-#     return whitespace_re.sub(' ', pyjson5.encode(data))
-
-# def dump_pretty_line(data: FridValue) -> str:
-#     """Dumps the data into a sinelg line mainly for human consumption."""
-#     if data is None:
-#         return 'null'
-#     if isinstance(data, str):
-#         return data
-#     if isinstance(data, bool):  # Do bool first as it is subtyping int
-#         return 'true' if data else 'false'
-#     if isinstance(data, Sequence) and not isinstance(data, BlobTypes):
-#         return '[' + ", ".join(dump_pretty_line(x) for x in data) + ']'
-#     if isinstance(data, Mapping):
-#         return '{' + ", ".join(k + ": " + dump_pretty_line(v) for k, v in data.items()) + '}'
-#     return str(data)
-
-# _text_variable_re = re.compile(r"\$\{\s*([\w.]+)\s*\}")
-# def format_pretty(s: str, default: str|None=None, /, **kwargs: FridValue):
-#     return _text_variable_re.sub((lambda m: (
-#         dump_pretty_line(kwargs.get(m.group(1), m.group()))
-#         if default is None else default
-#     )), s)
