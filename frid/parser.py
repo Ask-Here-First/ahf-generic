@@ -1,11 +1,11 @@
 import re, math, base64
 from datetime import date, time, datetime, timezone, timedelta
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 from .dtypes import FridArray, FridPrime, FridValue, StrKeyMap
 from .checks import is_frid_identifier, is_identifier_char
 from .errors import FridError
-from .finder import scan_transforms
+from .finder import _bound_index, scan_transforms
 
 DEFAULT_PRIME_STR_CHARS = "!?@#$%^&*/"
 
@@ -170,18 +170,17 @@ def _scan_escape_seq(s: str, start: int, bound: int, prefix: str) -> tuple[int,s
     except ValueError as exc:
         raise ParserError(s, start, "Invalid unicode spec for \\{c}") from exc
 
-def skip_whitespace(s: str, start: int) -> int:
+def skip_whitespace(s: str, start: int, bound: int) -> int:
     index = start
-    while index < len(s) and s[index].isspace():
+    while index < bound and s[index].isspace():
         index += 1
     return index
 
 def _scan_ending_seq(s: str, start: int, bound: int, ending: str):
     return (len(ending), "")  # Ending string does not contribute to the data
 
-def scan_prime_data(s: str, start: int, accept=DEFAULT_PRIME_STR_CHARS):
+def scan_prime_data(s: str, start: int, bound: int, accept=DEFAULT_PRIME_STR_CHARS):
     index = start
-    bound = len(s)
     while index < bound:
         c = s[index]
         if not is_identifier_char(c) and c not in accept:
@@ -191,61 +190,67 @@ def scan_prime_data(s: str, start: int, accept=DEFAULT_PRIME_STR_CHARS):
         raise ValueError("Fail to parse unquoted value")
     return (index - start, value)
 
-def scan_quoted_str(s: str, start: int, quote: str) -> tuple[int,str]:
+def scan_quoted_str(s: str, start: int, bound: int, quote: str) -> tuple[int,str]:
     """Scan quoted string until the end-quote."""
     return scan_transforms(s, [
         ('\\', _scan_escape_seq), (quote, _scan_ending_seq)
-    ], start)
+    ], start, bound)
 
-def scan_naked_list(s: str, start: int, end: str='', sep: str=',') -> tuple[int,FridArray]:
+def scan_naked_list(
+        s: str, start: int, bound: int, stop: str='', sep: str=','
+) -> tuple[int,FridArray]:
     out = []
     index = start
     while True:
-        (count, value) = scan_multi_data(s, index)
+        (count, value) = scan_multi_data(s, index, bound)
         if count < 0:
             raise ParserError(s, index, f"Could not load entry #{len(out)} of a list")
-        index = skip_whitespace(s, start + count)
-        if index >= len(s) or s[index] in end:
+        index = skip_whitespace(s, start + count, bound)
+        if index >= len(s) or s[index] in stop:
             break
         out.append(value)
         if s[index] != sep:
             raise ParserError(s, index, f"Unexpected '{s[index]}' after {len(out)}-th entry")
     return (index - start, out)
 
-def scan_naked_dict(s: str, start: int, end: str='', sep: str=",:") -> tuple[int,StrKeyMap]:
+def scan_naked_dict(
+        s: str, start: int, bound: int, stop: str='', sep: str=",:"
+) -> tuple[int,StrKeyMap]:
     out = {}
     index = start
     while True:
-        (count, key) = scan_frid_value(s, index)
+        (count, key) = scan_frid_value(s, index, bound)
         if count < 0:
             raise ParserError(s, index, f"Could not load the key of entry #{len(out)} of a map")
         if not isinstance(key, str):
             raise ParserError(s, index, f"Invalid key type {type(key).__name__}")
         if key in out:
             raise ParserError(s, index, f"Existing key '{key}'")
-        index = skip_whitespace(s, start + count)
+        index = skip_whitespace(s, start + count, bound)
         if index >= len(s):
             raise ParserError(s, index, f"Unexpected ending after the key '{key}' of a map")
         if s[index] != sep[1]:
             raise ParserError(s, index, f"Expect '{sep[1]}' after the key '{key}' of a map")
         index += 1
-        (count, value) = scan_multi_data(s, index)
+        (count, value) = scan_multi_data(s, index, bound)
         if count < 0:
             raise ParserError(s, index, f"Could not load the value of '{key}' of a map")
         out[key] = value
-        index = skip_whitespace(s, start + count)
-        if index >= len(s) or s[index] in end:
+        index = skip_whitespace(s, start + count, bound)
+        if index >= len(s) or s[index] in stop:
             break
         if s[index] != sep[0]:
             raise ParserError(s, index, f"Expect '{sep[0]}' after the value for '{key}'")
     return (index - start, out)
 
-def scan_expression(s: str, start: int, end: str='', name: str|None=None) -> tuple[int,FridValue]:
+def scan_expression(
+        s: str, start: int, bound: int, stop: str='', name: str|None=None
+) -> tuple[int,FridValue]:
     raise NotImplementedError
 
-def scan_frid_value(s: str, start: int, prev: Any=...) -> tuple[int,FridValue]:
+def scan_frid_value(s: str, start: int, bound: int, prev: Any=...) -> tuple[int,FridValue]:
     """Load the text representation."""
-    index = skip_whitespace(s, start)
+    index = skip_whitespace(s, start, bound)
     bound = len(s)
     if index >= len(s):
         return (len(s) - index, '')
@@ -256,19 +261,19 @@ def scan_frid_value(s: str, start: int, prev: Any=...) -> tuple[int,FridValue]:
             if prev is not ...:
                 raise ParserError(s, index, f"list after a value of {type(prev)}")
             ending = ']'
-            (count, value) = scan_naked_list(s, index, ending)
+            (count, value) = scan_naked_list(s, index, bound, ending)
             name = "array"
         case '{':
             if prev is not ...:
                 raise ParserError(s, index, f"map after a value of {type(prev)}")
             ending = '}'
-            (count, value) = scan_naked_dict(s, index, ending)
+            (count, value) = scan_naked_dict(s, index, bound, ending)
             name = "map"
         case '"' | '\'' | '`':
             if prev is ... or not isinstance(prev, str):
                 raise ParserError(s, index, f"quoted string after a value of {type(prev)}")
             ending = c
-            (count, value) = scan_quoted_str(s, index, ending)
+            (count, value) = scan_quoted_str(s, index, bound, ending)
             if isinstance(prev, str):
                 value = prev + value
             name = "quoted string"
@@ -276,12 +281,13 @@ def scan_frid_value(s: str, start: int, prev: Any=...) -> tuple[int,FridValue]:
             if prev is ... or not is_frid_identifier(prev):
                 raise ParserError(s, index, f"expression after a value of {type(prev)}")
             ending = ')'
-            (count, value) = scan_expression(s, index, ending, None if prev is ... else prev)
+            (count, value) = scan_expression(s, index, bound, ending,
+                                             None if prev is ... else prev)
             name = "expression"
         case _:
             if prev is ... or not isinstance(prev, str):
                 raise ParserError(s, index, f"data after a value of {type(prev)}")
-            (count, value) = scan_prime_data(s, index)
+            (count, value) = scan_prime_data(s, index, bound)
             if isinstance(prev, str):
                 if not isinstance(value, str):
                     raise ParserError(s, index, f"{type(value)} after a string")
@@ -293,16 +299,38 @@ def scan_frid_value(s: str, start: int, prev: Any=...) -> tuple[int,FridValue]:
         raise ParserError(s, index, f"Expecting '{ending}'")
     return (count + 1, value)
 
-def scan_multi_data(s: str, start: int, end: str=''):
+def scan_multi_data(s: str, start: int, bound: int, stop: str=''):
     index = start
-    (count, value) = scan_frid_value(s, index)
+    (count, value) = scan_frid_value(s, index, bound)
     while count > 0:
-        index = skip_whitespace(s, index + count)
-        if s[index] in end:
+        index = skip_whitespace(s, index + count, bound)
+        if s[index] in stop:
             break
-        (count, value) = scan_frid_value(s, index, value)
+        (count, value) = scan_frid_value(s, index, bound, value)
     return (index - start, value)
 
+def load_frid_data(s: str, start: int=0, bound: int|None=0,
+                   type: Literal['list','dict']|None=None):
+    n = len(s)
+    start = _bound_index(n, start)
+    bound = _bound_index(n, bound)
+    match type:
+        case None:
+            (count, value) = scan_multi_data(s, start, bound)
+        case 'list':
+            (count, value) = scan_naked_list(s, start, bound)
+        case 'dict':
+            (count, value) = scan_naked_dict(s, start, bound)
+        case _:
+            raise ValueError(f"Invalid input {type}")
+    if count < 0:
+        raise ParserError(s, 0, "Failed to parse data")
+    if count < bound and s[count:bound].strip():
+        raise ParserError(s, count, "Trailing data")
+    return value
+
+def loads(s: str):
+    return load_frid_data(s)
 
 # def dump_single_line(data: FridValue) -> str:
 #     """Dump the data into a single line of string that can be loaded later."""

@@ -30,16 +30,17 @@ def _do_find_any(s, char_set: str, start: int, bound: int) -> int:
 def str_find_any(s: str, char_set: str="", start: int=0, bound: int|None=None, /) -> int:
     """Finds in `s` the first ocurrence of any character in `char_set`.
     - `start` (inclusive) and `bound` (exclusive) gives the range of the search.
-    - Returns the index, or -1 if not found.
+    - Returns the index between `start` (inclusive), and `bound` (exclusive),
+      or -1 if not found.
     """
     n = len(s)
     return _do_find_any(s, char_set, _bound_index(n, start), _bound_index(n, bound))
 
 
-TransformFunction = Callable[[str,int,int,str],tuple[int,str]]
+_TransFunc = Callable[[str,int,int,str],tuple[int,str]]
 
 def scan_transforms__heap(
-        s: str, transformers: Iterable[tuple[str,TransformFunction]]|Mapping[str,TransformFunction],
+        s: str, transformers: Iterable[tuple[str,_TransFunc]]|Mapping[str,_TransFunc],
         start: int, bound: int, /, stop_at: str="",
 ) -> tuple[int,str]:
     """This is an variant of `text_transform()` using `find` and a heap."""
@@ -61,6 +62,7 @@ def scan_transforms__heap(
             if (j := _do_find_any(s, stop_at, index, hpos)) >= 0:
                 if j > index:
                     out.append(s[index:j])
+                index = j
                 break
             out.append(s[index:hpos])
         if hpos >= index:
@@ -82,17 +84,21 @@ def scan_transforms__heap(
         if (j := _do_find_any(s, stop_at, index, bound)) > index:
             out.append(s[index:j])
             index = j
+        else:
+            out.append(s[index:bound])
+            index = bound
     return (index - start, ''.join(out))
 
 def scan_transforms(
-        s: str, transformers: Iterable[tuple[str,TransformFunction]]|Mapping[str,TransformFunction],
+        s: str, transformers: Iterable[tuple[str,_TransFunc]]|Mapping[str,_TransFunc],
         start: int=0, bound: int|None=None, /, stop_at: str="",
 ) -> tuple[int,str]:
     """Transform a part of a text string into a different one.
     - `s`: the input text.
     - `transformers`: map or key value pairs of a prefix to a transformer callback function.
     - `start` and `bound`:
-    - `stop_at`: a list of characters where the transform will stop.
+    - `stop_at`: a list of characters where the transform will stop. Note that
+      transformers match takes priority.
     - It returns a pair: the number of chars processed and the transformed string
     The transformer callback function receives the following arguments:
     - The string `s`,
