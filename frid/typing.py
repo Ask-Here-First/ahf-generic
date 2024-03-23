@@ -11,9 +11,18 @@ DateTypes = dateonly|timeonly|datetime   # Note that datetime in Python derives 
 # The Prime types including all types supported internally by default
 
 class FridMixin(ABC):
+    @classmethod
+    def frid_name(cls) -> list[str]:
+        return [cls.__name__]
+
+    @classmethod
     @abstractmethod
-    def __frid__(self) -> 'FridValue':
-        ...
+    def frid_from(cls, name, *args, **kwas) -> 'FridMixin':
+        raise NotImplementedError
+
+    @abstractmethod
+    def frid_repr(self) -> tuple[str,Sequence['FridValue'],Mapping[str,'FridValue']]:
+        raise NotImplementedError
 
 FridPrime = str|float|int|bool|BlobTypes|DateTypes|None
 StrKeyMap = Mapping[str,Mapping|Sequence|FridPrime|FridMixin]

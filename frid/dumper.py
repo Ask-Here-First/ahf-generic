@@ -1,125 +1,26 @@
 import math, base64
 from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timezone
+from typing import Any
 
+from .typing import BlobTypes, DateTypes, FridMixin, FridPrime, FridValue, StrKeyMap
+from .typing import JsonLevel, timeonly, dateonly
 from .checks import is_frid_identifier, is_frid_quote_free
-from .dtypes import BlobTypes, DateTypes, FridPrime, FridValue, StrKeyMap
-from .dtypes import JsonLevel, timeonly, dateonly
+from .pretty import PrettyPrint, PPTokenType
 
-JSON_KEYWORDS = (
+JSON_NONIDENTIFIERS = (
     'true', 'false', 'null',
 )
-JSON1_ESCAPE_CHARS = "\n\t\r\b"
-JSON1_AFTER_ESCAPE = "ntrb"
-JSON5_ESCAPE_CHARS = JSON1_ESCAPE_CHARS + "\v\f0"
-JSON5_AFTER_ESCAPE = JSON1_AFTER_ESCAPE + "vf0"
-EXTRA_ESCAPE_CHARS = JSON5_ESCAPE_CHARS + "\a\x27"
-EXTRA_AFTER_ESCAPE = JSON5_AFTER_ESCAPE + "ae"
+JSON1_ESCAPE_SOURCE = "\n\t\r\b"
+JSON1_ESCAPE_TARGET = "ntrb"
+JSON5_ESCAPE_SOURCE = JSON1_ESCAPE_SOURCE + "\v\f0"
+JSON5_ESCAPE_TARGET = JSON1_ESCAPE_TARGET + "vf0"
+EXTRA_ESCAPE_SOURCE = JSON5_ESCAPE_SOURCE + "\a\x27"
+EXTRA_ESCAPE_TARGET = JSON5_ESCAPE_TARGET + "ae"
 
-def print_frid_real(data: float, *, path: str, json: JsonLevel=None) -> str:
-    if not json:
-        # Frid format
-        if math.isnan(data):
-            return "+." if data >= 0 else "-."
-        if math.isinf(data):
-            return "++" if data >= 0 else "--"
-        return str(data)
-    if json == 5:
-        if math.isnan(data):
-            return "NaN"
-        if math.isinf(data):
-            return "+Infinity" if data >= 0 else "-Infinity"
-        return str(data)
-    if json is True:
-        if math.isnan(data):
-            raise ValueError(f"NaN is not supported by JSON at {path}")
-        if math.isinf(data):
-            raise ValueError(f"NaN is not supported by JSON at {path}")
-        return str(data)
-    if isinstance(json, str):
-        if math.isnan(data):
-            out = "+." if data >= 0 else "-."
-        elif math.isinf(data):
-            out = "++" if data >= 0 else "--"
-        else:
-            return str(data)
-        return '"' + json + out + '"'
-    raise ValueError(f"Invalid {json=} at {path=}")
-
-def print_date_time(data: DateTypes, *, path: str, json: JsonLevel=None) -> str:
-    if isinstance(data, timeonly|datetime):
-        if data.tzinfo is timezone.utc:
-            out = data.replace(tzinfo=None).isoformat() + 'Z'
-        else:
-            out = data.isoformat() # TODO timespec
-    elif isinstance(data, dateonly):
-        out = data.isoformat()
-    else:
-        return "??"
-    if not json:
-        return out
-    if isinstance(json, str):
-        return '"' + json + out + '"'
-    raise ValueError(f"Date formats are not supported for {json=} at {path=}: {out}")
-
-def print_frid_blob(
-        data: BlobTypes, *, path: str, json: JsonLevel=None
-) -> str:
-    # TODO: support line splitting and indentation
-    out = base64.urlsafe_b64decode(data).decode()
-    if not out.endswith("="):
-        out = ".." + out
-    elif out.endswith("=="):
-        out = ".." + out[:-2] + ".."
-    else:
-        out = ".." + out[:-1] + "."
-    if not json:
-        return out
-    if isinstance(json, str):
-        return '"' + json + out + '"'
-    raise ValueError(f"Blob types are not supported by {json=} at {path=}")
-
-def print_prime_str(
-        data: FridValue, *, path: str, json: JsonLevel=False,
-        print_int: Callable[[int],str]=str, print_float: Callable[[float],str]|None=None,
-        print_date: Callable[[DateTypes],str]|None=None,
-        **kwargs
-) -> str|None:
-    if json:
-        if data is None:
-            return 'null'
-        if isinstance(data, bool):
-            return 'true' if data else 'false'
-        if isinstance(data, str):
-            return None
-    else:
-        if data is None:
-            return '.'
-        if isinstance(data, bool):
-            return '+' if data else '-'
-        if is_frid_identifier(data):
-            return data
-    if isinstance(data, int):
-        return print_int(data)
-    if isinstance(data, float):
-        if print_float is not None:
-            return print_float(data)
-        return print_frid_real(data, path=path, json=json)
-    if isinstance(data, DateTypes):
-        if print_date is not None:
-            return print_date(data)
-        return print_date_time(data, path=path, json=json)
-    if isinstance(data, BlobTypes):
-        return print_frid_blob(data, path=path, json=json)
-    if json:
-        return None
-    if isinstance(data, str) and is_frid_quote_free(data):
-        return data
-    return None
-
-class TransTable:
+class StringEscapeTransTable:
     def __init__(self, source: str, target: str, *, escape: str='\\', quotes: str='\"',
-                 no_utf: int=0, with_2=False, with_8=False):
+                no_utf: int=0, with_2=False, with_8=False):
         assert escape
         assert len(source) == len(target)
         self._map: dict[int,str] = {ord(escape[0]): escape + escape}
@@ -159,92 +60,236 @@ class TransTable:
         return (self._escape + 'u' + chr((cpx >> 12) + 0xD800)
                 + self._escape + 'u' + chr((cpx & 0x3ff) + 0xDC00))
 
-_json1_trans_table = TransTable(JSON1_ESCAPE_CHARS, JSON1_AFTER_ESCAPE,
-                                with_2=False, with_8=False)
-_json5_trans_table = TransTable(JSON1_ESCAPE_CHARS, JSON1_AFTER_ESCAPE,
-                                with_2=False, with_8=False)
-_extra_trans_table = TransTable(EXTRA_ESCAPE_CHARS, EXTRA_AFTER_ESCAPE,
-                                with_2=True, with_8=True)
-_json1_trans_ascii = TransTable(JSON1_ESCAPE_CHARS, JSON1_AFTER_ESCAPE,
-                                no_utf=True, with_2=False, with_8=False)
-_json5_trans_ascii = TransTable(JSON1_ESCAPE_CHARS, JSON1_AFTER_ESCAPE,
-                                no_utf=True, with_2=False, with_8=False)
-_extra_trans_ascii = TransTable(EXTRA_ESCAPE_CHARS, EXTRA_AFTER_ESCAPE,
-                                no_utf=True, with_2=True, with_8=True)
 
-def push_quoted_str(r: list[str], data: str, quote: str='\"',
-                    *, path: str, json: JsonLevel=None, ascii_only=False, **kwargs):
-    """Push a quoted string into the list (without quotes themselves)."""
-    if not json:
-        table = _extra_trans_ascii if ascii_only else _extra_trans_table
-    elif json == 5:
-        table = _json5_trans_ascii if ascii_only else _json5_trans_table
-    else:
-        table = _json1_trans_ascii if ascii_only else _json1_trans_table
-    r.append(data.translate(table))
+class FridDumper(PrettyPrint):
+    def __init__(self, *args, json_level: JsonLevel=None, ascii_only: bool=False,
+                 print_real: Callable[[int|float,str],str|None]|None=None,
+                 print_date: Callable[[DateTypes,str],str|None]|None=None,
+                 print_user: Callable[[Any,str],str|None]|None=None,
+                 **kwargs):
+        super().__init__(*args, **kwargs)
+        self.json_level = json_level
+        self.ascii_only = ascii_only
+        self.print_real = print_real
+        self.print_date = print_date
+        self.print_user = print_user
 
-def push_prime_data(r: list[str], data: FridPrime, *, path: str, json: JsonLevel=None):
-    s = print_prime_str(data, path=path, json=json)
-    if s is None:
-        raise ValueError(f"Invalid data type {type(data)}")
-    r.append(s)
+    def print(self, token: str, ttype: PPTokenType, /):
+        """Default token print behavior:
+        - Do not show optional separator.
+        - Add an space after required separator.
+        """
+        if ttype not in (PPTokenType.OPT_0, PPTokenType.OPT_1):
+            self._print(token)
+        if ttype in (PPTokenType.SEP_0, PPTokenType.SEP_1):
+            self._print(' ')
 
-def push_naked_list(r: list[str], data: Iterable[FridValue], sep: str=', ',
-                    *, path: str="", **kwargs):
-    for i, x in enumerate(data):
-        if i > 0:
-            r.append(sep)
-        push_frid_value(r, x, path=(path + '[' + str(i) + ']'), **kwargs)
-    # TODO: add a separator at the end if newline is ensured except for JSON format
+    def real_to_str(self, data: int|float, path: str, /) -> str:
+        if isinstance(data, int):
+            return str(data)
+        if not self.json_level:
+            # Frid format
+            if math.isnan(data):
+                return "+." if data >= 0 else "-."
+            if math.isinf(data):
+                return "++" if data >= 0 else "--"
+            return str(data)
+        if self.json_level == 5:
+            if math.isnan(data):
+                return "NaN"
+            if math.isinf(data):
+                return "+Infinity" if data >= 0 else "-Infinity"
+            return str(data)
+        if self.json_level is True:
+            if math.isnan(data):
+                raise ValueError(f"NaN is not supported by JSON at {path}")
+            if math.isinf(data):
+                raise ValueError(f"NaN is not supported by JSON at {path}")
+            return str(data)
+        if isinstance(self.json_level, str):
+            if math.isnan(data):
+                out = "+." if data >= 0 else "-."
+            elif math.isinf(data):
+                out = "++" if data >= 0 else "--"
+            else:
+                return str(data)
+            return '"' + self.json_level + out + '"'
+        raise ValueError(f"Invalid {self.json_level=} at {path=}")
 
-def _is_quote_free_key(key: str, json: JsonLevel=None, ascii_only: bool=False):
-    if ascii_only and not key.isascii():
-        return False
-    if not json:
-        return is_frid_identifier(key)
-    if json != 5:
-        return False
-    # JSON 5 identifiers, first not ECMAScript keywords but not in Python
-    if key in JSON_KEYWORDS:
-        return False
-    key = key.replace('$', '_')  # Handle $ the same way as _
-    # Use python identifiers as it is generally more restrictive
-    return key.isidentifier()
-
-def push_naked_dict(r: list[str], data: StrKeyMap, sep: str=',:',
-                    *, path: str="", json: JsonLevel=None, ascii_only: bool=False, **kwargs):
-    for i, (k, v) in enumerate(data.items()):
-        if not isinstance(k, str):
-            raise ValueError(f"Key is not a string: {k}")
-        if _is_quote_free_key(k, json, ascii_only):
-            r.append(k)
+    def date_to_str(self, data: DateTypes, path: str, /) -> str:
+        if isinstance(data, timeonly|datetime):
+            if data.tzinfo is timezone.utc:
+                out = data.replace(tzinfo=None).isoformat() + 'Z'
+            else:
+                out = data.isoformat() # TODO timespec
+        elif isinstance(data, dateonly):
+            out = data.isoformat()
         else:
-            push_quoted_str(r, k, path=path, json=json, ascii_only=ascii_only)
-        r.append(sep[1])
-        push_frid_value(r, v, path=path, json=json)
-        r.append(sep[0])
-    # TODO: add a separator at the end if newline is ensured except for JSON format
+            return "??"
+        if not self.json_level:
+            return out
+        if isinstance(self.json_level, str):
+            return '"' + self.json_level + out + '"'
+        raise ValueError(f"Unsupported data for json={self.json_level} at {path=}: {out}")
 
-def push_frid_value(r: list[str], data: FridValue,
-                    *, path: str, json: JsonLevel=None, ascii_only: bool=False):
-    x = print_prime_str(data, path=path, json=json)
-    if x is not None:
-        r.append(x)
-    elif isinstance(data, str):
-        push_quoted_str(r, data, path=path, json=json, ascii_only=ascii_only)
-    elif isinstance(data, Mapping):
-        r.append('{')
-        push_naked_dict(r, data, path=path, json=json)
-        r.append('}')
-    elif isinstance(data, Iterable):
-        r.append('[')
-        push_naked_list(r, data, path=path, json=json)
-        r.append(']')
-    else:
-        raise ValueError(f"Invalid type {type(data)}")
+    def blob_to_str(self, data: BlobTypes, path: str) -> str:
+        # TODO: support line splitting and indentation
+        out = base64.urlsafe_b64decode(data).decode()
+        if not out.endswith("="):
+            out = ".." + out
+        elif out.endswith("=="):
+            out = ".." + out[:-2] + ".."
+        else:
+            out = ".." + out[:-1] + "."
+        if not self.json_level:
+            return out
+        if isinstance(self.json_level, str):
+            return '"' + self.json_level + out + '"'
+        raise ValueError(f"Blobs are unsupported by json={self.json_level} at {path=}")
 
-def dump_frid_value(data: FridValue, json: JsonLevel=None) -> str:
-    out: list[str] = []
-    push_frid_value(out, data, path="", json=json)
-    return ''.join(out)
+    def prime_data_to_str(self, data: FridValue, path: str, /) -> str|None:
+        if self.json_level:
+            if data is None:
+                return 'null'
+            if isinstance(data, bool):
+                return 'true' if data else 'false'
+            if isinstance(data, str):
+                return None
+        else:
+            if data is None:
+                return '.'
+            if isinstance(data, bool):
+                return '+' if data else '-'
+            if is_frid_identifier(data):
+                return data
+        if isinstance(data, int|float):
+            if self.print_real is not None and (out := self.print_real(data, path)) is not None:
+                return out
+            return self.real_to_str(data, path)
+        if isinstance(data, DateTypes):
+            if self.print_date is not None and (out := self.print_date(data, path)) is not None:
+                return out
+            return self.date_to_str(data, path)
+        if isinstance(data, BlobTypes):
+            return self.blob_to_str(data, path)
+        if self.json_level:
+            return None
+        if isinstance(data, str) and is_frid_quote_free(data):
+            return data
+        if self.print_user is not None and (out := self.print_user(data, path)) is not None:
+            return out
+        return None
+
+    _json1_trans_table = StringEscapeTransTable(JSON1_ESCAPE_SOURCE, JSON1_ESCAPE_TARGET,
+                                                with_2=False, with_8=False)
+    _json5_trans_table = StringEscapeTransTable(JSON1_ESCAPE_SOURCE, JSON1_ESCAPE_TARGET,
+                                                with_2=False, with_8=False)
+    _extra_trans_table = StringEscapeTransTable(EXTRA_ESCAPE_SOURCE, EXTRA_ESCAPE_TARGET,
+                                                with_2=True, with_8=True)
+    _json1_trans_ascii = StringEscapeTransTable(JSON1_ESCAPE_SOURCE, JSON1_ESCAPE_TARGET,
+                                                no_utf=True, with_2=False, with_8=False)
+    _json5_trans_ascii = StringEscapeTransTable(JSON1_ESCAPE_SOURCE, JSON1_ESCAPE_TARGET,
+                                                no_utf=True, with_2=False, with_8=False)
+    _extra_trans_ascii = StringEscapeTransTable(EXTRA_ESCAPE_SOURCE, EXTRA_ESCAPE_TARGET,
+                                                no_utf=True, with_2=True, with_8=True)
+
+    def print_quoted_str(self, data: str, path: str, /, as_key: bool=False, quote: str='\"'):
+        """Push a quoted string into the list (without quotes themselves)."""
+        if not self.json_level:
+            table = self._extra_trans_ascii if self.ascii_only else self._extra_trans_table
+        elif self.json_level == 5:
+            table = self._json5_trans_ascii if self.ascii_only else self._json5_trans_table
+        else:
+            table = self._json1_trans_ascii if self.ascii_only else self._json1_trans_table
+        self.print(data.translate(table), PPTokenType.LABEL if as_key else PPTokenType.ENTRY)
+
+    def print_prime_data(self, data: FridPrime, path: str, /):
+        s = self.prime_data_to_str(data, path)
+        if s is None:
+            raise ValueError(f"Invalid data type {type(data)}")
+        self.print(s, PPTokenType.ENTRY)
+
+    def print_naked_list(self, data: Iterable[FridValue], path: str="", /, sep: str=','):
+        for i, x in enumerate(data):
+            if i > 0:
+                self.print(sep, PPTokenType.SEP_0)
+            self.print_frid_value(x, path + '[' + str(i) + ']')
+        if i > 0 and self.json_level == 5 or not self.json_level:
+            self.print(sep[0], PPTokenType.OPT_0)
+
+    def _key_needs_quotes(self, key: str):
+        if self.ascii_only and not key.isascii():
+            return False
+        if not self.json_level:
+            return is_frid_identifier(key)
+        if self.json_level != 5:
+            return False
+        # JSON 5 identifiers, first not ECMAScript keywords but not in Python
+        if key in JSON_NONIDENTIFIERS:
+            return False
+        key = key.replace('$', '_')  # Handle $ the same way as _
+        # Use python identifiers as it is generally more restrictive
+        return key.isidentifier()
+
+    def print_naked_dict(self, data: StrKeyMap, path: str="", /, sep: str=',:'):
+        for i, (k, v) in enumerate(data.items()):
+            if not isinstance(k, str):
+                raise ValueError(f"Key is not a string: {k}")
+            if self._key_needs_quotes(k):
+                self.print(k, PPTokenType.LABEL)
+            else:
+                self.print_quoted_str(k, path, as_key=True)
+            self.print(sep[1], PPTokenType.SEP_1)
+            self.print_frid_value(v, path)
+            self.print(sep[0], PPTokenType.SEP_0)
+        if i > 0 and self.json_level == 5 or not self.json_level:
+            self.print(sep[0], PPTokenType.OPT_0)
+
+    def print_frid_mixin(self, data: FridMixin, path: str, /):
+        (name, args, kwas) = data.frid_repr()
+        if not self.json_level:
+            assert is_frid_identifier(name)
+            self.print(name, PPTokenType.ENTRY)
+            self.print('(', PPTokenType.START)
+            self.print_naked_list(args, path, ',')
+            self.print(',', PPTokenType.SEP_0)
+            self.print_naked_dict(kwas, path, ',=')
+            self.print(')', PPTokenType.CLOSE)
+            return
+        if not isinstance(self.json_level, str):
+            raise ValueError(f"FridMixin is not supported with pure JSON/JSON5: {path}")
+        if kwas:
+            self.print('{', PPTokenType.START)
+            self.print_quoted_str('', path, as_key=True)
+        # Print as an array
+        if args:
+            self.print('[', PPTokenType.START)
+            self.print_quoted_str(self.json_level + name, path)
+            self.print(',', PPTokenType.SEP_0)
+            self.print_naked_list(args)
+            self.print(']', PPTokenType.CLOSE)
+        else:
+            self.print_quoted_str(self.json_level + name, path)
+        if kwas:
+            self.print_naked_dict(kwas)
+            self.print('}', PPTokenType.CLOSE)
+
+    def print_frid_value(self, data: FridValue, path: str='', /):
+        x = self.prime_data_to_str(data, path)
+        if x is not None:
+            self.print(x, PPTokenType.ENTRY)
+        elif isinstance(data, str):
+            self.print_quoted_str(data, path)
+        elif isinstance(data, Mapping):
+            self.print('{', PPTokenType.START)
+            self.print_naked_dict(data, path)
+            self.print('}', PPTokenType.CLOSE)
+        elif isinstance(data, Iterable):
+            self.print('[', PPTokenType.START)
+            self.print_naked_list(data, path)
+            self.print(']', PPTokenType.CLOSE)
+        elif isinstance(data, FridMixin):
+            self.print_frid_mixin(data, path)
+        else:
+            raise ValueError(f"Invalid type {type(data)}")
 

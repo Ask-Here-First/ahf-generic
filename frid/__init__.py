@@ -1,4 +1,4 @@
-from .dtypes import FridPrime, FridValue, FridArray, StrKeyMap
+from .typing import FridPrime, FridValue, FridArray, StrKeyMap
 from .errors import FridError, HttpError
 
 __all__ = [

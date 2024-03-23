@@ -1,7 +1,7 @@
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Literal, TypeGuard, TypeVar, overload
 
-from .dtypes import BlobTypes
+from .typing import BlobTypes
 
 K = TypeVar('K')
 V = TypeVar('V')

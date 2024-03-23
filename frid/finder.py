@@ -89,7 +89,7 @@ def scan_transforms__heap(
             index = bound
     return (index - start, ''.join(out))
 
-def scan_transforms(
+def find_transforms(
         s: str, transformers: Iterable[tuple[str,_TransFunc]]|Mapping[str,_TransFunc],
         start: int=0, bound: int|None=None, /, stop_at: str="",
 ) -> tuple[int,str]:

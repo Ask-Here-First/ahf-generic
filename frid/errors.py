@@ -1,11 +1,12 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import traceback
 from types import TracebackType
 
-from .dtypes import FridMixin, FridValue
+from .typing import FridMixin
+from .checks import is_text_list_like
 
 
-class FridError(Exception, FridMixin):
+class FridError(FridMixin, Exception):
     """The base class of errors that is compatible with Frid.
     The error can be constructed in three ways:
     - Construct with a single error message string.
@@ -14,22 +15,33 @@ class FridError(Exception, FridMixin):
     - Construct with `raise FridError("error") from exc` in which case
       the exc with be chained.
     """
-    def __init__(self, *args, trace: TracebackType|None=None):
+    def __init__(self, *args, trace: TracebackType|Sequence[str]|None=None):
         super().__init__(*args)
-        if trace is not None:
+        if trace is None:
+            self.trace = None
+        elif isinstance(trace, TracebackType):
+            self.trace = None
             self.with_traceback(trace)
+        elif is_text_list_like(trace):
+            self.trace = list(trace)
+            self.with_traceback(None)
+        else:
+            raise ValueError(f"Invalid trace type {type(trace)}")
 
-    def to_frid(self, with_trace: bool=False) -> dict[str,str|int|list[str]]:
+    @classmethod
+    def frid_from(cls, name, *args, error: str, trace: Sequence[str], **kwas):
+        assert name in cls.frid_name()
+        return FridError(kwas)
+
+    def frid_repr(self) -> dict[str,str|int|list[str]]:
         out: dict[str,str|int|list[str]] = {'error': str(self)}
-        if with_trace:
-            out['trace'] = traceback.format_exception(self)
+        if self.trace is not None:
+            out['trace'] = self.trace
+        out['trace'] = traceback.format_exception(self)
         if self.__cause__:
             out['cause'] = str(self.__cause__)
         # TODO: notes? genre? maker?
         return out
-
-    def __frid__(self) -> FridValue:
-        return self.to_frid()
 
 class HttpError(FridError):
     """An HttpError with an status code.
@@ -44,8 +56,8 @@ class HttpError(FridError):
         self.http_text = http_text
         self.headers = headers
 
-    def to_frid(self, with_trace: bool=False) -> dict[str,str|int|list[str]]:
-        out = super().to_frid(with_trace=with_trace)
+    def frid_repr(self) -> dict[str,str|int|list[str]]:
+        out = super().frid_repr()
         out['http_code'] = self.http_code
         if self.http_text is not None:
             out['http_text'] = self.http_text
