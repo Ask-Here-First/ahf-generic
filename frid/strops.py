@@ -73,9 +73,6 @@ def str_find_any(s: str, char_set: str="", start: int=0, bound: int|None=None,
 
 _TransFunc = Callable[[str,int,int,str],tuple[int,str]]
 
-def _exit_trans_func(s: str, start: int, bound: int, escape: str, /) -> tuple[int,str]:
-    return (-1, '')
-
 def str_transform__heap(
         s: str, transformers: Iterable[tuple[str,_TransFunc]]|Mapping[str,_TransFunc],
         start: int, bound: int, /, stop_at: str="",
@@ -158,12 +155,83 @@ def str_transform(
         return (index - start, s[start:index])
     return str_transform__heap(s, transformers, start, bound, stop_at=stop_at)
 
-def str_unescape(
-        s: str, escape_seq: str, unescape_func: _TransFunc,
-        start: int=0, bound: int|None=None, /, stop_at: str="",
-) -> tuple[int,str]:
-    if len(stop_at) == 1:
+class StringEscape:
+    def __init__(self, trans_pairs: str, escape_seq: str='\\', *, extra_pairs: str='',
+                 encode_hex=['x', 'u', 'U'], decode_hex=['x', 'u', 'U']):
+        assert len(escape_seq) == 1
+        self.escape_seq = escape_seq
+        self.encode_map = self._from_pairs(escape_seq, trans_pairs)
+        self.decode_map = self._from_pairs('', trans_pairs + extra_pairs)
+        self.encode_hex = encode_hex
+        self.decode_hex = decode_hex
+        self._no_utf = True
+
+    @staticmethod
+    def _from_pairs(escape_seq: str, pairs: str):
+        assert len(pairs) & 1 == 0
+        return {ord(x): escape_seq + y for x, y in zip(pairs[0::2], pairs[1::2])}
+
+    class TransTable(dict[int,str]):
+        def __init__(self, default: Callable[[int],str], *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._default = default
+        def __missing__(self, key: int):
+            return self._default(key)
+
+    def get_cp_encoding(self, cp: int):
+        assert cp >= 0
+        if (t := self.encode_map.get(cp)) is not None:
+            return t
+        if cp < 256:
+            if cp >= 0x20 and cp < 0x7f:
+                return chr(cp)
+            if self.encode_hex[0] is not None:
+                return self.escape_seq + self.encode_hex[0] + format(cp, "02x")
+        if cp < 0x10000:
+            if self.encode_hex[1] is not None:
+                return self.escape_seq + self.encode_hex[1] + format(cp, "04x")
+        else:
+            if self.encode_hex[2] is not None:
+                return self.escape_seq + self.encode_hex[2] + format(cp, "08x")
+            if self.encode_hex[1] is not None:
+                cpx = cp - 0x10000
+                assert cpx < 0x100000
+                # Return a surrogate pair
+                return (self.escape_seq + self.encode_hex[1] + chr((cpx >> 12) + 0xD800)
+                        + self.escape_seq + self.encode_hex[1] + chr((cpx & 0x3ff) + 0xDC00))
+        return chr(cp)
+
+    def _find_escape_seq(self, s: str, start: int, bound: int, prefix: str) -> tuple[int,str]:
+        """Finds the escape sequence, to be used by `find_transforms()`."""
+        index = len(prefix)
+        c = s[start + index]
+        if (v := self.decode_map.get(ord(c))) is not None:
+            return (index + len(v), v)
+        if (j := self.decode_hex.find(c)) < 0:
+            raise ValueError(f"Invalid escape sequence \\{c}")
+        # The 2 or 4 or 8 hex chars to load
+        n = 1 << (j + 1)
+        if start + index + n > bound:
+            raise ValueError(f"Less than {n} letters follows \\{c} sequence")
+        cp = int(s[(start + index):(start + index + n)], 16)
+        return (index + n, chr(cp))
+
+    @staticmethod
+    def _exit_trans_func(s: str, start: int, bound: int, escape: str, /) -> tuple[int,str]:
+        return (-1, '')
+
+    def decode(self, s: str, stop_at: str,
+               start: int=0, bound: int|None=None, /) -> tuple[int,str]:
         return str_transform(s, [
-            (escape_seq, unescape_func), (stop_at, _exit_trans_func)
+            (self.escape_seq, self._find_escape_seq),
+            *((q, self._exit_trans_func) for q in stop_at)
         ], start, bound)
-    return str_transform(s, [(escape_seq, unescape_func)], start, bound, stop_at=stop_at)
+
+    def encode(self, s: str, escape_quotes: str,
+               start: int=0, bound: int|None=None, /) -> str:
+        if start or bound is not None:
+            s = s[start:bound]
+        table = self.TransTable(self.get_cp_encoding)
+        for q in escape_quotes:
+            table[ord(q)] = q
+        return s.translate(table)

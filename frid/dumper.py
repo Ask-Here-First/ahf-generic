@@ -6,59 +6,14 @@ from .typing import BlobTypes, FridMixin, FridPrime, FridValue, StrKeyMap, JsonL
 from .chrono import DateTypes, strfr_datetime
 from .guards import is_frid_identifier, is_frid_quote_free
 from .pretty import PrettyPrint, PPTokenType
+from .strops import StringEscape
 
 JSON_NONIDENTIFIERS = (
     'true', 'false', 'null',
 )
-JSON1_ESCAPE_SOURCE = "\n\t\r\b"
-JSON1_ESCAPE_TARGET = "ntrb"
-JSON5_ESCAPE_SOURCE = JSON1_ESCAPE_SOURCE + "\v\f0"
-JSON5_ESCAPE_TARGET = JSON1_ESCAPE_TARGET + "vf0"
-EXTRA_ESCAPE_SOURCE = JSON5_ESCAPE_SOURCE + "\a\x27"
-EXTRA_ESCAPE_TARGET = JSON5_ESCAPE_TARGET + "ae"
-
-class StringEscapeTransTable:
-    def __init__(self, source: str, target: str, *, escape: str='\\', quotes: str='\"',
-                no_utf: int=0, with_2=False, with_8=False):
-        assert escape
-        assert len(source) == len(target)
-        self._map: dict[int,str] = {ord(escape[0]): escape + escape}
-        for s, t in zip(source, target):
-            self._map[ord(s)] = escape + t
-        for q in quotes:
-            self._map[ord(q)] = escape + q
-        self._escape = escape
-        self._no_utf = no_utf
-        self._with_2 = with_2
-        self._with_8 = with_8
-    def __getitem__(self, cp: int):
-        assert cp >= 0
-        if cp < 256:
-            data = self._map.get(cp)
-            if data is not None:
-                return data
-            if cp >= 0x20 and cp < 0x7f:
-                return chr(cp)
-            if not self._no_utf:
-                c = chr(cp)
-                if c.isprintable():
-                    return c
-            if self._with_2:
-                return self._escape + 'x' + format(cp, "02x")
-        elif not self._no_utf:
-            c = chr(cp)
-            if c.isprintable():
-                return c
-        if cp < 0x10000:
-            return self._escape + 'u' + format(cp, "04x")
-        if self._with_8:
-            return self._escape + 'U' + format(cp, "08x")
-        cpx = cp - 0x10000
-        assert cpx < 0x100000
-        # Return a surrogate pair
-        return (self._escape + 'u' + chr((cpx >> 12) + 0xD800)
-                + self._escape + 'u' + chr((cpx & 0x3ff) + 0xDC00))
-
+JSON1_ESCAPE_PAIRS = "\nn\tt\rr\bb"
+JSON5_ESCAPE_PAIRS = JSON1_ESCAPE_PAIRS + "\vv\ff\00"
+EXTRA_ESCAPE_PAIRS = JSON1_ESCAPE_PAIRS + "\aa\x27e"
 
 class FridDumper(PrettyPrint):
     def __init__(self, *args, json_level: JsonLevel=None, ascii_only: bool=False,
@@ -72,6 +27,19 @@ class FridDumper(PrettyPrint):
         self.print_real = print_real
         self.print_date = print_date
         self.print_user = print_user
+        if not json_level:
+            pairs = EXTRA_ESCAPE_PAIRS
+            encode_hex = ['x', 'u', 'U']
+        elif json_level == 5:
+            pairs = JSON5_ESCAPE_PAIRS
+            encode_hex = ['x', 'u', None]
+        else:
+            pairs = JSON1_ESCAPE_PAIRS
+            encode_hex = [None, 'u', None]
+        if ascii_only:
+            self.str_escape = StringEscape(pairs, '\\', encode_hex=[None, None, None])
+        else:
+            self.str_escape = StringEscape(pairs, '\\', encode_hex=encode_hex)
 
     def print(self, token: str, ttype: PPTokenType, /):
         """Default token print behavior:
@@ -173,27 +141,10 @@ class FridDumper(PrettyPrint):
             return out
         return None
 
-    _json1_trans_table = StringEscapeTransTable(JSON1_ESCAPE_SOURCE, JSON1_ESCAPE_TARGET,
-                                                with_2=False, with_8=False)
-    _json5_trans_table = StringEscapeTransTable(JSON1_ESCAPE_SOURCE, JSON1_ESCAPE_TARGET,
-                                                with_2=False, with_8=False)
-    _extra_trans_table = StringEscapeTransTable(EXTRA_ESCAPE_SOURCE, EXTRA_ESCAPE_TARGET,
-                                                with_2=True, with_8=True)
-    _json1_trans_ascii = StringEscapeTransTable(JSON1_ESCAPE_SOURCE, JSON1_ESCAPE_TARGET,
-                                                no_utf=True, with_2=False, with_8=False)
-    _json5_trans_ascii = StringEscapeTransTable(JSON1_ESCAPE_SOURCE, JSON1_ESCAPE_TARGET,
-                                                no_utf=True, with_2=False, with_8=False)
-    _extra_trans_ascii = StringEscapeTransTable(EXTRA_ESCAPE_SOURCE, EXTRA_ESCAPE_TARGET,
-                                                no_utf=True, with_2=True, with_8=True)
     def print_quoted_str(self, data: str, path: str, /, as_key: bool=False, quote: str='\"'):
         """Push a quoted string into the list (without quotes themselves)."""
-        if not self.json_level:
-            table = self._extra_trans_ascii if self.ascii_only else self._extra_trans_table
-        elif self.json_level == 5:
-            table = self._json5_trans_ascii if self.ascii_only else self._json5_trans_table
-        else:
-            table = self._json1_trans_ascii if self.ascii_only else self._json1_trans_table
-        self.print(data.translate(table), PPTokenType.LABEL if as_key else PPTokenType.ENTRY)
+        self.print(self.str_escape.encode(data, quote),
+                   PPTokenType.LABEL if as_key else PPTokenType.ENTRY)
 
     def print_prime_data(self, data: FridPrime, path: str, /):
         s = self.prime_data_to_str(data, path)
@@ -209,7 +160,7 @@ class FridDumper(PrettyPrint):
         if i > 0 and self.json_level == 5 or not self.json_level:
             self.print(sep[0], PPTokenType.OPT_0)
 
-    def _key_needs_quotes(self, key: str):
+    def _is_unquoted_key(self, key: str):
         if self.ascii_only and not key.isascii():
             return False
         if not self.json_level:
@@ -227,7 +178,7 @@ class FridDumper(PrettyPrint):
         for i, (k, v) in enumerate(data.items()):
             if not isinstance(k, str):
                 raise ValueError(f"Key is not a string: {k}")
-            if self._key_needs_quotes(k):
+            if self._is_unquoted_key(k):
                 self.print(k, PPTokenType.LABEL)
             else:
                 self.print_quoted_str(k, path, as_key=True)

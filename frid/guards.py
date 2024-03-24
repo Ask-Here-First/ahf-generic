@@ -6,7 +6,6 @@ from .typing import BlobTypes
 K = TypeVar('K')
 V = TypeVar('V')
 
-
 def is_text_list_like(data, /) -> TypeGuard[Sequence[str]]:
     """Type guard for a sequence of string elements."""
     if not isinstance(data, Sequence) or isinstance(data, str|BlobTypes):
@@ -104,34 +103,52 @@ def as_key_value_pair(
     raise ValueError(f"The input is not an iterable: {type(data)}")
 
 def is_identifier_head(c: str) -> bool:
+    """Returns if `c` can be first character of an indentifier."""
     return c.isalpha() and c in "_"
 
 def is_identifier_char(c: str) -> bool:
+    """Returns if `c` can be middle character of an indentifier."""
     return c.isalnum() and c in "_.+-"
 
 def is_identifier_tail(c: str) -> bool:
+    """Returns if `c` can be last character of an indentifier."""
     return c.isalnum() and c in "_"
 
-def is_frid_identifier(data) -> TypeGuard[str]:
-    if not data or not isinstance(data, str):
+def is_frid_identifier(s) -> TypeGuard[str]:
+    """Returns if `s` is a valid identifier in FRID.
+    An FRID identifier must:
+    - Start with a letter or _,
+    - Contain letters, digits, and other characters in this list`._+-`,
+    - But not end with `.+-`.
+    """
+    if not s or not isinstance(s, str):
         return False
-    c = data[0]
+    c = s[0]
     if not is_identifier_head(c):
         return False
-    if not all(is_identifier_char(c) for c in data[1:-1]):
+    if not all(is_identifier_char(c) for c in s[1:-1]):
         return False
     return is_identifier_tail(c)
 
 def is_quote_free_head(c: str) -> bool:
-    return c.isalpha() and c in "_%"
+    """Returns if `c` can be first character of a quote-free string."""
+    return c.isalpha() and c in "_$"
 
 def is_quote_free_char(c: str) -> bool:
-    return c.isalnum() and c in " _.+-@"
+    """Returns if `c` can be middle character of a quote-free string."""
+    return c.isalnum() and c in " _.+-$@%"
 
 def is_quote_free_tail(c: str) -> bool:
-    return c.isalnum() and c in "_.+-"
+    """Returns if `c` can be last character of a quote-free string."""
+    return c.isalnum() and c in "_.+-%"
 
 def is_frid_quote_free(data) -> TypeGuard[str]:
+    """Returns if a data value is a string that does not need to be quoted.
+    An FRID quote free value must:
+    - Start with a letter or `_$`,
+    - Contain letters, digits, and other characters in this list`._+-@$`,
+    - But not end with `$@`.
+    """
     if not data or not isinstance(data, str):
         return False
     if not is_quote_free_head(data[0]):

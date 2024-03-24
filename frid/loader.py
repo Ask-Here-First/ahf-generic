@@ -1,24 +1,16 @@
+import math, base64
 from collections.abc import Callable, Iterator, Mapping
-import re, math, base64
 from typing import  Any, Literal, NoReturn, TypeVar
 
-from frid.dumper import EXTRA_ESCAPE_SOURCE, EXTRA_ESCAPE_TARGET
-
 from .typing import DateTypes, FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
-from .guards import is_frid_identifier, is_identifier_char
+from .guards import is_frid_identifier, is_frid_quote_free, is_identifier_char
 from .errors import FridError
-from .strops import str_find_any, str_unescape
+from .strops import str_find_any, StringEscape
 from .chrono import parse_datetime
+from .dumper import EXTRA_ESCAPE_PAIRS
 
-LOAD_UNQUOTED_CHARS = "!?@#$%^&*/"
-LOAD_ALLOWED_QUOTES = "'`\""
-LOAD_ESCAPED_SOURCE = EXTRA_ESCAPE_SOURCE + LOAD_ALLOWED_QUOTES
-LOAD_ESCAPED_TARGET = EXTRA_ESCAPE_TARGET + LOAD_ALLOWED_QUOTES
-
-quote_free_re = re.compile(r"[A-Za-z_](?:[\w\s@.+-]*\w)?")  # Quote free strings
-plain_list_re = re.compile(r"\[[\w\s@,.+-]*\]")   # Plain list with quote free entries
-whitespace_re = re.compile(r"\s")
-
+NO_QUOTE_CHARS = "~!?@#$%^&*/"
+ALLOWED_QUOTES = "'`\""
 
 T = TypeVar('T')
 
@@ -59,6 +51,9 @@ class FridLoader:
             for mixin in frid_mixin:
                 for key in mixin.frid_keys():
                     self.frid_mixin[key] = mixin
+        self.str_escape = StringEscape(
+            EXTRA_ESCAPE_PAIRS, '\\', extra_pairs=''.join(x + x for x in ALLOWED_QUOTES)
+        )
 
     def error(self, index: int, error: str) -> NoReturn:
         """Raise an ParseError at the current `index` with the given `error`."""
@@ -82,7 +77,7 @@ class FridLoader:
         if not s:
             return ""
         if s[0] not in "+-.0123456789":
-            if quote_free_re.fullmatch(s):
+            if is_frid_quote_free(s):
                 return s
             return default
         if len(s) == 1:
@@ -197,7 +192,7 @@ class FridLoader:
                 index = self.fetch(index, path)
 
     def scan_prime_data(self, index: int, path: str, /,
-                        accept=LOAD_UNQUOTED_CHARS) -> tuple[int,FridValue]:
+                        accept=NO_QUOTE_CHARS) -> tuple[int,FridValue]:
         """Scans the unquoted data that are identifier chars plus the est given by `accept`."""
         while True:
             try:
@@ -213,8 +208,10 @@ class FridLoader:
             raise ParseError(self.buffer, index, "Fail to parse unquoted value")
         return (index, value)
 
-    def scan_data_until(self, index: int, path: str, /, char_set: str,
-                        *, paired="{}[]()", quotes="'`\"", escape='\\') -> tuple[int,str]:
+    def scan_data_until(
+            self, index: int, path: str, /, char_set: str,
+            *, paired="{}[]()", quotes=ALLOWED_QUOTES, escape='\\'
+    ) -> tuple[int,str]:
         while True:
             try:
                 ending = str_find_any(self.buffer, char_set, index, self.length,
@@ -223,39 +220,11 @@ class FridLoader:
             except IndexError:
                 index = self.fetch(index, path)
 
-    @staticmethod
-    def _find_escape_seq(s: str, start: int, bound: int, prefix: str='\\') -> tuple[int,str]:
-        """Finds the escape sequence, to be used by `find_transforms()`."""
-        index = len(prefix)
-        c = s[start + index]
-        j = LOAD_ESCAPED_TARGET.find(c)
-        if j >= 0:
-            return (index + 1, LOAD_ESCAPED_SOURCE[j])
-        if c == 'x':
-            n = 2
-        elif c == 'u':
-            n = 4
-        elif c == 'U':
-            n = 8
-        else:
-            raise ParseError(s, start, f"Invalid escape sequence \\{c}")
-        # The 2 or 4 or 8 hex chars to load
-        index += 1
-        n = 8 if c == 'U' else 4
-        if start + index + n > bound:
-            raise ParseError(s, start, f"Less than {n} letters for \\{c}")
-        try:
-            codepoint = int(s[(start + index):(start + index + 4)], 16)
-            return (index + n, chr(codepoint))
-        except ValueError as exc:
-            raise ParseError(s, start, "Invalid unicode spec for \\{c}") from exc
-
     def scan_quoted_str(self, index: int, path: str, /, stop: str) -> tuple[int,str]:
         """Scans a text string with escape sequences."""
         while True:
             try:
-                (count, value) = str_unescape(self.buffer, '\\', self._find_escape_seq,
-                                              index, self.length, stop_at=stop)
+                (count, value) = self.str_escape.decode(self.buffer, stop, index, self.length)
                 break
             except IndexError:
                 index = self.fetch(index, path)
@@ -365,8 +334,8 @@ class FridLoader:
             index = self.skip_fixed_size(index, path, 1)
             (index, value) = self.scan_naked_dict(index, path, '}')
             return (self.skip_prefix_str(index, path, '}'), value)
-        if c in "'`\"":
-            return self.scan_quoted_seq(index, path, quotes="'`\"")
+        if c in ALLOWED_QUOTES:
+            return self.scan_quoted_seq(index, path, quotes=ALLOWED_QUOTES)
         if c == '(' and self.parse_expr is not None:
             (index, value) = self.scan_data_until(index, path, ')')
             index = self.skip_prefix_str(index, path, ')')
