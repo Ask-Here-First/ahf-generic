@@ -1,16 +1,14 @@
 import heapq
 from collections.abc import Callable, Iterable, Mapping
 
-from frid.checks import as_key_value_pair
+from frid.guards import as_key_value_pair
 
 def _bound_index(limit: int, index: int|None=None, /) -> int:
     """Puts the index within the bound between 0..limit.
-    - If `index` is negative, it is considered to be from the bound.
+    - If `index` is negative, it is considered to be from the limit.
     - If `index` is None, returns the `bound` itself.
     """
     if index is None:
-        return limit
-    if index >= limit:
         return limit
     if index < 0:
         index += limit
@@ -18,23 +16,59 @@ def _bound_index(limit: int, index: int|None=None, /) -> int:
         return 0
     return index
 
-def _do_find_any(s, char_set: str, start: int, bound: int) -> int:
+def _do_find_any_0(s, char_set: str, start: int, bound: int, /, escape: str="") -> int:
     """Like the `str_find_any()` below but assume 0 <= start, end <= len(s)."""
     if not char_set:
         return -1
-    for index in range(start, bound):
+    index = start
+    while index < bound:
         if s[index] in char_set:
             return index
+        if s[index] in escape:
+            index += 1
+        index += 1
     return -1
 
-def str_find_any(s: str, char_set: str="", start: int=0, bound: int|None=None, /) -> int:
+def _do_find_any_1(s: str, char_set: str, start: int, bound: int,
+                   /, paired: str="", quotes: str="", escape: str="") -> int:
+    if not quotes and not paired:
+        return _do_find_any_0(s, char_set, start, bound)
+    assert len(paired) & 1 == 0  # must be even
+    opening = paired[0::2]
+    closing = paired[1::2]
+    stack = ""
+    index = start
+    while index < bound:
+        c = s[index]
+        if (j := opening.find(c)) >= 0:
+            stack += closing[j]
+        elif (j := closing.find(c)) >= 0:
+            if not stack:
+                raise ValueError(f"Unmatched closing {c}")
+            if c != stack[-1]:
+                raise ValueError(f"Unmatched: expect {stack[-1]} but get {c}")
+            stack = stack[:-1]
+        elif c in quotes:
+            index = _do_find_any_0(s, c, index, bound, escape)
+            if index < 0:
+                raise ValueError(f"Missing quote {c}")
+            index += 1
+        elif c in escape and not quotes:
+            index += 1
+        elif c in char_set and not stack:
+                return index
+        index += 1
+    return -1
+
+def str_find_any(s: str, char_set: str="", start: int=0, bound: int|None=None,
+                 /, paired: str="", quotes: str="", escape: str="") -> int:
     """Finds in `s` the first ocurrence of any character in `char_set`.
     - `start` (inclusive) and `bound` (exclusive) gives the range of the search.
     - Returns the index between `start` (inclusive), and `bound` (exclusive),
       or -1 if not found.
     """
     n = len(s)
-    return _do_find_any(s, char_set, _bound_index(n, start), _bound_index(n, bound))
+    return _do_find_any_1(s, char_set, _bound_index(n, start), _bound_index(n, bound))
 
 
 _TransFunc = Callable[[str,int,int,str],tuple[int,str]]
@@ -62,7 +96,7 @@ def str_transform__heap(
         assert hpos >= 0  # Negative index won't be in heap
         if hpos > index:
             # Copy the text between the current and the next index
-            if (j := _do_find_any(s, stop_at, index, hpos)) >= 0:
+            if (j := _do_find_any_0(s, stop_at, index, hpos)) >= 0:
                 if j > index:
                     out.append(s[index:j])
                 index = j
@@ -84,7 +118,7 @@ def str_transform__heap(
         else:
             assert hpos < 0
     else:
-        if (j := _do_find_any(s, stop_at, index, bound)) > index:
+        if (j := _do_find_any_0(s, stop_at, index, bound)) > index:
             out.append(s[index:j])
             index = j
         else:
@@ -117,7 +151,7 @@ def str_transform(
     if not transformers:
         if not stop_at:
             return (bound - start, s[start:bound])
-        index = _do_find_any(s, stop_at, start, bound)
+        index = _do_find_any_0(s, stop_at, start, bound)
         if index < 0:
             return (bound - start, s[start:bound])
         assert start <= index <= bound
