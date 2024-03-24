@@ -39,7 +39,10 @@ def str_find_any(s: str, char_set: str="", start: int=0, bound: int|None=None, /
 
 _TransFunc = Callable[[str,int,int,str],tuple[int,str]]
 
-def scan_transforms__heap(
+def _exit_trans_func(s: str, start: int, bound: int, escape: str, /) -> tuple[int,str]:
+    return (-1, '')
+
+def str_transform__heap(
         s: str, transformers: Iterable[tuple[str,_TransFunc]]|Mapping[str,_TransFunc],
         start: int, bound: int, /, stop_at: str="",
 ) -> tuple[int,str]:
@@ -89,7 +92,7 @@ def scan_transforms__heap(
             index = bound
     return (index - start, ''.join(out))
 
-def find_transforms(
+def str_transform(
         s: str, transformers: Iterable[tuple[str,_TransFunc]]|Mapping[str,_TransFunc],
         start: int=0, bound: int|None=None, /, stop_at: str="",
 ) -> tuple[int,str]:
@@ -119,4 +122,14 @@ def find_transforms(
             return (bound - start, s[start:bound])
         assert start <= index <= bound
         return (index - start, s[start:index])
-    return scan_transforms__heap(s, transformers, start, bound, stop_at=stop_at)
+    return str_transform__heap(s, transformers, start, bound, stop_at=stop_at)
+
+def str_unescape(
+        s: str, escape_seq: str, unescape_func: _TransFunc,
+        start: int=0, bound: int|None=None, /, stop_at: str="",
+) -> tuple[int,str]:
+    if len(stop_at) == 1:
+        return str_transform(s, [
+            (escape_seq, unescape_func), (stop_at, _exit_trans_func)
+        ], start, bound)
+    return str_transform(s, [(escape_seq, unescape_func)], start, bound, stop_at=stop_at)

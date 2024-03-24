@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
 from datetime import date as dateonly, time as timeonly, datetime
+from collections.abc import Mapping, Sequence
 from typing import Literal
 
 BlobTypes = bytes|bytearray|memoryview

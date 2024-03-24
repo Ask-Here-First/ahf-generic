@@ -1,6 +1,6 @@
 import unittest
 
-from .finder import find_transforms, str_find_any
+from .strops import str_transform, str_find_any
 
 class TestFinder(unittest.TestCase):
     def test_str_find_any(self):
@@ -26,30 +26,30 @@ class TestFinder(unittest.TestCase):
 
     def test_scan_transforms(self):
         s = "a3b4c5"
-        self.assertEqual(find_transforms(s, {'a': self._add_next_by_one}),
+        self.assertEqual(str_transform(s, {'a': self._add_next_by_one}),
                          (len(s), "a4b4c5"))
-        self.assertEqual(find_transforms(s, {'b': self._add_next_by_one}),
+        self.assertEqual(str_transform(s, {'b': self._add_next_by_one}),
                          (len(s), "a3b5c5"))
-        self.assertEqual(find_transforms(s, {'a': self._add_next_by_one}),
+        self.assertEqual(str_transform(s, {'a': self._add_next_by_one}),
                          (len(s), "a4b4c5"))
-        self.assertEqual(find_transforms(s, {'d': self._add_next_by_one}),
+        self.assertEqual(str_transform(s, {'d': self._add_next_by_one}),
                          (len(s), "a3b4c5"))
-        self.assertEqual(find_transforms(s, {
+        self.assertEqual(str_transform(s, {
             'a': self._add_next_by_one, 'c': self._add_next_by_one, 'd': self._add_next_by_one
         }), (len(s), "a4b4c6"))
-        self.assertEqual(find_transforms(
+        self.assertEqual(str_transform(
             s, {'a': self._add_next_by_one, 'c': self._add_next_by_one}, stop_at="b"
         ), (2, "a4"))
-        self.assertEqual(find_transforms(
+        self.assertEqual(str_transform(
             s, {'a': self._add_next_by_one, 'c': self._add_next_by_one}, stop_at="3"
         ), (6, "a4b4c6"))
-        self.assertEqual(find_transforms(
+        self.assertEqual(str_transform(
             s, {'a': self._add_next_by_one, 'c': self._add_next_by_one}, stop_at="4"
         ), (3, "a4b"))
-        self.assertEqual(find_transforms(
+        self.assertEqual(str_transform(
             s, {'a': self._add_next_by_one}, stop_at="c"
         ), (4, "a4b4"))
-        self.assertEqual(find_transforms(
+        self.assertEqual(str_transform(
             s, {'a': self._add_next_by_one, 'c': self._add_next_by_one}, stop_at="c"
         ), (6, "a4b4c6"))
 

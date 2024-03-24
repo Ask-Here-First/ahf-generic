@@ -1,0 +1,96 @@
+import re
+from datetime import timezone, timedelta
+
+from .typing import dateonly, timeonly, datetime, DateTypes
+
+date_only_re_str = r"(\d\d\d\d)-([01]\d)-([0-3]\d)"
+time_zone_re_str = r"[+-](\d\d)(:?(\d\d))|Z"
+time_only_re_str = r"([012]\d):([0-5]\d)(:?:([0-6]\d)(?:.(\d+))?)?(" + time_zone_re_str + ")?"
+time_curt_re_str = r"([012]\d):?([0-5]\d)(:?:?([0-6]\d)(?:.(\d+))?)?(" + time_zone_re_str + ")?"
+date_time_regexp = re.compile(date_only_re_str + r"\s*[Tt_ ]\s*" + time_curt_re_str)
+date_only_regexp = re.compile(date_only_re_str)
+time_only_regexp = re.compile(time_only_re_str)
+time_curt_regexp = re.compile(time_curt_re_str)
+
+def parse_timeonly(s: str, m: re.Match|None=None) -> timeonly|None:
+    """Parse ISO time string, where the colon between hour and second are time is optional.
+    - Returns the Python time object or None if it fails to parse.
+    Since we support Python 3.10, the new feature in 3.11 may not be available.
+    """
+    if m is None:
+        m = time_curt_regexp.fullmatch(s)
+        if m is None:
+            return None
+    fs_str = m.group(4)   # Fractional second
+    if len(fs_str) > 6:
+        fs_str = fs_str[:6]
+    micros = int(fs_str)
+    if len(fs_str) < 6:
+        micros *= 10 ** (6 - len(fs_str))
+    tz_str = m.group(5)
+    if not tz_str:
+        tzinfo = None
+    elif tz_str == 'Z':
+        tzinfo = timezone.utc
+    else:
+        tdelta = timedelta(hours=int(m.group(5)), minutes=int(m.group(6) or 0))
+        tzinfo = timezone(-tdelta if tz_str[0] == '-' else tdelta)
+    return timeonly(int(m.group(1)), int(m.group(2)), int(m.group(3) or 0),
+                    micros, tzinfo=tzinfo)
+
+def parse_datetime(s: str) -> DateTypes|None:
+    """Parses a date or time or date with time in extended ISO format.
+    - Returns the Python datetime/date/time object, or None if it fails to parse.
+    """
+    if s.startswith('0T') or s.startswith('0t'):
+        s = s[2:]
+        if m := time_curt_regexp.match(s):
+            return parse_timeonly(s, m)
+        return None
+    if date_time_regexp.fullmatch(s):
+        (d_str, _, t_str) = s.partition('T')
+        t_val = parse_timeonly(t_str)
+        if t_val is None:
+            return None
+        return datetime.combine(dateonly.fromisoformat(d_str), t_val)
+    if date_only_regexp.fullmatch(s):
+        return dateonly.fromisoformat(s)
+    if m := time_only_regexp.fullmatch(s):
+        return parse_timeonly(s, m)
+    return None
+
+def strfr_timeonly(time: timeonly, /, prec: int=3) -> str:
+    """Convert to the ISO format just without the colons.
+    - `prec` is the number of digits for subseconds; `< 0` if only up to minutes.
+    - If the timezone is utc, use `Z` instead of `+0000`.
+    """
+    if prec < 0:
+        out = time.strftime("%H%M")
+    else:
+        out = time.strftime("%H%M%S")
+        if prec > 0:
+            micro = str(time.microsecond)
+            if len(micro) < 6:
+                micro.zfill(6 - len(micro))
+            if prec < len(micro):
+                micro = micro[0:prec]
+            elif prec > len(micro):
+                micro = micro.ljust(prec, '0')
+            out += '.' + micro
+    tz = time.tzinfo
+    if tz is None:
+        return out
+    if time.tzinfo is timezone.utc:
+        return out + 'Z'
+    return out + time.isoformat("%z")
+
+def strfr_datetime(data: DateTypes, /, prec: int=3) -> str|None:
+    """Show date/time/datetime format only without colons."""
+    if isinstance(data, datetime):
+        return data.date().isoformat() + strfr_timeonly(data.time(), prec)
+    if isinstance(data, dateonly):
+        return data.isoformat()
+    if isinstance(data, timeonly):
+        return strfr_timeonly(data, prec)
+    return None
+

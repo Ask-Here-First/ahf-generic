@@ -1,11 +1,10 @@
 import math, base64
 from collections.abc import Callable, Iterable, Mapping
-from datetime import datetime, timezone
 from typing import Any
 
-from .typing import BlobTypes, DateTypes, FridMixin, FridPrime, FridValue, StrKeyMap
-from .typing import JsonLevel, timeonly, dateonly
-from .checks import is_frid_identifier, is_frid_quote_free
+from .typing import BlobTypes, FridMixin, FridPrime, FridValue, StrKeyMap, JsonLevel
+from .chrono import DateTypes, strfr_datetime
+from .guards import is_frid_identifier, is_frid_quote_free
 from .pretty import PrettyPrint, PPTokenType
 
 JSON_NONIDENTIFIERS = (
@@ -117,15 +116,9 @@ class FridDumper(PrettyPrint):
         raise ValueError(f"Invalid {self.json_level=} at {path=}")
 
     def date_to_str(self, data: DateTypes, path: str, /) -> str:
-        if isinstance(data, timeonly|datetime):
-            if data.tzinfo is timezone.utc:
-                out = data.replace(tzinfo=None).isoformat() + 'Z'
-            else:
-                out = data.isoformat() # TODO timespec
-        elif isinstance(data, dateonly):
-            out = data.isoformat()
-        else:
-            return "??"
+        out = strfr_datetime(data)
+        if out is None:
+            raise ValueError(f"Unsupported datetime type {type(data)} at {path=}")
         if not self.json_level:
             return out
         if isinstance(self.json_level, str):
@@ -192,7 +185,6 @@ class FridDumper(PrettyPrint):
                                                 no_utf=True, with_2=False, with_8=False)
     _extra_trans_ascii = StringEscapeTransTable(EXTRA_ESCAPE_SOURCE, EXTRA_ESCAPE_TARGET,
                                                 no_utf=True, with_2=True, with_8=True)
-
     def print_quoted_str(self, data: str, path: str, /, as_key: bool=False, quote: str='\"'):
         """Push a quoted string into the list (without quotes themselves)."""
         if not self.json_level:

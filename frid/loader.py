@@ -1,13 +1,13 @@
 import re, math, base64
-from datetime import datetime, timezone, timedelta
 from typing import  Any, Literal, NoReturn, TypeVar
 
 from frid.dumper import EXTRA_ESCAPE_SOURCE, EXTRA_ESCAPE_TARGET
 
-from .typing import FridArray, FridPrime, FridValue, StrKeyMap, timeonly, dateonly
-from .checks import is_frid_identifier, is_identifier_char
+from .typing import FridArray, FridPrime, FridValue, StrKeyMap
+from .guards import is_frid_identifier, is_identifier_char
 from .errors import FridError
-from .finder import find_transforms
+from .strops import str_unescape
+from .chrono import parse_datetime
 
 LOAD_UNQUOTED_CHARS = "!?@#$%^&*/"
 LOAD_ALLOWED_QUOTES = "'`\""
@@ -18,14 +18,6 @@ quote_free_re = re.compile(r"[A-Za-z_](?:[\w\s@.+-]*\w)?")  # Quote free strings
 plain_list_re = re.compile(r"\[[\w\s@,.+-]*\]")   # Plain list with quote free entries
 whitespace_re = re.compile(r"\s")
 
-date_only_re_str = r"(\d\d\d\d)-([01]\d)-([0-3]\d)"
-time_zone_re_str = r"[+-](\d\d)(:?(\d\d))|Z"
-time_only_re_str = r"([012]\d):([0-5]\d)(:?:([0-6]\d)(?:.(\d+))?)?(" + time_zone_re_str + ")?"
-time_curt_re_str = r"([012]\d):?([0-5]\d)(:?:?([0-6]\d)(?:.(\d+))?)?(" + time_zone_re_str + ")?"
-date_time_regexp = re.compile(date_only_re_str + r"\s*[Tt_ ]\s*" + time_curt_re_str)
-date_only_regexp = re.compile(date_only_re_str)
-time_only_regexp = re.compile(time_only_re_str)
-time_curt_regexp = re.compile(time_curt_re_str)
 
 T = TypeVar('T')
 
@@ -60,53 +52,6 @@ class FridLoader:
         so the updated index may be smaller than the input.
         """
         self.error(index, f"Stream ends when parsing {path=}")
-
-    def parse_time_only(self, s: str, m: re.Match|None=None) -> timeonly|None:
-        """Parse ISO time string, where the colon between hour and second are time is optional.
-        - Returns the Python time object or None if it fails to parse.
-        Since we support Python 3.10, the new feature in 3.11 may not be available.
-        """
-        if m is None:
-            m = time_curt_regexp.fullmatch(s)
-            if m is None:
-                return None
-        fs_str = m.group(4)   # Fractional second
-        if len(fs_str) > 6:
-            fs_str = fs_str[:6]
-        micros = int(fs_str)
-        if len(fs_str) < 6:
-            micros *= 10 ** (6 - len(fs_str))
-        tz_str = m.group(5)
-        if not tz_str:
-            tzinfo = None
-        elif tz_str == 'Z':
-            tzinfo = timezone.utc
-        else:
-            tdelta = timedelta(hours=int(m.group(5)), minutes=int(m.group(6) or 0))
-            tzinfo = timezone(-tdelta if tz_str[0] == '-' else tdelta)
-        return timeonly(int(m.group(1)), int(m.group(2)), int(m.group(3) or 0),
-                        micros, tzinfo=tzinfo)
-
-    def parse_date_time(self, s: str) -> datetime|dateonly|timeonly|None:
-        """Parses a date or time or date with time in extended ISO format.
-        - Returns the Python datetime/date/time object, or None if it fails to parse.
-        """
-        if s.startswith('0T') or s.startswith('0t'):
-            s = s[2:]
-            if m := time_curt_regexp.match(s):
-                return self.parse_time_only(s, m)
-            return None
-        if date_time_regexp.fullmatch(s):
-            (d_str, _, t_str) = s.partition('T')
-            t_val = self.parse_time_only(t_str)
-            if t_val is None:
-                return None
-            return datetime.combine(dateonly.fromisoformat(d_str), t_val)
-        if date_only_regexp.fullmatch(s):
-            return dateonly.fromisoformat(s)
-        if m := time_only_regexp.fullmatch(s):
-            return self.parse_time_only(s, m)
-        return None
 
     def parse_prime_str(self, s: str, default: T, /) -> FridPrime|T:
         """Parses unquoted string or non-string prime types.
@@ -154,7 +99,7 @@ class FridLoader:
             if not s.endswith('.'):
                 return base64.urlsafe_b64decode(s)
             return base64.urlsafe_b64decode(s[:-2] + "==" if s.endswith('==') else s[:-1] + "=")
-        if (t := self.parse_date_time(s)) is not None:
+        if (t := parse_datetime(s)) is not None:
             return t
         if s.isnumeric() or (s[0] in "+-" and s[1:].strip().isnumeric()):
             try:
@@ -242,18 +187,12 @@ class FridLoader:
         except ValueError as exc:
             raise ParseError(s, start, "Invalid unicode spec for \\{c}") from exc
 
-    @staticmethod
-    def _find_ending_seq(s: str, start: int, bound: int, ending: str):
-        """Finds the ending sequence, to be used by `find_transforms()`."""
-        return (-1, "")  # Ending string does not contribute to the data
-
-    def scan_naked_text(self, index: int, path: str, /, stop: str) -> tuple[int,str]:
+    def scan_quoted_str(self, index: int, path: str, /, stop: str) -> tuple[int,str]:
         """Scans a text string with escape sequences."""
         while True:
             try:
-                (count, value) = find_transforms(self.buffer, [
-                    ('\\', self._find_escape_seq), (stop, self._find_ending_seq)
-                ], index, self.bound)
+                (count, value) = str_unescape(self.buffer, '\\', self._find_escape_seq,
+                                              index, self.bound)
                 break
             except IndexError:
                 index = self.fetch(index, path)
@@ -323,7 +262,7 @@ class FridLoader:
             case '"' | '\'' | '`':
                 if prev is ... or not isinstance(prev, str):
                     self.error(index, f"Quoted string after a value of {type(prev)} at {path=}")
-                (index, value) = self.scan_naked_text(index, path, c)
+                (index, value) = self.scan_quoted_str(index, path, c)
                 if isinstance(prev, str):
                     value = prev + value
                 index = self.skip_prefix_str(index, path, c)
