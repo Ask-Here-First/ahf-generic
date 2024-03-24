@@ -3,7 +3,7 @@ import traceback
 from types import TracebackType
 
 from .typing import FridMixin
-from .checks import is_text_list_like
+from .guards import is_text_list_like
 
 
 class FridError(FridMixin, Exception):
@@ -30,7 +30,7 @@ class FridError(FridMixin, Exception):
 
     @classmethod
     def frid_from(cls, name, *args, error: str, trace: Sequence[str], **kwas):
-        assert name in cls.frid_name()
+        assert name in cls.frid_keys()
         return FridError(kwas)
 
     def frid_repr(self) -> dict[str,str|int|list[str]]:

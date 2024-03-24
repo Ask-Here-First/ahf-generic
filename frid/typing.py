@@ -12,7 +12,7 @@ DateTypes = dateonly|timeonly|datetime   # Note that datetime in Python derives 
 
 class FridMixin(ABC):
     @classmethod
-    def frid_name(cls) -> list[str]:
+    def frid_keys(cls) -> list[str]:
         return [cls.__name__]
 
     @classmethod
