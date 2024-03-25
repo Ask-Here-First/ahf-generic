@@ -4,7 +4,7 @@ from typing import Any, TextIO
 
 from .typing import BlobTypes, FridMixin, FridPrime, FridValue, StrKeyMap, JsonLevel
 from .chrono import DateTypes, strfr_datetime
-from .guards import is_frid_identifier, is_frid_quote_free, is_identifier_head
+from .guards import is_frid_identifier, is_frid_quote_free
 from .pretty import PPToTextIOMixin, PrettyPrint, PPTokenType, PPToStringMixin
 from .strops import StringEscapeEncode
 
@@ -112,7 +112,7 @@ class FridDumper(PrettyPrint):
     def blob_to_str(self, data: BlobTypes, path: str) -> str:
         """Convert a blob into string representation, quoted if needed."""
         # TODO: support line splitting and indentation
-        out = base64.urlsafe_b64decode(data).decode()
+        out = base64.urlsafe_b64encode(data).decode()
         if not out.endswith("="):
             out = ".." + out
         elif out.endswith("=="):

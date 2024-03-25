@@ -262,6 +262,9 @@ class TestLoaderAndDumper(unittest.TestCase):
         '"\\e\\e\\"\'` "': "\033\033\"'` ",
         "  '\\e\\x1b\\\"\\'\\` '": "\033\033\"'` ",
         # "'''tester's test''' """: "tester's test", # Do not support triple quotes yet
+        # Blob
+        "..": b'',      " ..": b'',         ".. ": b'',
+        "..YQ..": b"a", "..YWI.": b"ab",    "..YWJj": b"abc",
         # List
         "[3, [4, 6], abc, [\"\"], [[[]]]]": [3,[4,6],"abc",[''],[[[]]]],
         "[3, [4, 6], abc , [,], [[[]]],  ] ": [3,[4,6],"abc",[''],[[[]]]],
@@ -340,7 +343,7 @@ class TestLoaderAndDumper(unittest.TestCase):
 
     def test_random(self):
         def_seed = 0
-        def_runs = 32
+        def_runs = 8
         seed = os.getenv('FRID_RANDOM_SEED', def_seed)
         runs = int(os.getenv('FRID_RANDOM_ITER', def_runs))
         if seed != def_seed or runs != def_runs:

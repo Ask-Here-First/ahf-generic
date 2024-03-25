@@ -145,7 +145,8 @@ class FridLoader:
                 return self.parse_blob(s)
             if not s.endswith('.'):
                 return base64.urlsafe_b64decode(s)
-            return base64.urlsafe_b64decode(s[:-2] + "==" if s.endswith('==') else s[:-1] + "=")
+            data = s[:-2] + "==" if s.endswith('..') else s[:-1] + "="
+            return base64.urlsafe_b64decode(data)
         if self.parse_date:
             t = self.parse_date(s)
             if t is not None:
