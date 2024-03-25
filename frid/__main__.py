@@ -1,6 +1,58 @@
 import unittest
+from typing import cast
 
+from .chrono import parse_datetime, parse_timeonly, strfr_datetime
+from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode, str_transform, str_find_any
+
+class TestChrono(unittest.TestCase):
+    def test_parse(self):
+        self.assertEqual(parse_datetime("2021-02-03"), dateonly(2021, 2, 3))
+        self.assertEqual(parse_datetime("2021-02-03T11:22"), datetime(2021, 2, 3, 11, 22))
+        self.assertEqual(parse_datetime("2021-02-03T11:22:33"),
+                         datetime(2021, 2, 3, 11, 22, 33))
+        self.assertEqual(parse_datetime("2021-02-03T11:22:33.1"),
+                         datetime(2021, 2, 3, 11, 22, 33, 100000))
+        self.assertEqual(parse_datetime("2021-02-03T112233.12"),
+                         datetime(2021, 2, 3, 11, 22, 33, 120000))
+        self.assertEqual(parse_datetime("2021-02-03T11:22:33.123"),
+                         datetime(2021, 2, 3, 11, 22, 33, 123000))
+        self.assertEqual(parse_datetime("2021-02-03T11:22:33.12345"),
+                         datetime(2021, 2, 3, 11, 22, 33, 123450))
+        self.assertEqual(parse_datetime("2021-02-03T112233.123456"),
+                         datetime(2021, 2, 3, 11, 22, 33, 123456))
+        self.assertEqual(parse_datetime("2021-02-03T11:22:33.1234567"),
+                         datetime(2021, 2, 3, 11, 22, 33, 123456))
+        self.assertEqual(parse_datetime("2021-02-03T11:22:33.12Z"),
+                         datetime(2021, 2, 3, 11, 22, 33, 120000, timezone.utc))
+        self.assertEqual(parse_datetime("11:22:33+00:00"),
+                         timeonly(11, 22, 33, tzinfo=timezone(-timedelta())))
+        self.assertEqual(parse_datetime("0T11:22-0530"),
+                         timeonly(11, 22, tzinfo=timezone(-timedelta(hours=5, minutes=30))))
+        self.assertEqual(parse_datetime("0T11:22:33.12+04:30"),
+                         timeonly(11, 22, 33, 120000, timezone(timedelta(hours=4, minutes=30))))
+        self.assertEqual(parse_datetime("0T112233.12+0430"),
+                         timeonly(11, 22, 33, 120000, timezone(timedelta(hours=4, minutes=30))))
+        # Not matching cases
+        self.assertIsNone(parse_datetime(""))
+        self.assertIsNone(parse_datetime("0t11"))
+        self.assertIsNone(parse_timeonly("0T11,2233.12+0430"))
+        self.assertIsNone(parse_timeonly("11-22-33"))
+
+    def test_strfr(self):
+        self.assertEqual(strfr_datetime(dateonly(2011, 2, 13)), "2011-02-13")
+        self.assertEqual(strfr_datetime(timeonly(10, 20, 30)), "0T102030.000")
+        self.assertEqual(strfr_datetime(timeonly(10, 20, 30, 22, timezone.utc)),
+                         "0T102030.220Z")
+        self.assertEqual(strfr_datetime(datetime(2011, 2, 3, 11, 22, 33, 456789)),
+                         "2011-02-03T112233.456")
+        self.assertEqual(strfr_datetime(datetime(
+            2011, 2, 3, 11, 22, 33, 456789, timezone(timedelta(hours=5, minutes=30))
+        )), "2011-02-03T112233.456+0530")
+        self.assertEqual(strfr_datetime(timeonly(11, 22, 33), prec=1), "0T112233.0")
+        self.assertEqual(strfr_datetime(timeonly(11, 22, 33), prec=0), "0T112233")
+        self.assertEqual(strfr_datetime(timeonly(11, 22, 33), prec=-1), "0T1122")
+        self.assertIsNone(strfr_datetime(cast(datetime, 0)), None)
 
 class TestStrops(unittest.TestCase):
     def test_str_find_any(self):
