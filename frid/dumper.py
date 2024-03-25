@@ -6,7 +6,7 @@ from .typing import BlobTypes, FridMixin, FridPrime, FridValue, StrKeyMap, JsonL
 from .chrono import DateTypes, strfr_datetime
 from .guards import is_frid_identifier, is_frid_quote_free
 from .pretty import PrettyPrint, PPTokenType
-from .strops import StringEscape
+from .strops import StringEscapeEncode
 
 JSON_NONIDENTIFIERS = (
     'true', 'false', 'null',
@@ -29,17 +29,17 @@ class FridDumper(PrettyPrint):
         self.print_user = print_user
         if not json_level:
             pairs = EXTRA_ESCAPE_PAIRS
-            encode_hex = ['x', 'u', 'U']
+            hex_prefix = ('x', 'u', 'U')
         elif json_level == 5:
             pairs = JSON5_ESCAPE_PAIRS
-            encode_hex = ['x', 'u', None]
+            hex_prefix = ('x', 'u', None)
         else:
             pairs = JSON1_ESCAPE_PAIRS
-            encode_hex = [None, 'u', None]
+            hex_prefix = (None, 'u', None)
         if ascii_only:
-            self.str_escape = StringEscape(pairs, '\\', encode_hex=[None, None, None])
+            self.esc_encode = StringEscapeEncode(pairs, '\\')
         else:
-            self.str_escape = StringEscape(pairs, '\\', encode_hex=encode_hex)
+            self.esc_encode = StringEscapeEncode(pairs, '\\', hex_prefix)
 
     def print(self, token: str, ttype: PPTokenType, /):
         """Default token print behavior:
@@ -143,7 +143,7 @@ class FridDumper(PrettyPrint):
 
     def print_quoted_str(self, data: str, path: str, /, as_key: bool=False, quote: str='\"'):
         """Push a quoted string into the list (without quotes themselves)."""
-        self.print(self.str_escape.encode(data, quote),
+        self.print(self.esc_encode(data, quote),
                    PPTokenType.LABEL if as_key else PPTokenType.ENTRY)
 
     def print_prime_data(self, data: FridPrime, path: str, /):

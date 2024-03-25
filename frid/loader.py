@@ -5,7 +5,7 @@ from typing import  Any, Literal, NoReturn, TypeVar
 from .typing import DateTypes, FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
 from .guards import is_frid_identifier, is_frid_quote_free, is_identifier_char
 from .errors import FridError
-from .strops import str_find_any, StringEscape
+from .strops import str_find_any, StringEscapeDecode
 from .chrono import parse_datetime
 from .dumper import EXTRA_ESCAPE_PAIRS
 
@@ -51,8 +51,9 @@ class FridLoader:
             for mixin in frid_mixin:
                 for key in mixin.frid_keys():
                     self.frid_mixin[key] = mixin
-        self.str_escape = StringEscape(
-            EXTRA_ESCAPE_PAIRS, '\\', extra_pairs=''.join(x + x for x in ALLOWED_QUOTES)
+        self.esc_decode = StringEscapeDecode(
+            EXTRA_ESCAPE_PAIRS + ''.join(x + x for x in ALLOWED_QUOTES),
+            '\\', ('x', 'u', 'U')
         )
 
     def error(self, index: int, error: str) -> NoReturn:
@@ -224,7 +225,7 @@ class FridLoader:
         """Scans a text string with escape sequences."""
         while True:
             try:
-                (count, value) = self.str_escape.decode(self.buffer, stop, index, self.length)
+                (count, value) = self.esc_decode(self.buffer, stop, index, self.length)
                 break
             except IndexError:
                 index = self.fetch(index, path)
