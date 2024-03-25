@@ -5,15 +5,15 @@ from typing import Any
 from .typing import BlobTypes, FridMixin, FridPrime, FridValue, StrKeyMap, JsonLevel
 from .chrono import DateTypes, strfr_datetime
 from .guards import is_frid_identifier, is_frid_quote_free
-from .pretty import PrettyPrint, PPTokenType
+from .pretty import PrettyPrint, PPTokenType, PPToStringMixin
 from .strops import StringEscapeEncode
 
 JSON_QUOTED_KEYSET = (
     'true', 'false', 'null',
 )
 JSON1_ESCAPE_PAIRS = "\nn\tt\rr\bb"
-JSON5_ESCAPE_PAIRS = JSON1_ESCAPE_PAIRS + "\vv\ff\00"
-EXTRA_ESCAPE_PAIRS = JSON1_ESCAPE_PAIRS + "\aa\x27e"
+JSON5_ESCAPE_PAIRS = JSON1_ESCAPE_PAIRS + "\vv\ff\x000"
+EXTRA_ESCAPE_PAIRS = JSON1_ESCAPE_PAIRS + "\aa\x1be"
 
 class FridDumper(PrettyPrint):
     """Dump data structure into Frid or JSON format (or Frid-escaped JSON format).
@@ -46,7 +46,7 @@ class FridDumper(PrettyPrint):
         self.print_date = print_date
         self.print_blob = print_blob
         self.print_user = print_user
-        if not json_level:
+        if self.using_frid:
             pairs = EXTRA_ESCAPE_PAIRS
             hex_prefix = ('x', 'u', 'U')
         elif json_level == 5:
@@ -280,3 +280,10 @@ class FridDumper(PrettyPrint):
         else:
             raise ValueError(f"Invalid type {type(data)} for json={self.json_level} at {path=}")
 
+class FridStringDumper(PPToStringMixin, FridDumper):
+    pass
+
+def dumps(data: FridValue, *args, **kwargs) -> str:
+    dumper = FridStringDumper(*args, **kwargs)
+    dumper.print_frid_value(data)
+    return str(dumper)

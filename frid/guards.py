@@ -104,15 +104,15 @@ def as_key_value_pair(
 
 def is_identifier_head(c: str) -> bool:
     """Returns if `c` can be first character of an indentifier."""
-    return c.isalpha() and c in "_"
+    return c.isalpha() or c in "_"
 
 def is_identifier_char(c: str) -> bool:
     """Returns if `c` can be middle character of an indentifier."""
-    return c.isalnum() and c in "_.+-"
+    return c.isalnum() or c in "_.+-"
 
 def is_identifier_tail(c: str) -> bool:
     """Returns if `c` can be last character of an indentifier."""
-    return c.isalnum() and c in "_"
+    return c.isalnum() or c in "_"
 
 def is_frid_identifier(s) -> TypeGuard[str]:
     """Returns if `s` is a valid identifier in FRID.
@@ -123,38 +123,31 @@ def is_frid_identifier(s) -> TypeGuard[str]:
     """
     if not s or not isinstance(s, str):
         return False
-    c = s[0]
-    if not is_identifier_head(c):
-        return False
-    if not all(is_identifier_char(c) for c in s[1:-1]):
-        return False
-    return is_identifier_tail(c)
+    return is_identifier_head(s[0]) and all(
+        is_identifier_char(c) for c in s[1:-1]
+    ) and is_identifier_tail(s[-1])
 
 def is_quote_free_head(c: str) -> bool:
     """Returns if `c` can be first character of a quote-free string."""
-    return c.isalpha() and c in "_$"
+    return c.isalpha() or c in "_$"
 
 def is_quote_free_char(c: str) -> bool:
     """Returns if `c` can be middle character of a quote-free string."""
-    return c.isalnum() and c in " _.+-$@%"
+    return c.isalnum() or c in " _.+-$@%"
 
 def is_quote_free_tail(c: str) -> bool:
     """Returns if `c` can be last character of a quote-free string."""
-    return c.isalnum() and c in "_.+-%"
+    return c.isalnum() or c in "_.+-%"
 
 def is_frid_quote_free(data) -> TypeGuard[str]:
     """Returns if a data value is a string that does not need to be quoted.
     An FRID quote free value must:
     - Start with a letter or `_$`,
-    - Contain letters, digits, and other characters in this list`._+-@$`,
+    - Contain letters, digits, and other characters in this list `._+-@$` or single spaces,
     - But not end with `$@`.
     """
     if not data or not isinstance(data, str):
         return False
-    if not is_quote_free_head(data[0]):
-        return False
-    if not all(is_identifier_char(c) for c in data[1:-1]):
-        return False
-    if '  ' in data:
-        return False
-    return is_quote_free_tail(data[-1])
+    return is_quote_free_head(data[0]) and all(
+        is_quote_free_char(c) for c in data[1:-1]
+    ) and is_quote_free_tail(data[-1]) and "  " not in data

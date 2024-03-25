@@ -1,9 +1,23 @@
-import unittest
+import math, unittest
 from typing import cast
+try:
+    # We have to import in the begining; otherwise static contents are not coveraged
+    if __name__ == '__main__':
+        print("Load the Python coverage package ...")
+        import coverage
+        _cov = coverage.Coverage()
+        _cov.start()
+        print("Running unit tests with coverage ...")
+    else:
+        _cov = None
+except ImportError:
+    _cov = None
 
+from .typing import JsonLevel, StrKeyMap
 from .chrono import parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode, str_transform, str_find_any
+from .dumper import dumps
 
 class TestChrono(unittest.TestCase):
     def test_parse(self):
@@ -185,5 +199,105 @@ class TestStrops(unittest.TestCase):
         with self.assertRaises(ValueError):
             decode(t1, '')
 
+class TestLoaderAndDumper(unittest.TestCase):
+    common_cases = {
+        "123": 123,     " 123 ": 123,   "-4": -4,       "   -4   ": -4,
+        "0.0": 0.0,     "+0.0": 0.0,    "+0.": 0.0,     ".0": 0.0,
+        "-0.0": -0.0,   "-0.": -0.0,    "-.0": -0.0,    "-0.00": -0.0,
+        "0.5": 0.5,     "+0.5": 0.5,    "5E-1": 0.5,    "+0.05e1": 0.5,
+        "-0.5": 0.5,    "-.5": 0.5,     "-5E-1": 0.5,   "-0.05e1": 0.5,
+        "-2.0": -2.0,   "-2.": -2.0,    "-2E0": -2.0,   "-.2E1": -2.0,
+        '""': '',       '   ""  ': '',
+        "\"\\u20af\"": "\u20aF",        "\"\\u20aF\" ": "\u20af",
+        "[]": [],       "[   ] ": [],
+        "[\"\"]": [''],                 "[,] ": [''],
+        "[1]": [1],     "[ 1]": [1],    "[ 1 , ] ": [1],
+        "[1, 2]": [1,2],                " [ 1 ,   2]": [1,2],
+        "{}": {},       "{   }": {},
+    }
+    json_json5_cases = {
+        "null": None,   " null ": None, "  null": None, "    null    ": None,
+        "true": True,   "  true": True, "false": False, "false  ": False,
+        '"a"': "a",
+    }
+    json5_only_cases = {
+        "+Infinity": math.inf,          "Infinity": math.inf,           "-Infinity": -math.inf,
+        "NaN": math.isnan,              "+NaN": math.isnan,             "-NaN": math.isnan,
+        '"b"': "b",     "'b'": "b",
+    }
+    frid_json5_cases = {
+        "3": 3,         "0x3": 3,       "-19": -19,     "-0X13": -19,
+        '""': "",       "''": "",
+        '"abc\\r\\ndef"': "abc\r\ndef", "'abc\\r\\ndef'": "abc\r\ndef",
+        "{a: 3}": {'a': 3},             "{ a : 3 ,}": {'a': 3},
+        "{ 'a' : 3}": {'a':3},
+        '{",": "}"}': {',': "}"},       "{ ',': '}' }": {',': "}"},
+    }
+    frid_only_cases = {
+        # Constants
+        ".": None,      " . ": None,    ". ": None,     " .  ": None,
+        "+": True,      " +": True,     "-": False,     "- ": False,
+        # Numbers
+        "30": 30,       " 3_0 ": 30,    "2000": 2000,   " +2_000 ": 2000,
+        "12345": 12345, "1_2_3_4_5": 12345,
+        "-400000": -400000,             "-400_000  ": -400000,
+        "0.25": 0.25,   ".25": 0.25,    "2.5E-1": 0.25,
+        "++": math.inf, "--": -math.inf, "+.": math.isnan, "-.": math.isnan,
+        # Unquoted strings
+        '""': '',       "": '',         " ": '',        "  ": '',
+        "c": "c",       "'c'": "c",     '"c"': "c",     "  `c`  ": "c",
+        "abc": "abc",   " abc ": "abc", " `abc` ": "abc",
+        "ab d": "ab d", " ab d ": "ab d",
+        '"ab  e"': "ab  e",
+        "user@admin.com": "user@admin.com",
+        # Quoted strings
+        '" a\\eb"': " a\033b",    "  `\\x20a\\eb`": " a\033b",
+        '"\\U00010248"': "\U00010248",  " '\\U00010248' ": "\U00010248",
+        '"\\e\\e\\"\'` "': "\033\033\"'` ",
+        "  '\\e\\x1b\\\"\\'\\` '": "\033\033\"'` ",
+        # "'''tester's test''' """: "tester's test", # Do not support triple quotes yet
+        # List
+        "[3, [4, 6], abc, [\"\"], [[[]]]]": [3,[4,6],"abc",[''],[[[]]]],
+        "[3, [4, 6], abc , [,], [[[]]],  ] ": [3,[4,6],"abc",[''],[[[]]]],
+        # Dict
+        "{a.b: c, _: \"[]\", d+e-f: g@h}": {'a.b': "c", '_': "[]", 'd+e-f': "g@h"},
+        "{a.b: c, _: '[]', d+e-f: g@h  , }": {'a.b': "c", '_': "[]", 'd+e-f': "g@h"},
+        # "{a}": {'a':"a"}, # TODO: decide what to do for set-like
+
+        # "()": (''), "(a>3)": LionExprStub('a>3'),
+        # "(([{()}]))": LionExprStub("([{()}])"),
+        # "(x in [a,b,c])": LionExprStub("x in [a,b,c]"),
+        # "(x in '([{\\'\"\\\"')": LionExprStub("x in '([{\\'\"\\\"'"),
+        # TODO: do we support non-string keys"{.:+}": {None: True}
+    }
+    def _do_test_positive(self, cases: StrKeyMap, json_level:JsonLevel):
+        prev_value = ...
+        for i, (s, t) in enumerate(cases.items()):
+            if callable(t) or t == prev_value:
+                continue
+            self.assertEqual(s, dumps(t, json_level=json_level),
+                             f"[{i}] {s} <== {t} ({json_level=})")
+            prev_value = t
+
+    def test_positive(self):
+        self._do_test_positive(self.common_cases, None)
+        self._do_test_positive(self.common_cases, True)
+        self._do_test_positive(self.common_cases, 5)
+        self._do_test_positive(self.json5_only_cases, 5)
+        self._do_test_positive(self.json_json5_cases, True)
+        self._do_test_positive(self.json_json5_cases, 5)
+        self._do_test_positive(self.frid_json5_cases, False)
+        self._do_test_positive(self.frid_json5_cases, 5)
+        self._do_test_positive(self.frid_only_cases, False)
+
 if __name__ == '__main__':
-    unittest.main()
+    if _cov is not None:
+        unittest.main(exit=False)
+        _cov.stop()
+        _cov.save()
+        print("Generating HTML converage report ...")
+        _cov.html_report()
+        print("Report is in [ htmlcov/index.html ].")
+    else:
+        print("Running unit tests ...")
+        unittest.main()
