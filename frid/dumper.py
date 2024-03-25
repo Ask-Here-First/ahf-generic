@@ -4,15 +4,15 @@ from typing import Any, TextIO
 
 from .typing import BlobTypes, FridMixin, FridPrime, FridValue, StrKeyMap, JsonLevel
 from .chrono import DateTypes, strfr_datetime
-from .guards import is_frid_identifier, is_frid_quote_free
+from .guards import is_frid_identifier, is_frid_quote_free, is_identifier_head
 from .pretty import PPToTextIOMixin, PrettyPrint, PPTokenType, PPToStringMixin
 from .strops import StringEscapeEncode
 
 JSON_QUOTED_KEYSET = (
     'true', 'false', 'null',
 )
-JSON1_ESCAPE_PAIRS = "\nn\tt\rr\bb"
-JSON5_ESCAPE_PAIRS = JSON1_ESCAPE_PAIRS + "\vv\ff\x000"
+JSON1_ESCAPE_PAIRS = "\nn\tt\rr\ff\vv\bb"
+JSON5_ESCAPE_PAIRS = JSON1_ESCAPE_PAIRS + "\vv\x000"
 EXTRA_ESCAPE_PAIRS = JSON1_ESCAPE_PAIRS + "\aa\x1be"
 
 class FridDumper(PrettyPrint):
@@ -94,7 +94,7 @@ class FridDumper(PrettyPrint):
             if math.isnan(data):
                 raise ValueError(f"NaN is not supported by JSON at {path}")
             if math.isinf(data):
-                raise ValueError(f"NaN is not supported by JSON at {path}")
+                raise ValueError(f"Infinity is not supported by JSON at {path}")
             return str(data)
         raise ValueError(f"Invalid {self.json_level=} at {path=}")
 
@@ -167,9 +167,10 @@ class FridDumper(PrettyPrint):
             return self.blob_to_str(data, path)
         if self.json_level or self.json_level == '':
             return None
-        if not isinstance(data, str):
+        # If if a string has non-ascii with ascii_only configfation, quotes are needed
+        if not isinstance(data, str) or (self.ascii_only and not data.isascii()):
             return None
-        if (not self.ascii_only or data.isascii()) and is_frid_quote_free(data):
+        if is_frid_quote_free(data):
             return data
         return None
 

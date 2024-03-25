@@ -137,7 +137,7 @@ def is_quote_free_char(c: str) -> bool:
 
 def is_quote_free_tail(c: str) -> bool:
     """Returns if `c` can be last character of a quote-free string."""
-    return c.isalnum() or c in "_.+-%"
+    return c.isalnum() or c in "_.+-$%"
 
 def is_frid_quote_free(data) -> TypeGuard[str]:
     """Returns if a data value is a string that does not need to be quoted.

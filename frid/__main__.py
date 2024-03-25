@@ -1,4 +1,4 @@
-import sys, math, unittest
+import os, sys, math, json, string, random, unittest
 from typing import cast
 try:
     # We have to import in the begining; otherwise static contents are not coveraged
@@ -306,6 +306,56 @@ class TestLoaderAndDumper(unittest.TestCase):
         self._do_test_positive(self.frid_json5_cases, False)
         self._do_test_positive(self.frid_json5_cases, 5)
         self._do_test_positive(self.frid_only_cases, False)
+
+
+    CHAR_POOL = string.printable + "\u03b1\u03b2\u03b3\u2020\u2021\u2022" #"\U00010330"
+    def random_string(self, for_key=False):
+        n = random.randint(0, 20)
+        if for_key and random.randint(0, 1):
+            # Generate within the
+            return "".join(random.choices("abcxyz+-._", k=n))
+        return "".join(random.choices(self.CHAR_POOL, k=n))
+    def random_value(self, depth=0):
+        r = random.randint(0, 40 if depth < 3 else 16)
+        if r == 0:
+            return None
+        if r == 1:
+            return True
+        if r == 2:
+            return False
+        if r < 8:
+            return self.random_string()
+        if r < 12:
+            return random.randint(-10000, 10000)
+        if r == 12:
+            # Cannot use NaN as NaN != NaN
+            return random.choice([math.inf, 1.0, 0.0, -1.0, math.e, math.pi, -math.inf])
+        if r < 16:
+            return math.ldexp(random.random() - 0.5, random.randint(-40, 40))
+        if r < 32:
+            n = r - 8
+            return [self.random_value(depth + 1) for _ in range(n)]
+        n = r - 32
+        return {self.random_string(True): self.random_value(depth + 1) for _ in range(n)}
+
+    def test_random(self):
+        def_seed = 0
+        def_runs = 32
+        seed = os.getenv('FRID_RANDOM_SEED', def_seed)
+        runs = int(os.getenv('FRID_RANDOM_ITER', def_runs))
+        if seed != def_seed or runs != def_runs:
+            print(f"\nRunning random test with {runs} rounds, seed={seed}")
+        random.seed(seed)
+        for _ in range(runs):
+            data = self.random_value()
+            text = json.dumps(data)
+            self.assertEqual(data, load_from_str(text, json_const=True), msg="Loading JSON")
+            self.assertEqual(data, load_from_str(text, json_const=5), msg="Loading JSON5")
+            for json_level in (None, 5):
+                json_const = json_level or json_level == ''
+                s = dump_into_str(data, json_level=json_level)
+                self.assertEqual(data, load_from_str(s, json_const=json_const),
+                                 msg=f"{json_level=} {len(s)=}")
 
 if __name__ == '__main__':
     if _cov is not None:

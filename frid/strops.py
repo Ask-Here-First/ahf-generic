@@ -169,6 +169,7 @@ class StringEscapeEncode:
         assert len(trans_pairs) & 1 == 0
         self.encode_map = {ord(x): escape_seq + y
                            for x, y in zip(trans_pairs[0::2], trans_pairs[1::2])}
+        self.encode_map[ord(escape_seq[0])] = escape_seq + escape_seq[0]
         self.hex_prefix = hex_prefix
 
     def __call__(self, s: str, escape_quotes: str,
@@ -218,6 +219,7 @@ class StringEscapeDecode:
         self.decode_map: dict[int,str] = {
             ord(x): y for x, y in zip(trans_pairs[1::2], trans_pairs[0::2])
         }
+        self.decode_map[ord(escape_seq[0])] = escape_seq
         self.hex_prefix = hex_prefix
 
     def __call__(self, s: str, stop_at: str,
@@ -241,7 +243,7 @@ class StringEscapeDecode:
                     raise ValueError(f"Less than {n} letters follows \\{c} sequence")
                 cp = int(s[index:(index + n)], 16)
                 return (len(prefix) + len(x) + n, chr(cp))
-        raise ValueError(f"Unexpected escape sequence '{prefix}{c}'")
+        raise ValueError(f"Unexpected escape sequence '{prefix}{c}': '{s[start-4:index+8]}'")
 
     @staticmethod
     def _exit_trans_func(s: str, start: int, bound: int, escape: str, /) -> tuple[int,str]:
