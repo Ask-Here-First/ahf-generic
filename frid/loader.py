@@ -2,8 +2,8 @@ import math, base64
 from collections.abc import Callable, Iterator, Mapping
 from typing import  Any, Literal, NoReturn, TypeVar
 
-from .typing import DateTypes, FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
-from .guards import is_frid_identifier, is_frid_quote_free, is_identifier_char
+from .typing import BlobTypes, DateTypes, FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
+from .guards import is_frid_identifier, is_frid_quote_free, is_quote_free_char
 from .errors import FridError
 from .strops import str_find_any, StringEscapeDecode
 from .chrono import parse_datetime
@@ -17,41 +17,60 @@ T = TypeVar('T')
 class ParseError(FridError):
     def __init__(self, s: str, index: int, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.notes.append(s[:index] + '\u274e' + s[index:])
         self.input_string = s
         self.error_offset = index
-    def frid_repr(self) -> dict[str,str|int|list[str]]:
-        out = super().frid_repr()
-        out['input_string'] = self.input_string
-        out['error_offset'] = self.error_offset
-        return out
 
 class FridLoader:
+    """This class loads data in buffer into Frid-allowed data structures.
+
+    Constructor arguments (all optional):
+    - `buffer`: the optional buffer for the (initial parts) of the data stream.
+    - `length`: the total length of the buffer; the default is the buffer length
+      if buffer is given or a huge number of buffer is not given.
+    - `json_const`: true if accepting JSON constant 'true', 'false', and 'null';
+      the default is handle them as unquoted strings.
+    - `frid_mixin`: a map of a list of key/value pairs to find to FridMixin
+      constructors by name. The constructors are called with the positional
+      and keyword arguments enclosed in parantheses after the function name.
+    - `parse_real`, `parse_date`, `parse_blob`: parse int/float, date/time/datetime,
+      and binary types respectively, accepting a single string as input and return
+      value of parsed type, or None if data is not the type.
+    - `parse_expr`: callback to parse data in parentheses; must return a FridMixin
+      type of data. The function accepts an additional path parameter for path
+      in the tree.
+    - `parse_misc`: Callback to parse any unparsable data; must return a Frid
+      compatible type. The function accepts an additional path parameter for path
+      in the tree.
+    """
     def __init__(
-            self, buffer: str="", length: int|None=None, offset: int=0, /,
+            self, buffer: str|None=None, length: int|None=None, offset: int=0, /,
             *, json_const: bool=False,
-            frid_mixin: Mapping[str,type[FridMixin]]|Iterator[type[FridMixin]],
-            parse_real: Callable[[str],int|float|None],
-            parse_date: Callable[[str],DateTypes|None],
-            parse_expr: Callable[[str,str],FridMixin],
-            parse_misc: Callable[[str,str],FridValue],
+            frid_mixin: Mapping[str,type[FridMixin]]|Iterator[type[FridMixin]]|None=None,
+            parse_real: Callable[[str],int|float|None]|None=None,
+            parse_date: Callable[[str],DateTypes|None]|None=None,
+            parse_blob: Callable[[str],BlobTypes|None]|None=None,
+            parse_expr: Callable[[str,str],FridMixin]|None=None,
+            parse_misc: Callable[[str,str],FridValue]|None=None,
     ):
-        self.buffer = buffer
+        self.buffer = buffer or ""
         self.offset = offset
-        self.length = len(buffer) if length is None else length
+        self.length = length if length is not None else 1<<62 if buffer is None else len(buffer)
         self.anchor: int|None = None   # A place where the location is marked
-        self.allow_json = json_const
+        self.json_const = json_const
         self.parse_real = parse_real
         self.parse_date = parse_date
+        self.parse_blob = parse_blob
         self.parse_expr = parse_expr
         self.parse_misc = parse_misc
+        self.frid_mixin: dict[str,type[FridMixin]] = {}
         if isinstance(frid_mixin, Mapping):
-            self.frid_mixin = dict(frid_mixin)
-        else:
-            self.frid_mixin: dict[str,type[FridMixin]] = {}
+            self.frid_mixin.update(frid_mixin)
+        elif frid_mixin is not None:
             for mixin in frid_mixin:
                 for key in mixin.frid_keys():
                     self.frid_mixin[key] = mixin
-        self.esc_decode = StringEscapeDecode(
+        self.se_decoder = StringEscapeDecode(
             EXTRA_ESCAPE_PAIRS + ''.join(x + x for x in ALLOWED_QUOTES),
             '\\', ('x', 'u', 'U')
         )
@@ -68,15 +87,33 @@ class FridLoader:
         The data before the initial parsing index may be remove to save memory,
         so the updated index may be smaller than the input.
         """
-        self.error(index, f"Stream ends when parsing {path=}")
+        tot_len = self.length + self.offset
+        buf_end = self.offset + len(self.buffer)
+        self.error(index, f"Stream ends at {index} when parsing {path=}; "
+                   f"Total length: {tot_len}, Buffer {self.offset}-{buf_end}")
 
     def parse_prime_str(self, s: str, default: T, /) -> FridPrime|T:
         """Parses unquoted string or non-string prime types.
         - `s`: The input string, already stripped.
-        - Returns the `default` if the string is not a simple unquoted value.
+        - Returns the `default` if the string is not a simple unquoted value
+          (including empty string)
         """
         if not s:
-            return ""
+            return default
+        if self.json_const:
+            match s:
+                case 'true':
+                    return True
+                case 'false':
+                    return False
+                case 'null':
+                    return None
+                case 'Infinity' | '+Infinity':
+                    return +math.inf
+                case '-Infinity':
+                    return -math.inf
+                case 'NaN':
+                    return math.nan
         if s[0] not in "+-.0123456789":
             if is_frid_quote_free(s):
                 return s
@@ -101,17 +138,11 @@ class FridLoader:
                     return +math.nan
                 case "-.":
                     return -math.nan
-        if self.allow_json:
-            match s:
-                case 'true':
-                    return True
-                case 'false':
-                    return False
-                case 'null':
-                    return None
         if s.startswith('..'):
             # Base64 URL safe encoding with padding with dot. Space in between is allowed.
             s = s[2:]
+            if self.parse_blob is not None:
+                return self.parse_blob(s)
             if not s.endswith('.'):
                 return base64.urlsafe_b64decode(s)
             return base64.urlsafe_b64decode(s[:-2] + "==" if s.endswith('==') else s[:-1] + "=")
@@ -128,11 +159,10 @@ class FridLoader:
             if r is not None:
                 return r
         else:
-            if s.isnumeric() or (s[0] in "+-" and s[1:].strip().isnumeric()):
-                try:
-                    return int(s)
-                except Exception:
-                    pass
+            try:
+                return int(s, 0)  # for arbitrary bases
+            except Exception:
+                pass
             try:
                 return float(s)
             except Exception:
@@ -159,15 +189,11 @@ class FridLoader:
 
     def skip_prefix_str(self, index: int, path: str, prefix: str) -> int:
         """Skips the `prefix` if it matches, or raise an ParseError."""
-        while True:
-            try:
-                result = self.buffer.startswith(prefix, index)
-                break
-            except IndexError:
-                index = self.fetch(index, path)
-        if result:
-            return index + len(prefix)
-        self.error(index, f"Expecting '{prefix}' at {path=}")
+        while len(self.buffer) < index + len(prefix) <= self.length:
+            index = self.fetch(index, path)
+        if not self.buffer.startswith(prefix, index):
+            raise ValueError(f"Stream endsin while expecting '{prefix}'")
+        return index + len(prefix)
 
     def peek_fixed_size(self, index: int, path: str, nchars: int) -> str:
         """Peeks a string with a fixed size given by `nchars`.
@@ -192,21 +218,26 @@ class FridLoader:
             except IndexError:
                 index = self.fetch(index, path)
 
-    def scan_prime_data(self, index: int, path: str, /,
+    def scan_prime_data(self, index: int, path: str, /, empty: Any='',
                         accept=NO_QUOTE_CHARS) -> tuple[int,FridValue]:
         """Scans the unquoted data that are identifier chars plus the est given by `accept`."""
+        start = index
         while True:
             try:
-                c = self.buffer[index]
-                while is_identifier_char(c) or c in accept:
-                    index += 1
+                while index < self.length:
                     c = self.buffer[index]
+                    if not is_quote_free_char(c) and c not in accept:
+                        break
+                    index += 1
                 break
             except IndexError:
-                index = self.fetch(index, path)
-        value = self.parse_prime_str(self.buffer[index:index].strip(), ...)
+                index = self.fetch(start, path)
+        data = self.buffer[start:index].strip()
+        if not data:
+            return (index, empty)
+        value = self.parse_prime_str(data, ...)
         if value is ...:
-            raise ParseError(self.buffer, index, "Fail to parse unquoted value")
+            raise ParseError(self.buffer, start, f"Fail to parse unquoted value {data}")
         return (index, value)
 
     def scan_data_until(
@@ -221,11 +252,11 @@ class FridLoader:
             except IndexError:
                 index = self.fetch(index, path)
 
-    def scan_quoted_str(self, index: int, path: str, /, stop: str) -> tuple[int,str]:
+    def scan_escape_str(self, index: int, path: str, /, stop: str) -> tuple[int,str]:
         """Scans a text string with escape sequences."""
         while True:
             try:
-                (count, value) = self.esc_decode(self.buffer, stop, index, self.length)
+                (count, value) = self.se_decoder(self.buffer, stop, index, self.length)
                 break
             except IndexError:
                 index = self.fetch(index, path)
@@ -237,9 +268,10 @@ class FridLoader:
         while True:
             index = self.skip_whitespace(index, path)
             c = self.peek_fixed_size(index, path, 1)
-            if c not in quotes:
+            if not c or c not in quotes:
                 break
-            (index, value) = self.scan_quoted_str(self.skip_fixed_size(index, path, 1), path, c)
+            index = self.skip_fixed_size(index, path, len(c))
+            (index, value) = self.scan_escape_str(index, path, c)
             out.append(value)
             index = self.skip_prefix_str(index, path, c)
         return (index, ''.join(out))
@@ -248,21 +280,26 @@ class FridLoader:
                         /, stop: str='', sep: str=',') -> tuple[int,FridArray]:
         out = []
         while True:
-            (index, value) = self.scan_frid_value(index, path)
-            out.append(value)
+            (index, value) = self.scan_frid_value(index, path, empty=...)
             index = self.skip_whitespace(index, path)
             if (c := self.peek_fixed_size(index, path, 1)) in stop:  # Empty is also a sub-seq
                 break
             if c != sep[0]:
                 self.error(index, f"Unexpected '{c}' after {len(out)}th list entry at {path=}")
             index = self.skip_fixed_size(index, path, 1)
+            out.append(value if value is not ... else '')
+        # The last entry that is not an empty string will be added to the data.
+        if value is not ...:
+            out.append(value)
         return (index, out)
 
     def scan_naked_dict(self, index: int, path: str,
                         /, stop: str='', sep: str=",:") -> tuple[int,StrKeyMap]:
         out = {}
         while True:
-            (index, key) = self.scan_frid_value(index, path)
+            (index, key) = self.scan_frid_value(index, path, empty=...)
+            if key is ...:
+                break
             if not isinstance(key, str):
                 self.error(index, f"Invalid key type {type(key).__name__} of a map at {path=}")
             if key in out:
@@ -278,6 +315,7 @@ class FridLoader:
                 break
             if c != sep[0]:
                 self.error(index, f"Expect '{sep[0]}' after the value for '{key}' at {path=}")
+            index = self.skip_fixed_size(index, path, len(c))
         return (index, out)
 
     def scan_naked_args(
@@ -321,11 +359,11 @@ class FridLoader:
             self.error(start, f"Cannot find constructor called {name}")
         return (index, mixin.frid_from(name, *args, **kwas))
 
-    def scan_frid_value(self, index: int, path: str, /, prev: Any=...) -> tuple[int,FridValue]:
+    def scan_frid_value(self, index: int, path: str, /, empty: Any='') -> tuple[int,FridValue]:
         """Load the text representation."""
         index = self.skip_whitespace(index, path)
         if index >= self.length:
-            return (index, '')
+            return (index, empty)
         c = self.peek_fixed_size(index, path, 1)
         if c == '[':
             index = self.skip_fixed_size(index, path, 1)
@@ -344,7 +382,7 @@ class FridLoader:
         # Now scan regular non quoted data
         self.anchor = index
         try:
-            (index, value) = self.scan_prime_data(index, path, c)
+            (index, value) = self.scan_prime_data(index, path, empty=empty)
             if index < self.length or not isinstance(value, str):
                 return (index, value)
             index = self.skip_whitespace(index, path)
@@ -368,17 +406,21 @@ class FridLoader:
              type: Literal['list','dict']|None=None) -> FridValue:
         match type:
             case None:
-                (count, value) = self.scan_frid_value(start, path)
+                (index, value) = self.scan_frid_value(start, path)
             case 'list':
-                (count, value) = self.scan_naked_list(start, path)
+                (index, value) = self.scan_naked_list(start, path)
             case 'dict':
-                (count, value) = self.scan_naked_dict(start, path)
+                (index, value) = self.scan_naked_dict(start, path)
             case _:
                 raise ValueError(f"Invalid input {type}")
-        if count < 0:
+        if index < 0:
             self.error(0, f"Failed to parse data at {path=}")
-        if count < self.length:
-            index = self.skip_whitespace(count, path)
+        if index < self.length:
+            index = self.skip_whitespace(index, path)
             if index < self.length:
-                self.error(index, f"Trailing data at the end at {path=}")
+                self.error(index, f"Trailing data at {index} at {path=}: {self.buffer[index:]}")
         return value
+
+
+def load_from_str(s: str, *args, **kwargs) -> FridValue:
+    return FridLoader(s, *args, **kwargs).load()

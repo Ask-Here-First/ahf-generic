@@ -1,4 +1,4 @@
-import math, unittest
+import sys, math, unittest
 from typing import cast
 try:
     # We have to import in the begining; otherwise static contents are not coveraged
@@ -17,7 +17,8 @@ from .typing import JsonLevel, StrKeyMap
 from .chrono import parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode, str_transform, str_find_any
-from .dumper import dumps
+from .dumper import dump_into_str
+from .loader import load_from_str
 
 class TestChrono(unittest.TestCase):
     def test_parse(self):
@@ -205,7 +206,7 @@ class TestLoaderAndDumper(unittest.TestCase):
         "0.0": 0.0,     "+0.0": 0.0,    "+0.": 0.0,     ".0": 0.0,
         "-0.0": -0.0,   "-0.": -0.0,    "-.0": -0.0,    "-0.00": -0.0,
         "0.5": 0.5,     "+0.5": 0.5,    "5E-1": 0.5,    "+0.05e1": 0.5,
-        "-0.5": 0.5,    "-.5": 0.5,     "-5E-1": 0.5,   "-0.05e1": 0.5,
+        "-0.5": -0.5,   "-.5": -0.5,    "-5E-1": -0.5,  "-0.05e1": -0.5,
         "-2.0": -2.0,   "-2.": -2.0,    "-2E0": -2.0,   "-.2E1": -2.0,
         '""': '',       '   ""  ': '',
         "\"\\u20af\"": "\u20aF",        "\"\\u20aF\" ": "\u20af",
@@ -214,6 +215,10 @@ class TestLoaderAndDumper(unittest.TestCase):
         "[1]": [1],     "[ 1]": [1],    "[ 1 , ] ": [1],
         "[1, 2]": [1,2],                " [ 1 ,   2]": [1,2],
         "{}": {},       "{   }": {},
+    }
+    json_only_cases = {
+        "{\"a\": 1, \"b\": 2}": {'a': 1, 'b': 2},
+        "{\"a\": 1, \"b\": 2,   }": {'a': 1, 'b': 2},
     }
     json_json5_cases = {
         "null": None,   " null ": None, "  null": None, "    null    ": None,
@@ -232,6 +237,7 @@ class TestLoaderAndDumper(unittest.TestCase):
         "{a: 3}": {'a': 3},             "{ a : 3 ,}": {'a': 3},
         "{ 'a' : 3}": {'a':3},
         '{",": "}"}': {',': "}"},       "{ ',': '}' }": {',': "}"},
+        "{a: 1, b: 2}": {'a': 1, 'b': 2},               "{a: 1, b: 2,  }": {'a': 1, 'b': 2},
     }
     frid_only_cases = {
         # Constants
@@ -272,17 +278,28 @@ class TestLoaderAndDumper(unittest.TestCase):
     }
     def _do_test_positive(self, cases: StrKeyMap, json_level:JsonLevel):
         prev_value = ...
+        json_const = json_level or json_level == ''
         for i, (s, t) in enumerate(cases.items()):
-            if callable(t) or t == prev_value:
-                continue
-            self.assertEqual(s, dumps(t, json_level=json_level),
-                             f"[{i}] {s} <== {t} ({json_level=})")
+            try:
+                v = load_from_str(s, json_const=json_const)
+                if callable(t):
+                    self.assertTrue(t(v), f"[{i}] {s} ==> {t} ({json_level=})")
+                    continue
+                self.assertEqual(t, v, f"[{i}] {s} ==> {t} ({json_level=})")
+                if t == prev_value:
+                    continue
+                self.assertEqual(s, dump_into_str(t, json_level=json_level),
+                                f"[{i}] {s} <== {t} ({json_level=})")
+            except Exception:
+                print(f"\nError @ [{i}] {s} <=> {t} ({json_level=})", file=sys.stderr)
+                raise
             prev_value = t
 
     def test_positive(self):
         self._do_test_positive(self.common_cases, None)
         self._do_test_positive(self.common_cases, True)
         self._do_test_positive(self.common_cases, 5)
+        self._do_test_positive(self.json_only_cases, True)
         self._do_test_positive(self.json5_only_cases, 5)
         self._do_test_positive(self.json_json5_cases, True)
         self._do_test_positive(self.json_json5_cases, 5)

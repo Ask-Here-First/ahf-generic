@@ -42,7 +42,7 @@ class PPToStringMixin(PrettyPrint):
     def __str__(self):
         return ''.join(self.buffer)
 
-class PPToStreamMixin(PrettyPrint):
+class PPToTextIOMixin(PrettyPrint):
     def __init__(self, stream: TextIO, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.stream = stream

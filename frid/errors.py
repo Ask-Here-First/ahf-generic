@@ -17,6 +17,7 @@ class FridError(FridMixin, Exception):
     """
     def __init__(self, *args, trace: TracebackType|Sequence[str]|None=None):
         super().__init__(*args)
+        self.notes: list[str] = []
         if trace is None:
             self.trace = None
         elif isinstance(trace, TracebackType):
@@ -40,6 +41,8 @@ class FridError(FridMixin, Exception):
         out['trace'] = traceback.format_exception(self)
         if self.__cause__:
             out['cause'] = str(self.__cause__)
+        if self.notes:
+            out['notes'] = self.notes
         # TODO: notes? genre? maker?
         return out
 

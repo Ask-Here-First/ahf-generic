@@ -1,11 +1,11 @@
 import math, base64
 from collections.abc import Callable, Iterable, Mapping
-from typing import Any
+from typing import Any, TextIO
 
 from .typing import BlobTypes, FridMixin, FridPrime, FridValue, StrKeyMap, JsonLevel
 from .chrono import DateTypes, strfr_datetime
 from .guards import is_frid_identifier, is_frid_quote_free
-from .pretty import PrettyPrint, PPTokenType, PPToStringMixin
+from .pretty import PPToTextIOMixin, PrettyPrint, PPTokenType, PPToStringMixin
 from .strops import StringEscapeEncode
 
 JSON_QUOTED_KEYSET = (
@@ -283,7 +283,14 @@ class FridDumper(PrettyPrint):
 class FridStringDumper(PPToStringMixin, FridDumper):
     pass
 
-def dumps(data: FridValue, *args, **kwargs) -> str:
+class FridTextIODumper(PPToTextIOMixin, FridDumper):
+    pass
+
+def dump_into_str(data: FridValue, *args, **kwargs) -> str:
     dumper = FridStringDumper(*args, **kwargs)
     dumper.print_frid_value(data)
     return str(dumper)
+
+def dump_info_tio(data: FridValue, io: TextIO, *args, **kwargs):
+    dumper = FridStringDumper(*args, **kwargs)
+    dumper.print_frid_value(data)
