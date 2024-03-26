@@ -318,39 +318,53 @@ class TestLoaderAndDumper(unittest.TestCase):
             # Generate within the
             return "".join(random.choices("abcxyz+-._", k=n))
         return "".join(random.choices(self.CHAR_POOL, k=n))
-    def random_value(self, depth=0):
-        r = random.randint(0, 40 if depth < 3 else 16)
-        if r == 0:
-            return None
-        if r == 1:
-            return True
-        if r == 2:
-            return False
-        if r < 8:
-            return self.random_string()
-        if r < 12:
-            return random.randint(-10000, 10000)
-        if r == 12:
-            # Cannot use NaN as NaN != NaN
-            return random.choice([math.inf, 1.0, 0.0, -1.0, math.e, math.pi, -math.inf])
-        if r < 16:
-            return math.ldexp(random.random() - 0.5, random.randint(-40, 40))
-        if r < 32:
-            n = r - 8
-            return [self.random_value(depth + 1) for _ in range(n)]
-        n = r - 32
-        return {self.random_string(True): self.random_value(depth + 1) for _ in range(n)}
+    def random_value(self, depth=0, *, for_json: bool=False):
+        r = random.randint(0, 32 if depth < 4 else 20)
+        match r:
+            case 0:
+                return None
+            case 1:
+                return True
+            case 2:
+                return False
+            case 3:
+                if for_json:
+                    return None
+                return datetime.now().replace(microsecond=0)
+            case 4:
+                if for_json:
+                    return True
+                return dateonly.today()
+            case 5:
+                if for_json:
+                    return False
+                return datetime.now().time().replace(microsecond=0)
+            case 6 | 7 | 8 | 9 | 10 | 11:
+                return self.random_string()
+            case 12 | 13 | 14:
+                return random.randint(-10000, 10000)
+            case 15:
+                # Cannot use NaN as NaN != NaN
+                return random.choice([math.inf, 1.0, 0.0, -1.0, math.e, math.pi, -math.inf])
+            case 16 | 17 | 18 | 19:
+                return math.ldexp(random.random() - 0.5, random.randint(-40, 40))
+            case 20 | 21 | 22 | 23 | 24 | 25:
+                return [self.random_value(depth + 1, for_json=for_json)
+                        for _ in range(random.randint(0, 4))]
+            case 26 | 27 | 28 | 29 | 30 | 31:
+                return {self.random_string(True): self.random_value(depth + 1, for_json=for_json)
+                        for _ in range(random.randint(0, 4))}
 
     def test_random(self):
         def_seed = 0
-        def_runs = 8
+        def_runs = 256
         seed = os.getenv('FRID_RANDOM_SEED', def_seed)
         runs = int(os.getenv('FRID_RANDOM_ITER', def_runs))
         if seed != def_seed or runs != def_runs:
             print(f"\nRunning random test with {runs} rounds, seed={seed}")
         random.seed(seed)
         for _ in range(runs):
-            data = self.random_value()
+            data = self.random_value(for_json=True)
             text = json.dumps(data)
             self.assertEqual(data, load_from_str(text, json_const=True), msg="Loading JSON")
             self.assertEqual(data, load_from_str(text, json_const=5), msg="Loading JSON5")
@@ -359,6 +373,11 @@ class TestLoaderAndDumper(unittest.TestCase):
                 s = dump_into_str(data, json_level=json_level)
                 self.assertEqual(data, load_from_str(s, json_const=json_const),
                                  msg=f"{json_level=} {len(s)=}")
+        for _ in range(runs):
+            data = self.random_value(for_json=False)
+            s = dump_into_str(data)
+            self.assertEqual(data, load_from_str(s),
+                             msg=f"{json_level=} {len(s)=}")
 
 if __name__ == '__main__':
     if _cov is not None:
