@@ -2,7 +2,7 @@ import math, base64
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any, TextIO
 
-from .typing import BlobTypes, FridMixin, FridPrime, FridValue, StrKeyMap, JsonLevel
+from .typing import BlobTypes, FridMixin, FridValue, StrKeyMap, JsonLevel
 from .chrono import DateTypes, strfr_datetime
 from .guards import is_frid_identifier, is_frid_quote_free
 from .pretty import PPToTextIOMixin, PrettyPrint, PPTokenType, PPToStringMixin
@@ -176,15 +176,10 @@ class FridDumper(PrettyPrint):
 
     def print_quoted_str(self, data: str, path: str, /, as_key: bool=False, quote: str='\"'):
         """Prints a quoted string to stream with quotes."""
+        if isinstance(self.json_level, str) and data.startswith(self.json_level):
+            data = self.json_level + data
         self.print(quote + self.se_encoder(data, quote) + quote,
                    PPTokenType.LABEL if as_key else PPTokenType.ENTRY)
-
-    def print_prime_data(self, data: FridPrime, path: str, /):
-        """Prints some prime data to the stream and raise and error if quotes are needed."""
-        s = self.prime_data_to_str(data, path)
-        if s is None:
-            raise ValueError(f"Invalid data type {type(data)}")
-        self.print(s, PPTokenType.ENTRY)
 
     def print_naked_list(self, data: Iterable[FridValue], path: str="", /, sep: str=','):
         """Prints a list/array to the stream without opening and closing delimiters."""

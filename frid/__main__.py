@@ -281,10 +281,9 @@ class TestLoaderAndDumper(unittest.TestCase):
     }
     def _do_test_positive(self, cases: StrKeyMap, json_level:JsonLevel):
         prev_value = ...
-        json_const = json_level or json_level == ''
         for i, (s, t) in enumerate(cases.items()):
             try:
-                v = load_from_str(s, json_const=json_const)
+                v = load_from_str(s, json_level=json_level)
                 if callable(t):
                     self.assertTrue(t(v), f"[{i}] {s} ==> {t} ({json_level=})")
                     continue
@@ -339,8 +338,12 @@ class TestLoaderAndDumper(unittest.TestCase):
                 if for_json:
                     return False
                 return datetime.now().time().replace(microsecond=0)
-            case 6 | 7 | 8 | 9 | 10 | 11:
+            case 6 | 7 | 8 | 9:
                 return self.random_string()
+            case 10 | 11:
+                if for_json:
+                    return self.random_string()
+                return self.random_string().encode()
             case 12 | 13 | 14:
                 return random.randint(-10000, 10000)
             case 15:
@@ -366,18 +369,18 @@ class TestLoaderAndDumper(unittest.TestCase):
         for _ in range(runs):
             data = self.random_value(for_json=True)
             text = json.dumps(data)
-            self.assertEqual(data, load_from_str(text, json_const=True), msg="Loading JSON")
-            self.assertEqual(data, load_from_str(text, json_const=5), msg="Loading JSON5")
-            for json_level in (None, 5):
-                json_const = json_level or json_level == ''
+            self.assertEqual(data, load_from_str(text, json_level=True), msg="Loading JSON")
+            self.assertEqual(data, load_from_str(text, json_level=5), msg="Loading JSON5")
+            for json_level in (None, 5, '~', "#!"):
                 s = dump_into_str(data, json_level=json_level)
-                self.assertEqual(data, load_from_str(s, json_const=json_const),
+                self.assertEqual(data, load_from_str(s, json_level=json_level),
                                  msg=f"{json_level=} {len(s)=}")
         for _ in range(runs):
-            data = self.random_value(for_json=False)
-            s = dump_into_str(data)
-            self.assertEqual(data, load_from_str(s),
-                             msg=f"{json_level=} {len(s)=}")
+            for json_level in (None, '~', "#!"):
+                data = self.random_value(for_json=False)
+                s = dump_into_str(data, json_level=json_level)
+                self.assertEqual(data, load_from_str(s, json_level=json_level),
+                                msg=f"{json_level=} {len(s)=}")
 
 if __name__ == '__main__':
     if _cov is not None:

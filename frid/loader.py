@@ -2,7 +2,7 @@ import math, base64
 from collections.abc import Callable, Iterator, Mapping
 from typing import  Any, Literal, NoReturn, TypeVar
 
-from .typing import BlobTypes, DateTypes, FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
+from .typing import BlobTypes, DateTypes, FridArray, FridMixin, FridPrime, FridValue, JsonLevel, StrKeyMap
 from .guards import is_frid_identifier, is_frid_quote_free, is_quote_free_char
 from .errors import FridError
 from .strops import str_find_any, StringEscapeDecode
@@ -28,8 +28,12 @@ class FridLoader:
     - `buffer`: the optional buffer for the (initial parts) of the data stream.
     - `length`: the total length of the buffer; the default is the buffer length
       if buffer is given or a huge number of buffer is not given.
-    - `json_const`: true if accepting JSON constant 'true', 'false', and 'null';
-      the default is handle them as unquoted strings.
+    - `json_level`, indicates the json compatibility level; possible values:
+        + None (or False or 0): frid format
+        + True: JSON format
+        + 5: JSON5 format
+        + (a string): JSON format, but all unsupported data is in a quoted
+          Frid format after a prefix given by this string.
     - `frid_mixin`: a map of a list of key/value pairs to find to FridMixin
       constructors by name. The constructors are called with the positional
       and keyword arguments enclosed in parantheses after the function name.
@@ -45,7 +49,7 @@ class FridLoader:
     """
     def __init__(
             self, buffer: str|None=None, length: int|None=None, offset: int=0, /,
-            *, json_const: bool=False,
+            *, json_level: JsonLevel=None,
             frid_mixin: Mapping[str,type[FridMixin]]|Iterator[type[FridMixin]]|None=None,
             parse_real: Callable[[str],int|float|None]|None=None,
             parse_date: Callable[[str],DateTypes|None]|None=None,
@@ -57,7 +61,8 @@ class FridLoader:
         self.offset = offset
         self.length = length if length is not None else 1<<62 if buffer is None else len(buffer)
         self.anchor: int|None = None   # A place where the location is marked
-        self.json_const = json_const
+        self.json_level = json_level
+        self.using_frid = not (json_level or isinstance(json_level, str))
         self.parse_real = parse_real
         self.parse_date = parse_date
         self.parse_blob = parse_blob
@@ -100,7 +105,7 @@ class FridLoader:
         """
         if not s:
             return default
-        if self.json_const:
+        if not self.using_frid:
             match s:
                 case 'true':
                     return True
@@ -263,7 +268,7 @@ class FridLoader:
                 index = self.fetch(index, path)
         return (index + count, value)
 
-    def scan_quoted_seq(self, index: int, path: str, /, quotes: str) -> tuple[int,str]:
+    def scan_quoted_seq(self, index: int, path: str, /, quotes: str) -> tuple[int,FridPrime]:
         """Scan a continuationm of quoted string after the first quoted str."""
         out = []
         while True:
@@ -275,7 +280,12 @@ class FridLoader:
             (index, value) = self.scan_escape_str(index, path, c)
             out.append(value)
             index = self.skip_prefix_str(index, path, c)
-        return (index, ''.join(out))
+        data = ''.join(out)
+        if isinstance(self.json_level, str) and data.startswith(self.json_level):
+            data = data[len(self.json_level):]
+            if (out := self.parse_prime_str(data, ...)) is not ...:
+                return (index, out)
+        return (index, data)
 
     def scan_naked_list(self, index: int, path: str,
                         /, stop: str='', sep: str=',') -> tuple[int,FridArray]:
