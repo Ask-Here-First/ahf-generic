@@ -16,13 +16,20 @@ ShortMimeType = Literal['text','html','form','blob','json','frid']
 InputHttpHead = Mapping[str|bytes,str|bytes]|Iterable[tuple[str|bytes,str|bytes]]
 
 def parse_http_query(qs: str) -> tuple[list[tuple[str,str]|str],dict[str,FridValue]]:
+    """Parse the URL query string (or www forms) into key value pairs.
+    - Returns two data structures as a pair:
+        + A list of original key value pairs of strings, URI decoded, but not evaluated.
+        + A dict of with the same original decoded key, but the values are evaluated.
+    """
     if not qs:
         return ([], {})
     if qs.startswith('?'):
         qs = qs[1:]
+        if not qs:
+            return ([], {})
     qsargs: list[tuple[str,str]|str] = []
     kwargs: dict[str,FridValue] = {}
-    for i, x in enumerate(qs.split('&')):
+    for x in qs.split('&'):
         if '=' not in x:
             qsargs.append(unquote_plus(x))
             continue
@@ -35,21 +42,17 @@ def parse_http_query(qs: str) -> tuple[list[tuple[str,str]|str],dict[str,FridVal
     return (qsargs, kwargs)
 
 class HttpMixin:
-    """This is a generic mixin class that stores HTTP data.
+    """The generic mixin class that stores additional HTTP data.
 
-    It can also be constructed to hold data for either an HTTP request or
-    an HTTP response. Constructor arguments (all optional and keyword):
-    - `ht_status`: the HTTP status code; for response, it defaults
-      to 200/204 with data, or 500 for error.
-    - `http_body`: the raw binary body; for responses it is used if specified; otherwise
-      it it generated from `http_data`.
-    - `mime_type`: the mime_type but one can use one of the following shortcuts:
-        + `text`, `blob`, `html`, `json`, `frid`; they will be converted to right MIME types.
-        + The default is `json` for responses.
-    - `http_data`: the data supported by Frid; will be dumped into string:
-        + To frid format if mime_type is frid;
-        + To JSON format if unset, but with default escapes.
-        + To JSON5 format with escapes when dump to stream in lines.
+    It can also be constructed standalone to hold data for either an HTTP
+    request or an HTTP response. Constructor arguments (all optional/keyword):
+    - `ht_status`: the HTTP status code; default to 0.
+    - `http_head`: the headers as str-to-str map.
+    - `http_body`: the raw binary body to send, or an async generator of
+      strings in the case of streamming (need unicode strings not binary).
+    - `mime_type`: the mime_type with one of the following shortcuts:
+      `text`, `blob`, `html`, `json`, `frid`.
+    - `http_data`: the data as supported by Frid.
     """
     def __init__(self, /, *args, ht_status: int=0, http_head: Mapping[str,str]|None=None,
                  http_body: BlobTypes|None=None, mime_type: str|ShortMimeType|None=None,
@@ -64,7 +67,21 @@ class HttpMixin:
     @classmethod
     def from_request(cls, rawdata: bytes|None, headers: InputHttpHead,
                      *args, **kwargs) -> 'HttpMixin':
-        """Processing the HTTP headers and data """
+        """Processing the HTTP request headers and data and create an object.
+        - `rawdata` the HTTP body data (from POST or PUT, for example)
+        - `headers` the HTTP request headers.
+        It will construct a HttpMixin with:
+        - `ht_status` is not set.
+        - `http_body` is the same as the `rawdata`.
+        - `http_data` is parsed `http_body` depending on the constent type
+          and encoding. Supported types: `text`, `html`, `blob`, `form`,
+          `json` and `frid`, where `form` is www urlencoded form parsed
+          into a dictionary with their value evaluated.
+        - `mime_type`: from Content-Type header with aobve shortcuts or original
+          MIME-type (with `;charset=...` removed) if it does not match.
+        - `http_head` the HTTP request headers loaded into a str-to-str dict,
+          with all keys in lower cases.
+        """
         items = headers.items() if isinstance(headers, Mapping) else headers
         http_head: dict[str,str] = {}
         for key, val in items:
@@ -77,7 +94,8 @@ class HttpMixin:
                 val = val.decode()
             elif not isinstance(val, str):
                 val = str(key)
-            key = key.lower()  # Always using lower cases
+            # Always using lower cases
+            http_head[key.lower()] = val
         # Extract content type
         encoding: str = 'utf-8'
         mime_type = http_head.get('content-type')
@@ -117,37 +135,54 @@ class HttpMixin:
 
     @staticmethod
     async def _streaming(stream: AsyncIterator[FridValue]):
+        """This is an agent iterator that convert data to string."""
         async for item in stream:
-            yield dump_into_str(item, json_level=5)
+            yield dump_into_str(item, json_level=5, escape_seq=JSON_ESCAPE_SEQ)
 
-    def gen_response(self) -> 'HttpMixin':
-        """Update ht_status, http_body, and http_head according to http_data."""
+    def set_response(self) -> 'HttpMixin':
+        """Update other HTTP fields according to http_data.
+        - Returns `self` for chaining, so one can just do
+          `var = HttpMixin(...).set_response()`
+        The following fields will be updated if not present:
+        - `http_body`: the content of the body in binary dump `http_data`:
+            + Bytes will be dumped as is, with `blob` type;
+            + Strings will be dumped by UTF-8 encoding, with `text` type;
+            + `http_body` will be an async generator of strings if
+              `http_data` is an async generator of objects; the object
+              are dumpped when available in JSON5 format with escaping;
+            + Other data types will be dumpped with `dump_into_str()`,
+              with option depending `mime_type` setting: `=json` using
+              builtin json dumps(), `=frid` in frid format, or default
+              using json dump with escaping.
+        - `mime_type`: estimated from the type of `http_data.
+        - `ht_status`: set to 200 if it has a body or 204 otherwise.
+        """
         # Convert data to body if http_body is not set
-        if self.http_body is not None:
-            return self
-        if self.http_data is None:
-            if not self.ht_status:
-                self.ht_status = 204
-            return self
-        if isinstance(self.http_data, bytes):
-            body = self.http_data
-            mime_type = 'blob'
-        elif isinstance(self.http_data, str):
-            body = self.http_data.encode()
-            mime_type = 'text'
-        elif isinstance(self.http_data, AsyncIterator):
-            body = self._streaming(self.http_data)
-            mime_type = "text/event-stream"
-        elif self.mime_type == 'json':
-            body = dump_into_str(self.http_data, json_level=False).encode()
-            mime_type = self.mime_type
-        elif self.mime_type == 'frid':
-            body = dump_into_str(self.http_data).encode()
-            mime_type = self.mime_type
-        else:
-            body = dump_into_str(self.http_data, json_level=JSON_ESCAPE_SEQ).encode()
-            mime_type = 'json'
-        self.http_body = body
+        mime_type: str|None = None
+        if self.http_body is None:
+            if self.http_data is None:
+                if not self.ht_status:
+                    self.ht_status = 204
+                return self
+            if isinstance(self.http_data, bytes):
+                body = self.http_data
+                mime_type = 'blob'
+            elif isinstance(self.http_data, str):
+                body = self.http_data.encode()
+                mime_type = 'text'
+            elif isinstance(self.http_data, AsyncIterator):
+                body = self._streaming(self.http_data)
+                mime_type = "text/event-stream"
+            elif self.mime_type == 'json':
+                body = json.dumps(self.http_data).encode()
+                mime_type = self.mime_type
+            elif self.mime_type == 'frid':
+                body = dump_into_str(self.http_data).encode()
+                mime_type = self.mime_type
+            else:
+                body = dump_into_str(self.http_data, json_level=JSON_ESCAPE_SEQ).encode()
+                mime_type = 'json'
+            self.http_body = body
         # Check mime type for Content-Type if it is missing in http_head
         if 'content-type' not in self.http_head:
             if self.mime_type is not None:
