@@ -1,10 +1,12 @@
-from collections.abc import Mapping, Sequence
+import os
+from collections.abc import Sequence
 import traceback
 from types import TracebackType
 
 from .typing import FridMixin
 from .guards import is_text_list_like
 
+FRID_ERROR_VENUE = os.getenv('FRID_ERROR_VENUE')
 
 class FridError(FridMixin, Exception):
     """The base class of errors that is compatible with Frid.
@@ -15,12 +17,12 @@ class FridError(FridMixin, Exception):
     - Construct with `raise FridError("error") from exc` in which case
       the exc with be chained.
     """
-    def __init__(self, *args, trace: TracebackType|Sequence[str]|None=None):
+    def __init__(self, *args, trace: TracebackType|Sequence[str]|None=None,
+                 cause: BaseException|None=None, notes: Sequence[str]|None):
         super().__init__(*args)
-        self.notes: list[str] = []
-        if trace is None:
-            self.trace = None
-        elif isinstance(trace, TracebackType):
+        self.notes: list[str] = list(notes) if notes else []
+        self.cause = cause
+        if isinstance(trace, TracebackType):
             self.trace = None
             self.with_traceback(trace)
         elif is_text_list_like(trace):
@@ -30,39 +32,27 @@ class FridError(FridMixin, Exception):
             raise ValueError(f"Invalid trace type {type(trace)}")
 
     @classmethod
-    def frid_from(cls, name, *args, error: str, trace: Sequence[str], **kwas):
+    def frid_from(cls, name: str, *args, error: str, trace: Sequence[str], **kwas):
         assert name in cls.frid_keys()
-        return FridError(kwas)
+        return FridError(error, trace=trace, **kwas)
 
     def frid_repr(self) -> dict[str,str|int|list[str]]:
         out: dict[str,str|int|list[str]] = {'error': str(self)}
+        trace = []
         if self.trace is not None:
-            out['trace'] = self.trace
-        out['trace'] = traceback.format_exception(self)
+            trace.extend(self.trace)
+            trace.append("")
+        trace.extend(traceback.format_exception(self))
         if self.__cause__:
             out['cause'] = str(self.__cause__)
+        elif self.cause is not None:
+            out['cause'] = str(self.cause)
+            trace.append("Caused by:")
+            trace.extend(traceback.format_exception(self.cause))
+        if trace:
+            out['trace'] = trace
         if self.notes:
             out['notes'] = self.notes
-        # TODO: notes? genre? maker?
+        if FRID_ERROR_VENUE is not None:
+            out['venue'] = FRID_ERROR_VENUE
         return out
-
-class HttpError(FridError):
-    """An HttpError with an status code.
-    - The constructor requires the http status code as the first argment
-      before the error message.
-    - Optionally an HTTP text can be given by `http_text` for construction.
-    - Users can also specify `headers` as a dict.
-    """
-    def __init__(self, http_code: int=500, /, *args, http_text: str|None=None,
-                 headers: Mapping[str,str]|None=None, **kwargs):
-        self.http_code = http_code
-        self.http_text = http_text
-        self.headers = headers
-
-    def frid_repr(self) -> dict[str,str|int|list[str]]:
-        out = super().frid_repr()
-        out['http_code'] = self.http_code
-        if self.http_text is not None:
-            out['http_text'] = self.http_text
-        return out
-
