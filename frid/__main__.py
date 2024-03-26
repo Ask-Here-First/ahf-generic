@@ -1,4 +1,4 @@
-import os, sys, math, json, string, random, unittest
+import os, sys, math, json, string, random, unittest, importlib
 from typing import cast
 try:
     # We have to import in the begining; otherwise static contents are not coveraged
@@ -7,6 +7,10 @@ try:
         import coverage
         _cov = coverage.Coverage()
         _cov.start()
+        # Reload all loaded modules of name frid.* to cover all static context
+        modules = [x for x in sys.modules.values() if x.__name__.startswith("frid.")]
+        for module in modules:
+            importlib.reload(module)
         print("Running unit tests with coverage ...")
     else:
         _cov = None
