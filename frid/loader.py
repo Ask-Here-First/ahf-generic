@@ -80,8 +80,10 @@ class FridLoader:
             '\\', ('x', 'u', 'U')
         )
 
-    def error(self, index: int, error: str) -> NoReturn:
+    def error(self, index: int, error: str|BaseException) -> NoReturn:
         """Raise an ParseError at the current `index` with the given `error`."""
+        if isinstance(error, BaseException):
+            raise ParseError(self.buffer, index, str(error)) from error
         raise ParseError(self.buffer, index, error)
 
     def fetch(self, index: int, path: str, /) -> int:
@@ -198,7 +200,7 @@ class FridLoader:
         while len(self.buffer) < index + len(prefix) <= self.length:
             index = self.fetch(index, path)
         if not self.buffer.startswith(prefix, index):
-            raise ValueError(f"Stream endsin while expecting '{prefix}'")
+            self.error(index, f"Stream ends while expecting '{prefix}'")
         return index + len(prefix)
 
     def peek_fixed_size(self, index: int, path: str, nchars: int) -> str:
@@ -213,14 +215,6 @@ class FridLoader:
                 if index + nchars > self.length:
                     return self.buffer[index:self.length]
                 return self.buffer[index:(index + nchars)]
-            except IndexError:
-                index = self.fetch(index, path)
-
-    def scan_fixed_size(self, index: int, path: str, nchars: int) -> tuple[int,str]:
-        """Scans a string with a fixed size given by `nchars`."""
-        while True:
-            try:
-                return (index + nchars, self.buffer[index:(index + nchars)])
             except IndexError:
                 index = self.fetch(index, path)
 
@@ -266,6 +260,8 @@ class FridLoader:
                 break
             except IndexError:
                 index = self.fetch(index, path)
+            except ValueError as exc:
+                self.error(index, exc)
         return (index + count, value)
 
     def scan_quoted_seq(self, index: int, path: str, /, quotes: str) -> tuple[int,FridPrime]:

@@ -76,7 +76,7 @@ class FridDumper(PrettyPrint):
             return str(data)
         if isinstance(self.json_level, str) or self.using_frid:
             if math.isnan(data):
-                out = "+." if data >= 0 else "-."
+                out = "+." if math.copysign(1.0, data) >= 0 else "-."
             elif math.isinf(data):
                 out = "++" if data >= 0 else "--"
             else:
@@ -92,9 +92,9 @@ class FridDumper(PrettyPrint):
             return str(data)
         if self.json_level:
             if math.isnan(data):
-                raise ValueError(f"NaN is not supported by JSON at {path}")
+                raise ValueError(f"NaN is not supported by JSON at {path=}")
             if math.isinf(data):
-                raise ValueError(f"Infinity is not supported by JSON at {path}")
+                raise ValueError(f"Infinity is not supported by JSON at {path=}")
             return str(data)
         raise ValueError(f"Invalid {self.json_level=} at {path=}")
 

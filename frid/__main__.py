@@ -22,7 +22,7 @@ from .chrono import parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode, str_transform, str_find_any
 from .dumper import dump_into_str
-from .loader import load_from_str
+from .loader import ParseError, load_from_str
 
 class TestChrono(unittest.TestCase):
     def test_parse(self):
@@ -300,7 +300,6 @@ class TestLoaderAndDumper(unittest.TestCase):
                 print(f"\nError @ [{i}] {s} <=> {t} ({json_level=})", file=sys.stderr)
                 raise
             prev_value = t
-
     def test_positive(self):
         self._do_test_positive(self.common_cases, None)
         self._do_test_positive(self.common_cases, True)
@@ -312,7 +311,9 @@ class TestLoaderAndDumper(unittest.TestCase):
         self._do_test_positive(self.frid_json5_cases, False)
         self._do_test_positive(self.frid_json5_cases, 5)
         self._do_test_positive(self.frid_only_cases, False)
-
+        self.assertEqual(dump_into_str(math.nan), "+.")
+        self.assertEqual(dump_into_str(-math.nan), "-.")
+        self.assertEqual(dump_into_str(math.nan, json_level=5), "NaN")
 
     CHAR_POOL = string.printable + "\u03b1\u03b2\u03b3\u2020\u2021\u2022" #"\U00010330"
     def random_string(self, for_key=False):
@@ -361,7 +362,6 @@ class TestLoaderAndDumper(unittest.TestCase):
             case 26 | 27 | 28 | 29 | 30 | 31:
                 return {self.random_string(True): self.random_value(depth + 1, for_json=for_json)
                         for _ in range(random.randint(0, 4))}
-
     def test_random(self):
         def_seed = 0
         def_runs = 256
@@ -385,6 +385,36 @@ class TestLoaderAndDumper(unittest.TestCase):
                 s = dump_into_str(data, json_level=json_level)
                 self.assertEqual(data, load_from_str(s, json_level=json_level),
                                 msg=f"{json_level=} {len(s)=}")
+
+    negative_load_cases = [
+        # Numbers
+        "3+7", "4 x 2", "  .5abc", "-6d ef  ", ".723 ghi 4", "+abc", "-invalid",
+        "3_", "+_", "0x-", "0x_",
+        # Strings
+        "I'm here", "back`ticks`", "a\\ b ", " c(d)", "Come, here",
+        "'No ending quote", "'''Mismatched end quote' '", "'wrong quotes`",
+        "'\\", "'\\x2", "'\\x3'", "'\\x9k'", "'\\u37'", "'\\xyz'", "'\\U03'",
+        # List
+        "[1,", "[}",
+        # Dict
+        "{,}", "{a:3,,}", "{)", "{a:1, a:2}", "{3a:3}", "{3: 4}",
+        # Expr
+        "(", "([})", "((())",
+    ]
+    def test_negative_load(self):
+        # print(f"Running {len(positive_testcases)} negative testcases...")
+        for i, k in enumerate(self.negative_load_cases):
+            with self.assertRaises(ParseError, msg=f"[{i}]: {k}"):
+                load_from_str(k)
+
+
+    negative_json_dump_cases = [
+        math.nan, math.inf, -math.inf, dateonly.today(), b"1234", {3: 4}, object(),
+    ]
+    def test_negative_json_dump(self):
+        for i, k in enumerate(self.negative_json_dump_cases):
+            with self.assertRaises(ValueError, msg=f"[{i}]: {k}"):
+                dump_into_str(k, json_level=True)
 
 if __name__ == '__main__':
     if _cov is not None:
