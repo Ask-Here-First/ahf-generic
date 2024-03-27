@@ -107,6 +107,7 @@ class HttpMixin:
                 if key.strip().lower() == 'charset':
                     encoding = val.strip().lower()
         # Decoding the data if any
+        http_data = None
         if rawdata is not None:
             match mime_type:
                 case 'text/plain':
@@ -128,8 +129,6 @@ class HttpMixin:
                     if mime_type == FRID_MIME_TYPE:
                         http_data = load_from_str(rawdata.decode(encoding))
                         mime_type = 'frid'
-                    else:
-                        http_data = None  # mime_type unchanged
         return cls(*args, http_head=http_head, mime_type=mime_type, http_body=rawdata,
                    http_data=http_data, **kwargs)
 
@@ -221,4 +220,8 @@ class HttpError(HttpMixin, FridError):
         out = super().frid_repr()
         out['ht_status'] = self.ht_status
         return out
+    def set_response(self) -> 'HttpError':
+        self.http_data = self.frid_repr()
+        super().set_response()
+        return self
 
