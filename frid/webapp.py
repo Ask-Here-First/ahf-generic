@@ -58,11 +58,11 @@ class HttpMixin:
                  http_body: BlobTypes|None=None, mime_type: str|ShortMimeType|None=None,
                  http_data: FridValue|AsyncIterator[FridValue]=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.ht_status = ht_status
-        self.http_body = http_body
-        self.http_data = http_data
-        self.mime_type = mime_type
-        self.http_head = dict(http_head) if http_head is not None else {}
+        self.ht_status: int = ht_status
+        self.http_body: BlobTypes|AsyncIterator[BlobTypes]|None = http_body
+        self.http_data: FridValue|AsyncIterator[FridValue]|None = http_data
+        self.mime_type: str|ShortMimeType|None = mime_type
+        self.http_head: dict[str,str] = dict(http_head) if http_head is not None else {}
 
     @classmethod
     def from_request(cls, rawdata: bytes|None, headers: InputHttpHead,
@@ -75,7 +75,7 @@ class HttpMixin:
         - `http_body` is the same as the `rawdata`.
         - `http_data` is parsed `http_body` depending on the constent type
           and encoding. Supported types: `text`, `html`, `blob`, `form`,
-          `json` and `frid`, where `form` is www urlencoded form parsed
+          `json` and `frid`, where `form` is www-form-urlencoded parsed
           into a dictionary with their value evaluated.
         - `mime_type`: from Content-Type header with aobve shortcuts or original
           MIME-type (with `;charset=...` removed) if it does not match.
@@ -136,7 +136,9 @@ class HttpMixin:
     async def _streaming(stream: AsyncIterator[FridValue]):
         """This is an agent iterator that convert data to string."""
         async for item in stream:
-            yield dump_into_str(item, json_level=5, escape_seq=DEF_ESCAPE_SEQ)
+            yield ("data: " + dump_into_str(
+                item, json_level=5, escape_seq=DEF_ESCAPE_SEQ
+            ) + "\n\n").encode()
 
     def set_response(self) -> 'HttpMixin':
         """Update other HTTP fields according to http_data.
