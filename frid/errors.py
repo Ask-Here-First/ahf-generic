@@ -18,11 +18,13 @@ class FridError(FridMixin, Exception):
       the exc with be chained.
     """
     def __init__(self, *args, trace: TracebackType|Sequence[str]|None=None,
-                 cause: BaseException|None=None, notes: Sequence[str]|None):
+                 cause: BaseException|None=None, notes: Sequence[str]|None=None):
         super().__init__(*args)
         self.notes: list[str] = list(notes) if notes else []
         self.cause = cause
-        if isinstance(trace, TracebackType):
+        if trace is None:
+            self.trace = None
+        elif isinstance(trace, TracebackType):
             self.trace = None
             self.with_traceback(trace)
         elif is_text_list_like(trace):

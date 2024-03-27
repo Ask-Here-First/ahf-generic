@@ -1,5 +1,5 @@
 import os, sys, math, json, string, random, unittest, importlib
-from typing import cast
+from typing import Literal, cast
 try:
     # We have to import in the begining; otherwise static contents are not coveraged
     if __name__ == '__main__':
@@ -17,7 +17,7 @@ try:
 except ImportError:
     _cov = None
 
-from .typing import JsonLevel, StrKeyMap
+from .typing import StrKeyMap
 from .chrono import parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode, str_transform, str_find_any
@@ -283,7 +283,7 @@ class TestLoaderAndDumper(unittest.TestCase):
         # "(x in '([{\\'\"\\\"')": LionExprStub("x in '([{\\'\"\\\"'"),
         # TODO: do we support non-string keys"{.:+}": {None: True}
     }
-    def _do_test_positive(self, cases: StrKeyMap, json_level:JsonLevel):
+    def _do_test_positive(self, cases: StrKeyMap, json_level: Literal[0,1,5]):
         prev_value = ...
         for i, (s, t) in enumerate(cases.items()):
             try:
@@ -301,16 +301,16 @@ class TestLoaderAndDumper(unittest.TestCase):
                 raise
             prev_value = t
     def test_positive(self):
-        self._do_test_positive(self.common_cases, None)
-        self._do_test_positive(self.common_cases, True)
+        self._do_test_positive(self.common_cases, 0)
+        self._do_test_positive(self.common_cases, 1)
         self._do_test_positive(self.common_cases, 5)
-        self._do_test_positive(self.json_only_cases, True)
+        self._do_test_positive(self.json_only_cases, 1)
         self._do_test_positive(self.json5_only_cases, 5)
-        self._do_test_positive(self.json_json5_cases, True)
+        self._do_test_positive(self.json_json5_cases, 1)
         self._do_test_positive(self.json_json5_cases, 5)
-        self._do_test_positive(self.frid_json5_cases, False)
+        self._do_test_positive(self.frid_json5_cases, 0)
         self._do_test_positive(self.frid_json5_cases, 5)
-        self._do_test_positive(self.frid_only_cases, False)
+        self._do_test_positive(self.frid_only_cases, 0)
         self.assertEqual(dump_into_str(math.nan), "+.")
         self.assertEqual(dump_into_str(-math.nan), "-.")
         self.assertEqual(dump_into_str(math.nan, json_level=5), "NaN")
@@ -373,17 +373,17 @@ class TestLoaderAndDumper(unittest.TestCase):
         for _ in range(runs):
             data = self.random_value(for_json=True)
             text = json.dumps(data)
-            self.assertEqual(data, load_from_str(text, json_level=True), msg="Loading JSON")
+            self.assertEqual(data, load_from_str(text, json_level=1), msg="Loading JSON")
             self.assertEqual(data, load_from_str(text, json_level=5), msg="Loading JSON5")
-            for json_level in (None, 5, '~', "#!"):
+            for json_level in (0, 5):
                 s = dump_into_str(data, json_level=json_level)
                 self.assertEqual(data, load_from_str(s, json_level=json_level),
                                  msg=f"{json_level=} {len(s)=}")
         for _ in range(runs):
-            for json_level in (None, '~', "#!"):
+            for escape_seq in (None, '~', "#!"):
                 data = self.random_value(for_json=False)
-                s = dump_into_str(data, json_level=json_level)
-                self.assertEqual(data, load_from_str(s, json_level=json_level),
+                s = dump_into_str(data, escape_seq=escape_seq)
+                self.assertEqual(data, load_from_str(s, escape_seq=escape_seq),
                                 msg=f"{json_level=} {len(s)=}")
 
     negative_load_cases = [

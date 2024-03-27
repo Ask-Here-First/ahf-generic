@@ -1,4 +1,4 @@
-import json
+import os, json
 from collections.abc import AsyncIterator, Iterable, Mapping
 from typing import Literal
 from urllib.parse import unquote_plus
@@ -9,7 +9,7 @@ from .loader import load_from_str
 from .dumper import dump_into_str
 
 
-JSON_ESCAPE_SEQ = "#!"
+DEF_ESCAPE_SEQ = os.getenv('FRID_ESCAPE_SEQ', "#!")
 FRID_MIME_TYPE = "text/vnd.askherefirst.frid"
 
 ShortMimeType = Literal['text','html','form','blob','json','frid']
@@ -137,7 +137,7 @@ class HttpMixin:
     async def _streaming(stream: AsyncIterator[FridValue]):
         """This is an agent iterator that convert data to string."""
         async for item in stream:
-            yield dump_into_str(item, json_level=5, escape_seq=JSON_ESCAPE_SEQ)
+            yield dump_into_str(item, json_level=5, escape_seq=DEF_ESCAPE_SEQ)
 
     def set_response(self) -> 'HttpMixin':
         """Update other HTTP fields according to http_data.
@@ -180,7 +180,7 @@ class HttpMixin:
                 body = dump_into_str(self.http_data).encode()
                 mime_type = self.mime_type
             else:
-                body = dump_into_str(self.http_data, json_level=JSON_ESCAPE_SEQ).encode()
+                body = dump_into_str(self.http_data, json_level=DEF_ESCAPE_SEQ).encode()
                 mime_type = 'json'
             self.http_body = body
         # Check mime type for Content-Type if it is missing in http_head

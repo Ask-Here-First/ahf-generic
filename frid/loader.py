@@ -2,7 +2,7 @@ import math, base64
 from collections.abc import Callable, Iterator, Mapping
 from typing import  Any, Literal, NoReturn, TypeVar
 
-from .typing import BlobTypes, DateTypes, FridArray, FridMixin, FridPrime, FridValue, JsonLevel, StrKeyMap
+from .typing import BlobTypes, DateTypes, FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
 from .guards import is_frid_identifier, is_frid_quote_free, is_quote_free_char
 from .errors import FridError
 from .strops import str_find_any, StringEscapeDecode
@@ -28,12 +28,12 @@ class FridLoader:
     - `buffer`: the optional buffer for the (initial parts) of the data stream.
     - `length`: the total length of the buffer; the default is the buffer length
       if buffer is given or a huge number of buffer is not given.
-    - `json_level`, indicates the json compatibility level; possible values:
-        + None (or False or 0): frid format
-        + True: JSON format
+    - `json_level`: an integer indicating the json compatibility level; possible values:
+        + 0: frid format (default)
+        + 1: JSON format
         + 5: JSON5 format
-        + (a string): JSON format, but all unsupported data is in a quoted
-          Frid format after a prefix given by this string.
+    - `escape_seq`: the escape sequence for json formats (valid only if
+      json_level is non-zero) used to identify data in quoted strings.
     - `frid_mixin`: a map of a list of key/value pairs to find to FridMixin
       constructors by name. The constructors are called with the positional
       and keyword arguments enclosed in parantheses after the function name.
@@ -49,7 +49,7 @@ class FridLoader:
     """
     def __init__(
             self, buffer: str|None=None, length: int|None=None, offset: int=0, /,
-            *, json_level: JsonLevel=None,
+            *, json_level: Literal[0,1,5]=0, escape_seq: str|None=None,
             frid_mixin: Mapping[str,type[FridMixin]]|Iterator[type[FridMixin]]|None=None,
             parse_real: Callable[[str],int|float|None]|None=None,
             parse_date: Callable[[str],DateTypes|None]|None=None,
@@ -62,7 +62,7 @@ class FridLoader:
         self.length = length if length is not None else 1<<62 if buffer is None else len(buffer)
         self.anchor: int|None = None   # A place where the location is marked
         self.json_level = json_level
-        self.using_frid = not (json_level or isinstance(json_level, str))
+        self.escape_seq = escape_seq
         self.parse_real = parse_real
         self.parse_date = parse_date
         self.parse_blob = parse_blob
@@ -107,7 +107,7 @@ class FridLoader:
         """
         if not s:
             return default
-        if not self.using_frid:
+        if self.json_level:
             match s:
                 case 'true':
                     return True
@@ -237,7 +237,7 @@ class FridLoader:
             return (index, empty)
         value = self.parse_prime_str(data, ...)
         if value is ...:
-            raise ParseError(self.buffer, start, f"Fail to parse unquoted value {data}")
+            self.error(start, f"Fail to parse unquoted value {data}")
         return (index, value)
 
     def scan_data_until(
@@ -277,8 +277,8 @@ class FridLoader:
             out.append(value)
             index = self.skip_prefix_str(index, path, c)
         data = ''.join(out)
-        if isinstance(self.json_level, str) and data.startswith(self.json_level):
-            data = data[len(self.json_level):]
+        if self.escape_seq and data.startswith(self.escape_seq):
+            data = data[len(self.escape_seq):]
             if (out := self.parse_prime_str(data, ...)) is not ...:
                 return (index, out)
         return (index, data)
