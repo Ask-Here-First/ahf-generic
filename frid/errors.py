@@ -18,10 +18,12 @@ class FridError(FridMixin, Exception):
       the exc with be chained.
     """
     def __init__(self, *args, trace: TracebackType|Sequence[str]|None=None,
-                 cause: BaseException|None=None, notes: Sequence[str]|None=None):
+                 cause: BaseException|str|None=None, notes: Sequence[str]|None=None,
+                 venue: str|None=None):
         super().__init__(*args)
         self.notes: list[str] = list(notes) if notes else []
-        self.cause = cause
+        self.cause: BaseException|str|None = cause
+        self.venue: str|None = venue
         if trace is None:
             self.trace = None
         elif isinstance(trace, TracebackType):
@@ -34,7 +36,10 @@ class FridError(FridMixin, Exception):
             raise ValueError(f"Invalid trace type {type(trace)}")
 
     @classmethod
-    def frid_from(cls, name: str, *args, error: str, trace: Sequence[str], **kwas):
+    def frid_from(cls, name: str, *args, error: str, trace: Sequence[str]|None=None,
+                  cause: str|None=None, **kwas):
+        # The `trace` and `cause` are not accepting TrackbackType and BaseException;
+        # and `error` is passed as the first argument.
         assert name in cls.frid_keys()
         return FridError(error, trace=trace, **kwas)
 
@@ -49,8 +54,9 @@ class FridError(FridMixin, Exception):
             out['cause'] = str(self.__cause__)
         elif self.cause is not None:
             out['cause'] = str(self.cause)
-            trace.append("Caused by:")
-            trace.extend(traceback.format_exception(self.cause))
+            if isinstance(self.cause, BaseException):
+                trace.append("Caused by:")
+                trace.extend(traceback.format_exception(self.cause))
         if trace:
             out['trace'] = trace
         if self.notes:
