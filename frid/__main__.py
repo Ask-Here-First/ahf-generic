@@ -322,8 +322,8 @@ class TestLoaderAndDumper(unittest.TestCase):
             # Generate within the
             return "".join(random.choices("abcxyz+-._", k=n))
         return "".join(random.choices(self.CHAR_POOL, k=n))
-    def random_value(self, depth=0, *, for_json: bool=False):
-        r = random.randint(0, 32 if depth < 4 else 20)
+    def random_value(self, depth: int, *, for_json: bool=False):
+        r = random.randint(0, 32 if depth > 0 else 20)
         match r:
             case 0:
                 return None
@@ -357,21 +357,31 @@ class TestLoaderAndDumper(unittest.TestCase):
             case 16 | 17 | 18 | 19:
                 return math.ldexp(random.random() - 0.5, random.randint(-40, 40))
             case 20 | 21 | 22 | 23 | 24 | 25:
-                return [self.random_value(depth + 1, for_json=for_json)
-                        for _ in range(random.randint(0, 4))]
+                return [self.random_value(depth - 1, for_json=for_json)
+                        for _ in range(random.randint(0, 8))]
             case 26 | 27 | 28 | 29 | 30 | 31:
-                return {self.random_string(True): self.random_value(depth + 1, for_json=for_json)
-                        for _ in range(random.randint(0, 4))}
+                return {
+                    self.random_string(True): self.random_value(depth - 1, for_json=for_json)
+                    for _ in range(random.randint(0, 8))
+                }
     def test_random(self):
         def_seed = 0
         def_runs = 256
-        seed = os.getenv('FRID_RANDOM_SEED', def_seed)
-        runs = int(os.getenv('FRID_RANDOM_ITER', def_runs))
-        if seed != def_seed or runs != def_runs:
+        def_tree = 4
+        runs = int(os.getenv('FRID_RANDOM_RUNS', def_runs))
+        seed = os.getenv('FRID_RANDOM_SEED')
+        if seed is None:
+            seed = def_seed
+        else:
+            seed = load_from_str(seed)
+            assert isinstance(seed, int|float|bytes|str)
+        tree = int(os.getenv('FRID_RANDOM_TREE', def_tree))
+
+        if seed != def_seed or runs != def_runs or tree != def_tree:
             print(f"\nRunning random test with {runs} rounds, seed={seed}")
         random.seed(seed)
         for _ in range(runs):
-            data = self.random_value(for_json=True)
+            data = self.random_value(tree, for_json=True)
             text = json.dumps(data)
             self.assertEqual(data, load_from_str(text, json_level=1), msg="Loading JSON")
             self.assertEqual(data, load_from_str(text, json_level=5), msg="Loading JSON5")
@@ -381,7 +391,7 @@ class TestLoaderAndDumper(unittest.TestCase):
                                  msg=f"{json_level=} {len(s)=}")
         for _ in range(runs):
             for escape_seq in (None, '~', "#!"):
-                data = self.random_value(for_json=False)
+                data = self.random_value(tree, for_json=False)
                 s = dump_into_str(data, escape_seq=escape_seq)
                 self.assertEqual(data, load_from_str(s, escape_seq=escape_seq),
                                 msg=f"{json_level=} {len(s)=}")
@@ -389,8 +399,10 @@ class TestLoaderAndDumper(unittest.TestCase):
                 dump_info_tio(data, t, escape_seq=escape_seq)
                 self.assertEqual(s, t.getvalue())
                 t = io.StringIO(s)
-                self.assertEqual(data, load_from_tio(t, page=2, escape_seq=escape_seq),
-                                 msg=f"{json_level=} {len(s)=}")
+                self.assertEqual(
+                    data, load_from_tio(t, page=random.randint(1, 5), escape_seq=escape_seq),
+                    msg=f"{json_level=} {len(s)=}"
+                )
 
 
     negative_load_cases = [
