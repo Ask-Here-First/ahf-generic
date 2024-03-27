@@ -174,13 +174,14 @@ class HttpMixin:
                 body = self._streaming(self.http_data)
                 mime_type = "text/event-stream"
             elif self.mime_type == 'json':
-                body = json.dumps(self.http_data).encode()
+                body = json.dumps(self.http_data, json_level=1).encode()
                 mime_type = self.mime_type
             elif self.mime_type == 'frid':
                 body = dump_into_str(self.http_data).encode()
                 mime_type = self.mime_type
             else:
-                body = dump_into_str(self.http_data, json_level=DEF_ESCAPE_SEQ).encode()
+                body = dump_into_str(self.http_data, json_level=1,
+                                     escape_seq=DEF_ESCAPE_SEQ).encode()
                 mime_type = 'json'
             self.http_body = body
         # Check mime type for Content-Type if it is missing in http_head
