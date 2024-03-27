@@ -1,4 +1,4 @@
-import os, sys, math, json, string, random, unittest, importlib
+import os, io, sys, math, json, string, random, unittest, importlib
 from typing import Literal, cast
 try:
     # We have to import in the begining; otherwise static contents are not coveraged
@@ -21,8 +21,8 @@ from .typing import StrKeyMap
 from .chrono import parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode, str_transform, str_find_any
-from .dumper import dump_into_str
-from .loader import ParseError, load_from_str
+from .dumper import dump_info_tio, dump_into_str
+from .loader import ParseError, load_from_str, load_from_tio
 
 class TestChrono(unittest.TestCase):
     def test_parse(self):
@@ -385,6 +385,13 @@ class TestLoaderAndDumper(unittest.TestCase):
                 s = dump_into_str(data, escape_seq=escape_seq)
                 self.assertEqual(data, load_from_str(s, escape_seq=escape_seq),
                                 msg=f"{json_level=} {len(s)=}")
+                t = io.StringIO()
+                dump_info_tio(data, t, escape_seq=escape_seq)
+                self.assertEqual(s, t.getvalue())
+                t = io.StringIO(s)
+                self.assertEqual(data, load_from_tio(t, page=2, escape_seq=escape_seq),
+                                 msg=f"{json_level=} {len(s)=}")
+
 
     negative_load_cases = [
         # Numbers

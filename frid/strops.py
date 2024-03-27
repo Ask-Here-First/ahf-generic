@@ -7,6 +7,8 @@ def _bound_index(limit: int, index: int|None=None, /) -> int:
     """Puts the index within the bound between 0..limit.
     - If `index` is negative, it is considered to be from the limit.
     - If `index` is None, returns the `bound` itself.
+    Note we allow index to be beyond the limit (in which case a triggered
+    IndexError may cause a reload)
     """
     if index is None:
         return limit
@@ -128,11 +130,14 @@ def str_transform__heap(
         else:
             assert hpos < 0
     else:
-        if (j := _do_find_any_0(s, stop_at, index, bound)) > index:
-            out.append(s[index:j])
-            index = j
+        if (j := _do_find_any_0(s, stop_at, index, bound)) >= index:
+            if j > index:
+                out.append(s[index:j])
+                index = j
         else:
             out.append(s[index:bound])
+            if bound > len(s):
+                raise IndexError(f"The string terminates at {len(s)} before the bound {bound}")
             index = bound
     return (index - start, ''.join(out))
 
@@ -146,14 +151,16 @@ def str_transform(
     - `start` and `bound`:
     - `stop_at`: a list of characters where the transform will stop. Note that
       transformers match takes priority.
-    - It returns a pair: the number of chars processed and the transformed string
+    - It returns a pair:
+        + The number of chars processed.
+        + The transformed string
     The transformer callback function receives the following arguments:
     - The string `s`,
     - The current index in the string,
     - The bound in the string,
     - The matched prefix (same as specified as the key in the transformers).
     - Returns a pair:
-        + A count for consumed bytes, or -1 for terminate and 0 for not matching.
+        + A count for consumed bytes.
         + The transformed string to be appended to output (empty string for append nothing).
     """
     assert transformers
@@ -240,7 +247,9 @@ class StringEscapeDecode:
                 n = 2 << i
                 index += len(x)
                 if index + n > bound:
-                    raise ValueError(f"Less than {n} letters follows \\{c} sequence")
+                    raise ValueError(f"Less than {n} chars follows \\{c} sequence")
+                if index + n > len(s):
+                    raise IndexError(f"Less than {n} chars follows \\{c} in the current buffer")
                 cp = int(s[index:(index + n)], 16)
                 return (len(prefix) + len(x) + n, chr(cp))
         raise ValueError(f"Unexpected escape sequence '{prefix}{c}': '{s[start-4:index+8]}'")
