@@ -1,7 +1,7 @@
 import os, json
 from collections.abc import AsyncIterator, Iterable, Mapping
 from typing import Literal
-from urllib.parse import unquote_plus
+from urllib.parse import unquote
 
 from .typing import BlobTypes, FridValue
 from .errors import FridError
@@ -21,6 +21,14 @@ def parse_http_query(qs: str) -> tuple[list[tuple[str,str]|str],dict[str,FridVal
         + A list of original key value pairs of strings, URI decoded, but not evaluated.
         + A dict of with the same original decoded key, but the values are evaluated.
     """
+    # About space encoding and plus handling - Current situations (verified in Chrome)
+    # - encodeURIComponent() encoding both with %
+    # - decodeURIComponent() does not convert + to space
+    # - URLSearchParams() does encode space to + and decode + back to space
+    # - For parsing forms data, one should do plus to space conversion
+    # Hence the current strategy is:
+    # - Keep + as + in keys
+    # - Keep leading + in value as +, but convert all remaining + chars into space.
     if not qs:
         return ([], {})
     if qs.startswith('?'):
@@ -29,16 +37,19 @@ def parse_http_query(qs: str) -> tuple[list[tuple[str,str]|str],dict[str,FridVal
             return ([], {})
     qsargs: list[tuple[str,str]|str] = []
     kwargs: dict[str,FridValue] = {}
-    for x in qs.split('&'):
-        if '=' not in x:
-            qsargs.append(unquote_plus(x))
+    for item in qs.split('&'):
+        if '=' not in item:
+            qsargs.append(unquote(item))
             continue
-        (k, v) = x.split('=', 1)
-        uk = unquote_plus(k)
-        uv = unquote_plus(v)
-        qsargs.append((uk, uv))
-        # If the first character is percentage encoded, retreat whole thing as stting
-        kwargs[uk] = load_from_str(uv) if v and v[0] != '%' else uv
+        (k, v) = item.split('=', 1)
+        v2 = v.lstrip('+').replace('+', ' ')  # Convert + to space except for leading +
+        value = unquote(v[:(len(v) - len(v2))] + v2)
+        key = unquote(k)
+        qsargs.append((key, value))
+        try:
+            kwargs[key] = load_from_str(value)
+        except Exception:
+            kwargs[key] = value
     return (qsargs, kwargs)
 
 class HttpMixin:
