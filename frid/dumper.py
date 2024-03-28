@@ -34,9 +34,9 @@ class FridDumper(PrettyPrint):
     """
     def __init__(self, *args, json_level: Literal[0,1,5]=0, escape_seq: str|None=None,
                  ascii_only: bool=False,
-                 print_real: Callable[[int|float,str],str|None]|None=None,
-                 print_date: Callable[[DateTypes,str],str|None]|None=None,
-                 print_blob: Callable[[BlobTypes,str],str|None]|None=None,
+                 print_real: Callable[[int|float],str|None]|None=None,
+                 print_date: Callable[[DateTypes],str|None]|None=None,
+                 print_blob: Callable[[BlobTypes],str|None]|None=None,
                  print_user: Callable[[Any,str],str|None]|None=None,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -131,7 +131,7 @@ class FridDumper(PrettyPrint):
         escaped = self.se_encoder(s, '"')
         if self.escape_seq is not None:
             return '"' + self.escape_seq + escaped + '"'
-        raise ValueError(f"Unsupported customized data with json={self.json_level} at {path=}")
+        raise ValueError(f"Unsupported data {s} with json={self.json_level} at {path=}")
 
     def prime_data_to_str(self, data: FridValue, path: str, /) -> str|None:
         """Converts prime data to string representation.
@@ -154,16 +154,16 @@ class FridDumper(PrettyPrint):
             if is_frid_identifier(data):
                 return data
         if isinstance(data, int|float):
-            if self.print_real is not None and (out := self.print_real(data, path)) is not None:
-                return self._maybe_quoted(out, path)
+            if self.print_real is not None and (out := self.print_real(data)) is not None:
+                return out  # integer or real is never quoted
             return self.real_to_str(data, path)
         if isinstance(data, DateTypes):
-            if self.print_date is not None and (out := self.print_date(data, path)) is not None:
+            if self.print_date is not None and (out := self.print_date(data)) is not None:
                 return self._maybe_quoted(out, path)
             return self.date_to_str(data, path)
         if isinstance(data, BlobTypes):
-            if self.print_blob is not None and (out := self.print_blob(data, path)) is not None:
-                return self._maybe_quoted(out, path)
+            if self.print_blob is not None and (out := self.print_blob(data)) is not None:
+                return self._maybe_quoted(".." + out, path)
             return self.blob_to_str(data, path)
         if self.json_level or self.json_level == '':
             return None

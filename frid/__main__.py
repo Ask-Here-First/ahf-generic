@@ -1,4 +1,4 @@
-import os, io, sys, math, json, string, unittest, importlib
+import os, io, sys, math, json, string, base64, unittest, importlib
 from random import Random
 from typing import Literal, cast
 try:
@@ -323,7 +323,7 @@ class TestLoaderAndDumper(unittest.TestCase):
             # Generate within the
             return "".join(rng.choices("abcxyz+-._", k=n))
         return "".join(rng.choices(self.CHAR_POOL, k=n))
-    def random_value(self, rng: Random, depth: int, *, for_json: bool=False):
+    def random_value(self, rng: Random, depth: int, *, for_json: int=0):
         r = rng.randint(0, 32 if depth > 0 else 20)
         match r:
             case 0:
@@ -354,6 +354,8 @@ class TestLoaderAndDumper(unittest.TestCase):
                 return rng.randint(-10000, 10000)
             case 15:
                 # Cannot use NaN as NaN != NaN
+                if for_json == 1:
+                    return rng.choice([1.0, 0.0, -1.0, math.e, math.pi]) # no infinity
                 return rng.choice([math.inf, 1.0, 0.0, -1.0, math.e, math.pi, -math.inf])
             case 16 | 17 | 18 | 19:
                 return math.ldexp(rng.random() - 0.5, rng.randint(-40, 40))
@@ -383,30 +385,55 @@ class TestLoaderAndDumper(unittest.TestCase):
             print(f"\nRunning random test with {runs} rounds, seed={seed}")
         rng = Random()
         rng.seed(seed)
+
         for _ in range(runs):
-            data = self.random_value(rng, tree, for_json=True)
+            r = rng.randint(0, 15)
+            dump_args = {
+                'print_real': None if r & 1 else lambda x: format(x, '+'),
+                'print_date': None if r & 2 else lambda v: strfr_datetime(v, prec=6),
+                'print_blob': None if r & 4 else lambda v: base64.b16encode(v).decode(),
+                'ascii_only': bool(r & 8),
+            }
+            load_args = {
+                'parse_real': None if r & 1 else lambda s: (
+                    int(s, 0) if s[1:].isnumeric() and (s[0].isnumeric() or s[0] in "+-")
+                    else float(s)
+                ),
+                'parse_date': None if r & 2 else lambda s: parse_datetime(s),
+                'parse_blob': None if r & 4 else lambda s: base64.b16decode(s),
+            }
+            # Test with only JSON compatible values
+            data = self.random_value(rng, tree, for_json=1)
             text = json.dumps(data)
             self.assertEqual(data, load_from_str(text, json_level=1), msg="Loading JSON")
             self.assertEqual(data, load_from_str(text, json_level=5), msg="Loading JSON5")
-            for json_level in (0, 5):
-                s = dump_into_str(data, json_level=json_level)
-                self.assertEqual(data, load_from_str(s, json_level=json_level),
+            for json_level in (0, 1, 5):
+                s = dump_into_str(data, json_level=json_level, **dump_args)
+                self.assertEqual(data, load_from_str(s, json_level=json_level, **load_args),
                                  msg=f"{json_level=} {len(s)=}")
-
-        for _ in range(runs):
-            for escape_seq in (None, '~', "#!"):
-                data = self.random_value(rng, tree, for_json=False)
-                s = dump_into_str(data, escape_seq=escape_seq)
-                self.assertEqual(data, load_from_str(s, escape_seq=escape_seq),
-                                msg=f"{json_level=} {len(s)=}")
+            # Test with only JSON-5 compatible values
+            data = self.random_value(rng, tree, for_json=5)
+            for json_level in (0, 5):
+                s = dump_into_str(data, json_level=json_level, **dump_args)
+                self.assertEqual(data, load_from_str(s, json_level=json_level, **load_args),
+                                 msg=f"{json_level=} {len(s)=}")
+            # Test with only all possible frid values
+            json_level = rng.choice([0, 1, 5])
+            for escape_seq in ('~', "#!"):
+                data = self.random_value(rng, tree, for_json=0)
+                s = dump_into_str(data, json_level=json_level,
+                                  escape_seq=escape_seq, **dump_args)
+                self.assertEqual(data, load_from_str(
+                    s, json_level=1, escape_seq=escape_seq, **load_args
+                ), msg=f"{len(s)=}")
                 t = io.StringIO()
-                dump_info_tio(data, t, escape_seq=escape_seq)
+                dump_info_tio(data, t, json_level=json_level,
+                              escape_seq=escape_seq, **dump_args)
                 self.assertEqual(s, t.getvalue())
                 t = io.StringIO(s)
-                self.assertEqual(
-                    data, load_from_tio(t, page=rng.randint(1, 5), escape_seq=escape_seq),
-                    msg=f"{json_level=} {len(s)=}"
-                )
+                self.assertEqual(data, load_from_tio(
+                    t, page=rng.randint(1, 5), json_level=1, escape_seq=escape_seq, **load_args
+                ), msg=f"{len(s)=}")
 
 
     negative_load_cases = [
