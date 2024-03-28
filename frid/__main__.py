@@ -1,4 +1,5 @@
-import os, io, sys, math, json, string, random, unittest, importlib
+import os, io, sys, math, json, string, unittest, importlib
+from random import Random
 from typing import Literal, cast
 try:
     # We have to import in the begining; otherwise static contents are not coveraged
@@ -316,14 +317,14 @@ class TestLoaderAndDumper(unittest.TestCase):
         self.assertEqual(dump_into_str(math.nan, json_level=5), "NaN")
 
     CHAR_POOL = string.printable + "\u03b1\u03b2\u03b3\u2020\u2021\u2022" #"\U00010330"
-    def random_string(self, for_key=False):
-        n = random.randint(0, 20)
-        if for_key and random.randint(0, 1):
+    def random_string(self, rng: Random, for_key=False):
+        n = rng.randint(0, 20)
+        if for_key and rng.randint(0, 1):
             # Generate within the
-            return "".join(random.choices("abcxyz+-._", k=n))
-        return "".join(random.choices(self.CHAR_POOL, k=n))
-    def random_value(self, depth: int, *, for_json: bool=False):
-        r = random.randint(0, 32 if depth > 0 else 20)
+            return "".join(rng.choices("abcxyz+-._", k=n))
+        return "".join(rng.choices(self.CHAR_POOL, k=n))
+    def random_value(self, rng: Random, depth: int, *, for_json: bool=False):
+        r = rng.randint(0, 32 if depth > 0 else 20)
         match r:
             case 0:
                 return None
@@ -344,25 +345,26 @@ class TestLoaderAndDumper(unittest.TestCase):
                     return False
                 return datetime.now().time().replace(microsecond=0)
             case 6 | 7 | 8 | 9:
-                return self.random_string()
+                return self.random_string(rng)
             case 10 | 11:
                 if for_json:
-                    return self.random_string()
-                return self.random_string().encode()
+                    return self.random_string(rng)
+                return self.random_string(rng).encode()
             case 12 | 13 | 14:
-                return random.randint(-10000, 10000)
+                return rng.randint(-10000, 10000)
             case 15:
                 # Cannot use NaN as NaN != NaN
-                return random.choice([math.inf, 1.0, 0.0, -1.0, math.e, math.pi, -math.inf])
+                return rng.choice([math.inf, 1.0, 0.0, -1.0, math.e, math.pi, -math.inf])
             case 16 | 17 | 18 | 19:
-                return math.ldexp(random.random() - 0.5, random.randint(-40, 40))
+                return math.ldexp(rng.random() - 0.5, rng.randint(-40, 40))
             case 20 | 21 | 22 | 23 | 24 | 25:
-                return [self.random_value(depth - 1, for_json=for_json)
-                        for _ in range(random.randint(0, 8))]
+                return [self.random_value(rng, depth - 1, for_json=for_json)
+                        for _ in range(rng.randint(0, 8))]
             case 26 | 27 | 28 | 29 | 30 | 31:
                 return {
-                    self.random_string(True): self.random_value(depth - 1, for_json=for_json)
-                    for _ in range(random.randint(0, 8))
+                    self.random_string(rng, True):
+                        self.random_value(rng, depth - 1, for_json=for_json)
+                    for _ in range(rng.randint(0, 8))
                 }
     def test_random(self):
         def_seed = 0
@@ -379,9 +381,10 @@ class TestLoaderAndDumper(unittest.TestCase):
 
         if seed != def_seed or runs != def_runs or tree != def_tree:
             print(f"\nRunning random test with {runs} rounds, seed={seed}")
-        random.seed(seed)
+        rng = Random()
+        rng.seed(seed)
         for _ in range(runs):
-            data = self.random_value(tree, for_json=True)
+            data = self.random_value(rng, tree, for_json=True)
             text = json.dumps(data)
             self.assertEqual(data, load_from_str(text, json_level=1), msg="Loading JSON")
             self.assertEqual(data, load_from_str(text, json_level=5), msg="Loading JSON5")
@@ -389,9 +392,10 @@ class TestLoaderAndDumper(unittest.TestCase):
                 s = dump_into_str(data, json_level=json_level)
                 self.assertEqual(data, load_from_str(s, json_level=json_level),
                                  msg=f"{json_level=} {len(s)=}")
+
         for _ in range(runs):
             for escape_seq in (None, '~', "#!"):
-                data = self.random_value(tree, for_json=False)
+                data = self.random_value(rng, tree, for_json=False)
                 s = dump_into_str(data, escape_seq=escape_seq)
                 self.assertEqual(data, load_from_str(s, escape_seq=escape_seq),
                                 msg=f"{json_level=} {len(s)=}")
@@ -400,7 +404,7 @@ class TestLoaderAndDumper(unittest.TestCase):
                 self.assertEqual(s, t.getvalue())
                 t = io.StringIO(s)
                 self.assertEqual(
-                    data, load_from_tio(t, page=random.randint(1, 5), escape_seq=escape_seq),
+                    data, load_from_tio(t, page=rng.randint(1, 5), escape_seq=escape_seq),
                     msg=f"{json_level=} {len(s)=}"
                 )
 
