@@ -18,10 +18,11 @@ try:
 except ImportError:
     _cov = None
 
-from .typing import StrKeyMap
+from .typing import FridValue, StrKeyMap
 from .chrono import parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode, str_transform, str_find_any
+from .helper import Comparator
 from .dumper import dump_into_tio, dump_into_str
 from .loader import ParseError, load_from_str, load_from_tio
 
@@ -204,6 +205,32 @@ class TestStrops(unittest.TestCase):
             decode(t5, '', 0, len(t5)-1)
         with self.assertRaises(ValueError):
             decode(t1, '')
+
+class TestHelper(unittest.TestCase):
+    def test_comparator(self):
+        cmp = Comparator()
+        self.assertTrue(cmp(None, None))
+        self.assertTrue(cmp(2, 2))
+        self.assertFalse(cmp(1, "1"))
+        # Unsupported data type
+        self.assertFalse(cmp(cast(FridValue, self), cast(FridValue, self)))
+        data = ['a', '1', 1, datetime.now(), b"345"]
+        self.assertTrue(cmp(data, data))
+        self.assertFalse(cmp(data, 'a'))
+        self.assertFalse(cmp(data, 3))
+        data = {'a': [1, True, 2.0, None, False], 'b': "Hello", 'c': [
+            dateonly.today(), datetime.now(), datetime.now().time()
+        ]}
+        self.assertTrue(cmp(data, data))
+        self.assertFalse(cmp(data, 'a'))
+        self.assertFalse(cmp(data, 3))
+
+    def test_comparator_submap(self):
+        cmp = Comparator(compare_dict=Comparator.is_submap)
+        self.assertTrue(cmp({'a': 1}, {'a': 1, 'b': 2}))
+        self.assertFalse(cmp({'a': 1}, {'a': 3, 'b': 2}))
+        self.assertFalse(cmp({'a': 1}, {}))
+        self.assertFalse(cmp({'a': 1}, 3))
 
 class TestLoaderAndDumper(unittest.TestCase):
     common_cases = {
