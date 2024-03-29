@@ -22,7 +22,7 @@ from .typing import StrKeyMap
 from .chrono import parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode, str_transform, str_find_any
-from .dumper import dump_info_tio, dump_into_str
+from .dumper import dump_into_tio, dump_into_str
 from .loader import ParseError, load_from_str, load_from_tio
 
 class TestChrono(unittest.TestCase):
@@ -427,7 +427,7 @@ class TestLoaderAndDumper(unittest.TestCase):
                     s, json_level=1, escape_seq=escape_seq, **load_args
                 ), msg=f"{len(s)=}")
                 t = io.StringIO()
-                dump_info_tio(data, t, json_level=json_level,
+                dump_into_tio(data, t, json_level=json_level,
                               escape_seq=escape_seq, **dump_args)
                 self.assertEqual(s, t.getvalue())
                 t = io.StringIO(s)

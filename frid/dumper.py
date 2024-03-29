@@ -287,7 +287,7 @@ def dump_into_str(data: FridValue, *args, **kwargs) -> str:
     dumper.print_frid_value(data)
     return str(dumper)
 
-def dump_info_tio(data: FridValue, io: TextIO, *args, **kwargs) -> TextIO:
+def dump_into_tio(data: FridValue, io: TextIO, *args, **kwargs) -> TextIO:
     dumper = FridTextIODumper(io, *args, **kwargs)
     dumper.print_frid_value(data)
     return io
