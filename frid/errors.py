@@ -37,11 +37,11 @@ class FridError(FridMixin, Exception):
 
     @classmethod
     def frid_from(cls, name: str, *args, error: str, trace: Sequence[str]|None=None,
-                  cause: str|None=None, **kwas):
+                  cause: str|None=None, **kwds):
         # The `trace` and `cause` are not accepting TrackbackType and BaseException;
         # and `error` is passed as the first argument.
         assert name in cls.frid_keys()
-        return FridError(error, trace=trace, **kwas)
+        return FridError(error, trace=trace, **kwds)
 
     def frid_repr(self) -> dict[str,str|int|list[str]]:
         out: dict[str,str|int|list[str]] = {'error': str(self)}
