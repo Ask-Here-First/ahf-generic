@@ -1,29 +1,10 @@
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Literal, TypeGuard, TypeVar, overload
 
-from .typing import BlobTypes, StrKeyMap
+from .typing import BlobTypes, DateTypes, FridArray, FridPrime, FridValue, StrKeyMap
 
 K = TypeVar('K')
 V = TypeVar('V')
-
-@overload
-def as_type(dtype: type[V], data, /, allow_none: Literal[False]=False) -> V: ...
-@overload
-def as_type(dtype: type[V], data, /, allow_none: Literal[True]) -> V|None: ...
-def as_type(dtype: type[V], data, /, allow_none: bool=False) -> V|None:
-    if data is None and allow_none:
-        return None
-    if not isinstance(data, dtype):
-        raise ValueError(f"Expecting type {dtype}, got {type(data).__name__}")
-    return data
-@overload
-def get_as_type(dtype: type[V], map: StrKeyMap, key: str,
-                /, allow_none: Literal[False]=False) -> V: ...
-@overload
-def get_as_type(dtype: type[V], map: StrKeyMap, key: str,
-                /, allow_none: Literal[True]) -> V|None: ...
-def get_as_type(dtype: type[V], map: StrKeyMap, key: str, /, allow_none: bool=False) -> V|None:
-    return as_type(dtype, map.get(key))
 
 def is_text_list_like(data, /) -> TypeGuard[Sequence[str]]:
     """Type guard for a sequence of string elements."""
@@ -103,6 +84,25 @@ def is_dict_like(
     return all(isinstance(x, vtypes) or x is None for x in data.values())
 
 
+@overload
+def as_type(dtype: type[V], data, /, allow_none: Literal[False]=False) -> V: ...
+@overload
+def as_type(dtype: type[V], data, /, allow_none: Literal[True]) -> V|None: ...
+def as_type(dtype: type[V], data, /, allow_none: bool=False) -> V|None:
+    if data is None and allow_none:
+        return None
+    if not isinstance(data, dtype):
+        raise ValueError(f"Expecting type {dtype}, got {type(data).__name__}")
+    return data
+@overload
+def get_as_type(dtype: type[V], map: StrKeyMap, key: str,
+                /, allow_none: Literal[False]=False) -> V: ...
+@overload
+def get_as_type(dtype: type[V], map: StrKeyMap, key: str,
+                /, allow_none: Literal[True]) -> V|None: ...
+def get_as_type(dtype: type[V], map: StrKeyMap, key: str, /, allow_none: bool=False) -> V|None:
+    return as_type(dtype, map.get(key))
+
 def as_key_value_pair(
         data: Sequence[tuple[K,V]]|Mapping[K,V]|Iterable
 ) -> Sequence[tuple[K,V]]:
@@ -120,6 +120,18 @@ def as_key_value_pair(
     if isinstance(data, Iterable):
         return list(data)
     raise ValueError(f"The input is not an iterable: {type(data)}")
+
+
+def is_frid_prime(data) -> TypeGuard[FridPrime]:
+    return data is None or isinstance(data, str|BlobTypes|DateTypes|int|float|bool)
+def is_frid_array(data) -> TypeGuard[FridArray]:
+    return isinstance(data, Sequence) and all(is_frid_value(x) for x in data)
+def is_frid_skmap(data) -> TypeGuard[StrKeyMap]:
+    return isinstance(data, Mapping) and all(
+        isinstance(k, str) and is_frid_value(v) for k, v in data.items()
+    )
+def is_frid_value(data) -> TypeGuard[FridValue]:
+    return is_frid_prime(data) or is_frid_array(data) or is_frid_skmap(data)
 
 def is_identifier_head(c: str) -> bool:
     """Returns if `c` can be first character of an indentifier."""
