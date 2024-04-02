@@ -377,12 +377,12 @@ class FridLoader:
 
     def construct_mixin(
             self, index: int, path: str, start: int,
-            /, name: str,  args: list[FridValue], kwas: dict[str,FridValue]
+            /, name: str,  args: list[FridValue], kwds: dict[str,FridValue]
     ) -> tuple[int,FridValue]:
         mixin = self.frid_mixin.get(name)
         if mixin is None:
             self.error(start, f"Cannot find constructor called {name}")
-        return (index, mixin.frid_from(name, *args, **kwas))
+        return (index, mixin.frid_from(name, *args, **kwds))
 
     def scan_frid_value(self, index: int, path: str, /, empty: Any='') -> tuple[int,FridValue]:
         """Load the text representation."""

@@ -29,10 +29,10 @@ class FridMixin(ABC):
         return [cls.__name__]
 
     @classmethod
-    def frid_from(cls, name: str, *args: 'FridValue', **kwas: 'FridValue') -> 'FridMixin':
+    def frid_from(cls, name: str, *args: 'FridValue', **kwds: 'FridValue') -> 'FridMixin':
         """Construct an instance with given name and arguments."""
         assert name in cls.frid_keys()
-        return cls(*args, **kwas)
+        return cls(*args, **kwds)
 
     @abstractmethod
     def frid_repr(self) -> tuple[str,Sequence['FridValue'],Mapping[str,'FridValue']]:

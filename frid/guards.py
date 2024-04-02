@@ -1,10 +1,29 @@
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Literal, TypeGuard, TypeVar, overload
 
-from .typing import BlobTypes
+from .typing import BlobTypes, StrKeyMap
 
 K = TypeVar('K')
 V = TypeVar('V')
+
+@overload
+def as_type(dtype: type[V], data, /, allow_none: Literal[False]=False) -> V: ...
+@overload
+def as_type(dtype: type[V], data, /, allow_none: Literal[True]) -> V|None: ...
+def as_type(dtype: type[V], data, /, allow_none: bool=False) -> V|None:
+    if data is None and allow_none:
+        return None
+    if not isinstance(data, dtype):
+        raise ValueError(f"Expecting type {dtype}, got {type(data).__name__}")
+    return data
+@overload
+def get_as_type(dtype: type[V], map: StrKeyMap, key: str,
+                /, allow_none: Literal[False]=False) -> V: ...
+@overload
+def get_as_type(dtype: type[V], map: StrKeyMap, key: str,
+                /, allow_none: Literal[True]) -> V|None: ...
+def get_as_type(dtype: type[V], map: StrKeyMap, key: str, /, allow_none: bool=False) -> V|None:
+    return as_type(dtype, map.get(key))
 
 def is_text_list_like(data, /) -> TypeGuard[Sequence[str]]:
     """Type guard for a sequence of string elements."""
