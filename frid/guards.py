@@ -1,5 +1,5 @@
-from collections.abc import Iterable, Mapping, Sequence
-from typing import Literal, TypeGuard, TypeVar, overload
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import Any, Literal, TypeGuard, TypeVar, overload
 
 from .typing import BlobTypes, DateTypes, FridArray, FridPrime, FridValue, StrKeyMap
 
@@ -30,8 +30,16 @@ def is_list_like(
 def is_list_like(
         data, /, etype: type[V], *, allow_none: Literal[True]
 ) -> TypeGuard[Sequence[V|None]]: ...
+@overload
 def is_list_like(
-        data, /, etype: type|None=None, *, allow_none: bool=False
+        data, /, etype: Callable[[Any],TypeGuard[V]], *, allow_none: Literal[False]=False
+) -> TypeGuard[Sequence[V]]: ...
+@overload
+def is_list_like(
+        data, /, etype: Callable[[Any],TypeGuard[V]], *, allow_none: Literal[True]
+) -> TypeGuard[Sequence[V|None]]: ...
+def is_list_like(
+        data, /, etype: Callable[[Any],bool]|type|None=None, *, allow_none: bool=False
 ) -> TypeGuard[Sequence]:
     """Type guard for a sequence type.
     Arguments:
@@ -46,9 +54,15 @@ def is_list_like(
         return False
     if etype is None:
         return True
-    if not allow_none:
-        return all(isinstance(x, etype) for x in data)
-    return all(isinstance(x, etype) or x is None for x in data)
+    if isinstance(etype, type):
+        if not allow_none:
+            return all(isinstance(x, etype) for x in data)
+        return all(isinstance(x, etype) or x is None for x in data)
+    if callable(etype):
+        if not allow_none:
+            return all(etype(x) for x in data)
+        return all(etype(x) or x is None for x in data)
+    raise ValueError(f"Invalid etype specification: {etype}")
 
 @overload
 def is_dict_like(
