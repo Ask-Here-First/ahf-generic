@@ -1,7 +1,7 @@
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, Literal, TypeGuard, TypeVar, overload
 
-from .typing import BlobTypes, DateTypes, FridArray, FridPrime, FridValue, StrKeyMap
+from .typing import BlobTypes, DateTypes, FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
 
 K = TypeVar('K')
 V = TypeVar('V')
@@ -145,7 +145,8 @@ def is_frid_skmap(data) -> TypeGuard[StrKeyMap]:
         isinstance(k, str) and is_frid_value(v) for k, v in data.items()
     )
 def is_frid_value(data) -> TypeGuard[FridValue]:
-    return is_frid_prime(data) or is_frid_array(data) or is_frid_skmap(data)
+    return (is_frid_prime(data) or is_frid_array(data) or is_frid_skmap(data)
+            or isinstance(data, FridMixin))
 
 def is_identifier_head(c: str) -> bool:
     """Returns if `c` can be first character of an indentifier."""
