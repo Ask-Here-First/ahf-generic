@@ -1,10 +1,11 @@
-import os, json
-from collections.abc import AsyncIterator, Iterable, Mapping
-from typing import Literal
+import os, json, time, asyncio
+from collections.abc import AsyncIterable, Awaitable, Callable, Iterable, Mapping, Sequence
+from typing import Any, Literal, TypeVar
 from urllib.parse import unquote
 
 from .typing import BlobTypes, FridValue
 from .errors import FridError
+from .guards import is_frid_value
 from .loader import load_from_str
 from .dumper import dump_into_str
 
@@ -52,6 +53,48 @@ def parse_http_query(qs: str) -> tuple[list[tuple[str,str]|str],dict[str,FridVal
             kwargs[key] = value
     return (qsargs, kwargs)
 
+
+
+T = TypeVar('T')
+async def collect_async_iterable(
+        it: AsyncIterable[T], catch: type[BaseException]|None=None
+) -> list[T]:
+    out = []
+    if catch is None:
+        async for data in it:
+            out.append(data)
+    else:
+        try:
+            async for data in it:
+                out.append(data)
+        except catch:
+            pass
+    return out
+
+def timeout_async_iterable(timeout: float|tuple[float,float], it: AsyncIterable[T]):
+    x = aiter(it)
+    return timeout_multi_callable(timeout, lambda: anext(x))
+
+async def timeout_multi_callable(
+        timeout: float|tuple[float,float], func: Callable[...,Awaitable[T]], *args, **kwargs,
+):
+    """Convert a repeated function generator"""
+    if isinstance(timeout, float):
+        min_wait = timeout
+        max_wait = timeout
+    else:
+        assert isinstance(timeout, Sequence) and len(timeout) == 2
+        (min_wait, max_wait) = timeout
+        assert min_wait <= max_wait
+    t0 = time.time()
+    t1 = t0 + min_wait
+    t2 = t0 + max_wait
+    t = t0
+    while t < t1:
+        yield await asyncio.wait_for(func(*args, **kwargs), timeout=(t2 - t))
+        t = time.time()
+
+
 class HttpMixin:
     """The generic mixin class that stores additional HTTP data.
 
@@ -67,11 +110,11 @@ class HttpMixin:
     """
     def __init__(self, /, *args, ht_status: int=0, http_head: Mapping[str,str]|None=None,
                  http_body: BlobTypes|None=None, mime_type: str|ShortMimeType|None=None,
-                 http_data: FridValue|AsyncIterator[FridValue]=None, **kwargs):
+                 http_data: FridValue|AsyncIterable[FridValue|Any]=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.ht_status: int = ht_status
-        self.http_body: BlobTypes|AsyncIterator[BlobTypes]|None = http_body
-        self.http_data: FridValue|AsyncIterator[FridValue]|None = http_data
+        self.http_body: BlobTypes|AsyncIterable[BlobTypes]|None = http_body
+        self.http_data: FridValue|AsyncIterable[FridValue|Any]|None = http_data
         self.mime_type: str|ShortMimeType|None = mime_type
         self.http_head: dict[str,str] = dict(http_head) if http_head is not None else {}
 
@@ -144,12 +187,15 @@ class HttpMixin:
                    http_data=http_data, **kwargs)
 
     @staticmethod
-    async def _streaming(stream: AsyncIterator[FridValue]):
+    async def _streaming(stream: AsyncIterable[FridValue|Any]):
         """This is an agent iterator that convert data to string."""
         async for item in stream:
-            yield ("data: " + dump_into_str(
-                item, json_level=5, escape_seq=DEF_ESCAPE_SEQ
-            ) + "\n\n").encode()
+            if is_frid_value(item):
+                yield b"data: " + dump_into_str(
+                    item, json_level=5, escape_seq=DEF_ESCAPE_SEQ
+                ).encode() + b"\n\n"
+            else:
+                yield b"event: error\ndata: " + str(item).replace('\n', ' ').encode() + b"\n\n"
 
     def set_response(self) -> 'HttpMixin':
         """Update other HTTP fields according to http_data.
@@ -182,7 +228,7 @@ class HttpMixin:
             elif isinstance(self.http_data, str):
                 body = self.http_data.encode()
                 mime_type = 'text'
-            elif isinstance(self.http_data, AsyncIterator):
+            elif isinstance(self.http_data, AsyncIterable):
                 body = self._streaming(self.http_data)
                 mime_type = "text/event-stream"
             elif self.mime_type == 'json':
