@@ -5,6 +5,7 @@ from urllib.parse import unquote
 
 from .typing import BlobTypes, FridValue
 from .errors import FridError
+from .helper import get_type_name
 from .guards import is_frid_value
 from .loader import load_from_str
 from .dumper import dump_into_str
@@ -139,7 +140,13 @@ class HttpMixin:
                     http_data = json.loads(rawdata.decode(encoding))
                     mime_type = 'json'
                 case _:
-                    if mime_type == FRID_MIME_TYPE:
+                    if not mime_type:  # If not specified try to parse as json
+                        try:
+                            http_data = json.loads(rawdata.decode(encoding))
+                            mime_type = 'json'
+                        except Exception:
+                            pass
+                    elif mime_type == FRID_MIME_TYPE:
                         http_data = load_from_str(rawdata.decode(encoding))
                         mime_type = 'frid'
         return cls(*args, http_head=http_head, mime_type=mime_type, http_body=rawdata,
@@ -154,7 +161,7 @@ class HttpMixin:
                     item, json_level=5, escape_seq=DEF_ESCAPE_SEQ
                 ).encode() + b"\n\n"
             else:
-                yield b"event: error\ndata: " + str(item).replace('\n', ' ').encode() + b"\n\n"
+                yield b"event: other\ndata: " + get_type_name(item).encode() + b"\n\n"
 
     def set_response(self) -> 'HttpMixin':
         """Update other HTTP fields according to http_data.
