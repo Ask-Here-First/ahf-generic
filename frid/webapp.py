@@ -1,6 +1,6 @@
-import os, json, time, asyncio
-from collections.abc import AsyncIterable, Awaitable, Callable, Iterable, Mapping, Sequence
-from typing import Any, Literal, TypeVar
+import os, json
+from collections.abc import AsyncIterable, Iterable, Mapping
+from typing import Any, Literal
 from urllib.parse import unquote
 
 from .typing import BlobTypes, FridValue
@@ -52,47 +52,6 @@ def parse_http_query(qs: str) -> tuple[list[tuple[str,str]|str],dict[str,FridVal
         except Exception:
             kwargs[key] = value
     return (qsargs, kwargs)
-
-
-
-T = TypeVar('T')
-async def collect_async_iterable(
-        it: AsyncIterable[T], catch: type[BaseException]|None=None
-) -> list[T]:
-    out = []
-    if catch is None:
-        async for data in it:
-            out.append(data)
-    else:
-        try:
-            async for data in it:
-                out.append(data)
-        except catch:
-            pass
-    return out
-
-def timeout_async_iterable(timeout: float|tuple[float,float], it: AsyncIterable[T]):
-    x = aiter(it)
-    return timeout_multi_callable(timeout, lambda: anext(x))
-
-async def timeout_multi_callable(
-        timeout: float|tuple[float,float], func: Callable[...,Awaitable[T]], *args, **kwargs,
-):
-    """Convert a repeated function generator"""
-    if isinstance(timeout, float):
-        min_wait = timeout
-        max_wait = timeout
-    else:
-        assert isinstance(timeout, Sequence) and len(timeout) == 2
-        (min_wait, max_wait) = timeout
-        assert min_wait <= max_wait
-    t0 = time.time()
-    t1 = t0 + min_wait
-    t2 = t0 + max_wait
-    t = t0
-    while t < t1:
-        yield await asyncio.wait_for(func(*args, **kwargs), timeout=(t2 - t))
-        t = time.time()
 
 
 class HttpMixin:
