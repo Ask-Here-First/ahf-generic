@@ -1,5 +1,5 @@
 import math, base64
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Set
 from typing import  Any, Literal, NoReturn, TextIO, TypeVar
 
 from .typing import BlobTypes, DateTypes, FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
@@ -21,6 +21,11 @@ class ParseError(FridError):
         self.notes.append(note)
         self.input_string = s
         self.error_offset = index
+    def __str__(self):
+        s = super().__str__()
+        if not self.notes:
+            return s
+        return s + " => " + " | ".join(self.notes)
 
 class FridLoader:
     """This class loads data in buffer into Frid-allowed data structures.
@@ -319,18 +324,31 @@ class FridLoader:
         return (index, out)
 
     def scan_naked_dict(self, index: int, path: str,
-                        /, stop: str='', sep: str=",:") -> tuple[int,StrKeyMap]:
+                        /, stop: str='', sep: str=",:") -> tuple[int,StrKeyMap|Set]:
         out = {}
         while True:
-            (index, key) = self.scan_frid_value(index, path, empty=...)
-            if key is ...:
-                break
+            (index, key) = self.scan_frid_value(index, path, empty='')
             if not isinstance(key, str):
                 self.error(index, f"Invalid key type {type(key).__name__} of a map: {path=}")
             if key in out:
                 self.error(index, f"Existing key '{key}' of a map: {path=}")
             index = self.skip_whitespace(index, path)
-            if self.peek_fixed_size(index, path, 1) != sep[1]:
+            c = self.peek_fixed_size(index, path, 1)
+            if c == sep[0]:
+                # Seeing item separator without key/value separator
+                if not key:
+                    # Not allowing item separator with empty key and no key/value separator
+                    self.error(index, f"Missing data before '{sep[0]}'")
+                # Using value ... if key is non-empty
+                index = self.skip_fixed_size(index, path, len(c))
+                out[key] = ...
+                continue
+            if c in stop:
+                # If stops without key/value separator, add key=... only for non-empty key
+                if key:
+                    out[key] = ...
+                break
+            if c != sep[1]:
                 self.error(index, f"Expect '{sep[1]}' after key '{key}' of a map: {path=}")
             index = self.skip_fixed_size(index, path, 1)
             (index, value) = self.scan_frid_value(index, path + '/' + key)
@@ -341,6 +359,9 @@ class FridLoader:
             if c != sep[0]:
                 self.error(index, f"Expect '{sep[0]}' after the value for '{key}': {path=}")
             index = self.skip_fixed_size(index, path, len(c))
+        # Convert into a set if non-empty and all values are ...
+        if out and all(v is ... for v in out.values()):
+            out = set(out.keys())
         return (index, out)
 
     def scan_naked_args(

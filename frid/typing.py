@@ -1,6 +1,7 @@
+import types
 from abc import ABC, abstractmethod
 from datetime import date as dateonly, time as timeonly, datetime
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence, Set
 
 BlobTypes = bytes|bytearray|memoryview
 DateTypes = dateonly|timeonly|datetime   # Note that datetime in Python derives from date
@@ -24,7 +25,7 @@ class FridMixin(ABC):
       (this method is abstract).
     """
     @classmethod
-    def frid_keys(cls) -> Iterable[str]:
+    def frid_keys(cls) -> Sequence[str]:
         """The list of keys that the class provides; the default containing class name only."""
         return [cls.__name__]
 
@@ -42,6 +43,9 @@ class FridMixin(ABC):
         raise NotImplementedError
 
 FridPrime = str|float|int|bool|BlobTypes|DateTypes|None
-StrKeyMap = Mapping[str,Mapping|Sequence|FridPrime|FridMixin]
-FridValue = StrKeyMap|Sequence[StrKeyMap|Sequence|FridPrime|FridMixin]|FridPrime|FridMixin
+FridExtra = FridMixin|Set[FridPrime]  # Only set of primes, no other
+FridMapVT = Mapping|Sequence|FridPrime|FridExtra|types.EllipsisType  # Allow ... for dict value
+StrKeyMap = Mapping[str,FridMapVT]
+FridSeqVT = StrKeyMap|Sequence|Set|FridPrime|FridMixin
+FridValue = StrKeyMap|Sequence[FridSeqVT]|FridPrime|FridExtra
 FridArray = Sequence[FridValue]

@@ -303,7 +303,9 @@ class TestLoaderAndDumper(unittest.TestCase):
         # Dict
         "{a.b: c, _: \"[]\", d+e-f: g@h}": {'a.b': "c", '_': "[]", 'd+e-f': "g@h"},
         "{a.b: c, _: '[]', d+e-f: g@h  , }": {'a.b': "c", '_': "[]", 'd+e-f': "g@h"},
-        # "{a}": {'a':"a"}, # TODO: decide what to do for set-like
+        "{: \"\"}": {'': ''}, "{:}": {'': ''}, "{: a}": {'': "a"}, "{:a}": {'': "a"},
+        # Set
+        "{a}": {'a'},
 
         # "()": (''), "(a>3)": LionExprStub('a>3'),
         # "(([{()}]))": LionExprStub("([{()}])"),
@@ -320,6 +322,7 @@ class TestLoaderAndDumper(unittest.TestCase):
                     self.assertTrue(t(v), f"[{i}] {s} ==> {t} ({json_level=})")
                     continue
                 self.assertEqual(t, v, f"[{i}] {s} ==> {t} ({json_level=})")
+                assert t is not ...
                 if t == prev_value:
                     continue
                 self.assertEqual(s, dump_into_str(t, json_level=json_level),

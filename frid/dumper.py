@@ -1,10 +1,10 @@
 import math, base64
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence, Set
 from typing import Any, Literal, TextIO
 
 from .typing import BlobTypes, FridMixin, FridValue, StrKeyMap
-from .chrono import DateTypes, strfr_datetime
-from .guards import is_frid_identifier, is_frid_quote_free
+from .chrono import DateTypes, strfr_datetime, timeonly, datetime, dateonly
+from .guards import is_frid_identifier, is_frid_quote_free, is_list_like
 from .pretty import PPToTextIOMixin, PrettyPrint, PPTokenType, PPToStringMixin
 from .strops import StringEscapeEncode
 
@@ -64,11 +64,11 @@ class FridDumper(PrettyPrint):
     def print(self, token: str, ttype: PPTokenType, /):
         """Default token print behavior:
         - Do not show optional separator.
-        - Add a space after the required separator.
+        - Add a space after the required seqarator ',:'.
         """
         if ttype not in (PPTokenType.OPT_0, PPTokenType.OPT_1):
             self._print(token)
-        if ttype in (PPTokenType.SEP_0, PPTokenType.SEP_1):
+        if ttype in (PPTokenType.SEP_0, PPTokenType.SEP_1) and token in ':,':
             self._print(' ')
 
     def real_to_str(self, data: int|float, path: str, /) -> str:
@@ -187,7 +187,10 @@ class FridDumper(PrettyPrint):
         for i, x in enumerate(data):
             if i > 0:
                 self.print(sep[0], PPTokenType.SEP_0)
-            self.print_frid_value(x, path + '[' + str(i) + ']')
+            if x == '':
+                self.print('""', PPTokenType.ENTRY)  # Force quoted string in list
+            else:
+                self.print_frid_value(x, path + '[' + str(i) + ']')
             non_empty = True
         if non_empty and self.json_level in (0, 5):
             self.print(sep[0], PPTokenType.OPT_0)
@@ -214,18 +217,21 @@ class FridDumper(PrettyPrint):
                 self.print(sep[0], PPTokenType.SEP_0)
             if not isinstance(k, str):
                 raise ValueError(f"Key is not a string: {k}")
-            if self._is_unquoted_key(k):
-                self.print(k, PPTokenType.LABEL)
-            else:
-                self.print_quoted_str(k, path, as_key=True)
+            # Empty key with non-... value we can omit the key (i.e., unquoted)
+            if k != '' or v is ...:
+                if self._is_unquoted_key(k):
+                    self.print(k, PPTokenType.LABEL)
+                else:
+                    self.print_quoted_str(k, path, as_key=True)
+                if v is ...:  # If the value is ..., print only key without colon
+                    continue
             self.print(sep[1], PPTokenType.SEP_1)
             self.print_frid_value(v, path)
         if data and self.json_level in (0, 5):
             self.print(sep[0], PPTokenType.OPT_0)
 
-    def print_frid_mixin(self, data: FridMixin, path: str, /):
-        """Print any Frid mixin types."""
-        (name, args, kwas) = data.frid_repr()
+    def print_named_args(self, name: str, args: Sequence[FridValue],
+                         kwas: Mapping[str,FridValue], path: str, /):
         path = path + '(' + name + ')'
         if not self.json_level:
             assert is_frid_identifier(name)
@@ -254,6 +260,11 @@ class FridDumper(PrettyPrint):
             self.print_naked_dict(kwas)
             self.print('}', PPTokenType.CLOSE)
 
+    def print_frid_mixin(self, data: FridMixin, path: str, /):
+        """Print any Frid mixin types."""
+        (name, args, kwas) = data.frid_repr()
+        self.print_named_args(name, args, kwas, path)
+
     def print_frid_value(self, data: FridValue, path: str='', /):
         """Print the any value that Frid supports to the stream."""
         s = self.prime_data_to_str(data, path)
@@ -264,6 +275,11 @@ class FridDumper(PrettyPrint):
         elif isinstance(data, Mapping):
             self.print('{', PPTokenType.START)
             self.print_naked_dict(data, path)
+            self.print('}', PPTokenType.CLOSE)
+        elif isinstance(data, Set):
+            # We won't be able to load empty set back as set
+            self.print('{', PPTokenType.START)
+            self.print_naked_list(data, path)
             self.print('}', PPTokenType.CLOSE)
         elif isinstance(data, Iterable):
             self.print('[', PPTokenType.START)
@@ -282,12 +298,70 @@ class FridStringDumper(PPToStringMixin, FridDumper):
 class FridTextIODumper(PPToTextIOMixin, FridDumper):
     pass
 
-def dump_into_str(data: FridValue, *args, **kwargs) -> str:
+def dump_into_str(data: FridValue, /, *args, **kwargs) -> str:
     dumper = FridStringDumper(*args, **kwargs)
     dumper.print_frid_value(data)
     return str(dumper)
 
-def dump_into_tio(data: FridValue, io: TextIO, *args, **kwargs) -> TextIO:
-    dumper = FridTextIODumper(io, *args, **kwargs)
+def dump_into_tio(data: FridValue, /, file: TextIO, *args, **kwargs) -> TextIO:
+    dumper = FridTextIODumper(file, *args, **kwargs)
     dumper.print_frid_value(data)
-    return io
+    return file
+
+def dump_args_into_str(name: str, opas: Sequence[FridValue], kwas: Mapping[str,FridValue],
+                       *args, **kwargs) -> str:
+    dumper = FridStringDumper(*args, **kwargs)
+    dumper.print_named_args(name, opas, kwas, '')
+    return str(dumper)
+
+def dump_args_into_tio(name: str, opas: Sequence[FridValue], kwas: Mapping[str,FridValue],
+                       /, file: TextIO, *args, **kwargs) -> TextIO:
+    dumper = FridTextIODumper(file, *args, **kwargs)
+    dumper.print_named_args(name, opas, kwas, '')
+    return file
+
+def frid_redact(data, depth: int=16) -> FridValue:
+    """Redacts the `data` of any type to a certain depth.
+    - Keeps null and boolean as is.
+    - Converts string to 's' + length.
+    - Converts bytes to 'b' + length.
+    - Converts integer to string 'i', float to string 'f', date/datetime to 'd', time to 't'.
+    - Converts mixins to its type name string.
+    - Recursively process the sequence and the mapping with decremented depth.
+    - Converts non-empty sequence to a single element of integer length if the depth is zero.
+    - Converts non-empty mapping to keys with no value if the depth reaches zero.
+    - Returns the redacted value.
+    This function is usually used before dump.
+    """
+    if data is None:
+        return None
+    if isinstance(data, bool):
+        return data
+    if isinstance(data, str):
+        return 's' + str(len(data))
+    if isinstance(data, BlobTypes):
+        return 'b' + str(len(data))
+    if isinstance(data, int):
+        return 'i'
+    if isinstance(data, float):
+        return 'f'
+    if isinstance(data, timeonly):
+        return 't'
+    if isinstance(data, datetime|dateonly):
+        return 'd'
+    if isinstance(data, FridMixin):
+        return data.frid_keys()[0]
+    if not data:
+        return data   # As is for empty mapping or sequence
+    if isinstance(data, Mapping):
+        if depth <= 0:
+            return {k: ... for k in data.keys()}
+        # Do not decrement the depth if value is a sequence; keep elipsis as is
+        return {k: v if v is ... else frid_redact(v, depth if is_list_like(v) else depth - 1)
+                for k, v in data.items()}
+    if isinstance(data, Sequence):
+        if depth <= 0:
+            return [len(data)]
+        return [frid_redact(x, depth-1) for x in data]
+    return "??"
+

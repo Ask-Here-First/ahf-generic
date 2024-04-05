@@ -2,7 +2,7 @@ from collections.abc import Callable, Mapping, Sequence
 from functools import partial
 from typing import Concatenate, Generic, ParamSpec, TypeVar, overload
 
-from .typing import BlobTypes, DateTypes, FridArray, FridValue, StrKeyMap
+from .typing import BlobTypes, DateTypes, FridArray, FridMapVT, FridSeqVT, FridValue, StrKeyMap
 from .guards import is_list_like
 from .strops import str_transform
 from .dumper import dump_into_str
@@ -104,13 +104,16 @@ class Substitute:
             return data
         return dump_into_str(data)
 
-    def evaluate(self, expr: str, values: StrKeyMap, default):
+    def evaluate(self, expr: str, values: StrKeyMap, default) -> FridValue:
         """Evaluate an expression against the values."""
         expr = expr.strip()
         if expr.endswith('*'):
             expr = expr[:-1]
             return {k[len(expr):]: v for k, v in values.items() if k.startswith(expr)}
-        return values.get(expr, default)
+        v = values.get(expr, default)
+        if v is ...:
+            return default
+        return v
 
     def sub_text(self, s: str, values: StrKeyMap|None, default) -> FridValue:
         """Return the string `s` with placeholder variable replaced with values.
@@ -135,23 +138,23 @@ class Substitute:
         return str_transform(s, {self.prefix: _transform})[1]
     _T = TypeVar('_T', bound=FridValue)
     @overload
-    def sub(self, data: StrKeyMap, values: StrKeyMap|None=None) -> dict[str,FridValue]: ...
+    def sub(self, data: StrKeyMap, values: StrKeyMap|None=None) -> dict[str,FridMapVT]: ...
     @overload
-    def sub(self, data: FridArray, values: StrKeyMap|None=None) -> list[FridValue]: ...
+    def sub(self, data: FridArray, values: StrKeyMap|None=None) -> list[FridSeqVT]: ...
     @overload
     def sub(self, data: str, values: StrKeyMap|None=None) -> FridValue: ...
     @overload
     def sub(self, data: _T, values: StrKeyMap|None=None) -> _T: ...
     def sub(self, data: FridValue, values: StrKeyMap|None=None) -> FridValue:
         """Substitute the placeholders in data (only for its values).
-        The placeholders are escaped with `${...}` (only for string value).
-        The enclosed string `...` is used as the key to get the actual value
+        The placeholders are escaped with `${......}` (only for string value).
+        The enclosed string `......` is used as the key to get the actual value
         in `values`.
         """
         if isinstance(data, str):
             return self.sub_text(data, values, self.default)
         if isinstance(data, Mapping):
-            return {k: self.sub(v, values) for k, v in data.items()}
+            return {k: ... if v is ... else self.sub(v, values) for k, v in data.items()}
         if isinstance(data, Sequence):
             # Special handling for array: array return value do "splice"
             out = []
