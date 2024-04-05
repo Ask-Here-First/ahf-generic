@@ -66,18 +66,29 @@ def is_list_like(
 
 @overload
 def is_dict_like(
-        data, vtypes: None=None, /, *, allow_none=False
+        data, /, vtype: None=None, *, allow_none=False
 ) -> TypeGuard[Mapping]: ...
 @overload
 def is_dict_like(
-        data, vtypes: type[V], ktypes: type[K]=str, *, allow_none: Literal[False]=False
+        data, /, vtype: type[V], ktype: type[K]=str, *, allow_none: Literal[False]=False
 ) -> TypeGuard[Mapping[K,V]]: ...
 @overload
 def is_dict_like(
-        data, vtypes: type[V], ktypes: type[K]=str, *, allow_none: Literal[True]
+        data, /, vtype: type[V], ktype: type[K]=str, *, allow_none: Literal[True]
+) -> TypeGuard[Mapping[K,V|None]]: ...
+@overload
+def is_dict_like(
+        data, /, vtype: Callable[[Any],TypeGuard[V]], ktype: type[K]=str,
+        *, allow_none: Literal[False]=False
+) -> TypeGuard[Mapping[K,V]]: ...
+@overload
+def is_dict_like(
+        data, /, vtype: Callable[[Any],TypeGuard[V]], ktype: type[K]=str,
+        *, allow_none: Literal[True]
 ) -> TypeGuard[Mapping[K,V|None]]: ...
 def is_dict_like(
-        data, vtypes: type|None=None, ktypes: type=str, *, allow_none=False
+        data, /, vtype: Callable[[Any],bool]|type|None=None,
+        ktype: type=str, *, allow_none=False
 ) -> TypeGuard[Mapping]:
     """Type guard for a map type.
     Arguments:
@@ -89,13 +100,19 @@ def is_dict_like(
     """
     if not isinstance(data, Mapping):
         return False
-    if ktypes is not None and not all(isinstance(x, ktypes) for x in data.keys()):
+    if ktype is not None and not all(isinstance(x, ktype) for x in data.keys()):
         return False
-    if vtypes is None:
+    if vtype is None:
         return True
-    if not allow_none:
-        return all(isinstance(x, ktypes) for x in data.values())
-    return all(isinstance(x, vtypes) or x is None for x in data.values())
+    if isinstance(vtype, type):
+        if not allow_none:
+            return all(isinstance(x, ktype) for x in data.values())
+        return all(isinstance(x, vtype) or x is None for x in data.values())
+    if callable(vtype):
+        if not allow_none:
+            return all(vtype(x) for x in data.values())
+        return all(vtype(x) or x is None for x in data.values())
+    raise ValueError(f"Invalid etype specification: {vtype}")
 
 
 @overload
