@@ -304,8 +304,10 @@ class TestLoaderAndDumper(unittest.TestCase):
         "{a.b: c, _: \"[]\", d+e-f: g@h}": {'a.b': "c", '_': "[]", 'd+e-f': "g@h"},
         "{a.b: c, _: '[]', d+e-f: g@h  , }": {'a.b': "c", '_': "[]", 'd+e-f': "g@h"},
         "{: \"\"}": {'': ''}, "{:}": {'': ''}, "{: a}": {'': "a"}, "{:a}": {'': "a"},
-        # Set
-        "{a}": {'a'},
+        # Set: Python caveats: True == 1 and False == 0; also
+        "{a}": {'a'}, "{3}": {3}, "{+}": {True}, "{-}": {False}, "{.}": {None},
+        # Can't set multi value set, since set is not following insert ordering
+        "{0,1,2,.}": (lambda x: x == {0, 1, 2, None}),
 
         # "()": (''), "(a>3)": LionExprStub('a>3'),
         # "(([{()}]))": LionExprStub("([{()}])"),
@@ -478,6 +480,8 @@ class TestLoaderAndDumper(unittest.TestCase):
         "[1,", "[}",
         # Dict
         "{,}", "{a:3,,}", "{)", "{a:1, a:2}", "{3a:3}", "{3: 4}",
+        # Set
+        "{3, a:}", "{b:3, +}"
         # Expr
         "(", "([})", "((())",
     ]
