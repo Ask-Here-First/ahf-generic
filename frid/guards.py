@@ -28,7 +28,7 @@ def is_list_like(
 ) -> TypeGuard[Sequence[V]]: ...
 @overload
 def is_list_like(
-        data, /, etype: type[V], *, allow_none: Literal[True]
+        data, /, etype: type[V], *, allow_none: Literal[True]|bool
 ) -> TypeGuard[Sequence[V|None]]: ...
 @overload
 def is_list_like(
@@ -36,7 +36,7 @@ def is_list_like(
 ) -> TypeGuard[Sequence[V]]: ...
 @overload
 def is_list_like(
-        data, /, etype: Callable[[Any],TypeGuard[V]], *, allow_none: Literal[True]
+        data, /, etype: Callable[[Any],TypeGuard[V]], *, allow_none: Literal[True]|bool
 ) -> TypeGuard[Sequence[V|None]]: ...
 def is_list_like(
         data, /, etype: Callable[[Any],bool]|type|None=None, *, allow_none: bool=False
@@ -74,7 +74,7 @@ def is_dict_like(
 ) -> TypeGuard[Mapping[K,V]]: ...
 @overload
 def is_dict_like(
-        data, /, vtype: type[V], ktype: type[K]=str, *, allow_none: Literal[True]
+        data, /, vtype: type[V], ktype: type[K]=str, *, allow_none: Literal[True]|bool
 ) -> TypeGuard[Mapping[K,V|None]]: ...
 @overload
 def is_dict_like(
@@ -84,7 +84,7 @@ def is_dict_like(
 @overload
 def is_dict_like(
         data, /, vtype: Callable[[Any],TypeGuard[V]], ktype: type[K]=str,
-        *, allow_none: Literal[True]
+        *, allow_none: Literal[True]|bool
 ) -> TypeGuard[Mapping[K,V|None]]: ...
 def is_dict_like(
         data, /, vtype: Callable[[Any],bool]|type|None=None,
@@ -118,7 +118,7 @@ def is_dict_like(
 @overload
 def as_type(dtype: type[V], data, /, allow_none: Literal[False]=False) -> V: ...
 @overload
-def as_type(dtype: type[V], data, /, allow_none: Literal[True]) -> V|None: ...
+def as_type(dtype: type[V], data, /, allow_none: Literal[True]|bool) -> V|None: ...
 def as_type(dtype: type[V], data, /, allow_none: bool=False) -> V|None:
     if data is None and allow_none:
         return None
@@ -130,9 +130,9 @@ def get_as_type(dtype: type[V], map: StrKeyMap, key: str,
                 /, allow_none: Literal[False]=False) -> V: ...
 @overload
 def get_as_type(dtype: type[V], map: StrKeyMap, key: str,
-                /, allow_none: Literal[True]) -> V|None: ...
+                /, allow_none: Literal[True]|bool) -> V|None: ...
 def get_as_type(dtype: type[V], map: StrKeyMap, key: str, /, allow_none: bool=False) -> V|None:
-    return as_type(dtype, map.get(key))
+    return as_type(dtype, map.get(key), allow_none=allow_none)
 
 def as_key_value_pair(
         data: Sequence[tuple[K,V]]|Mapping[K,V]|Iterable
