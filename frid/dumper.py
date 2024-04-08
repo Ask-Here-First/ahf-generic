@@ -234,7 +234,7 @@ class FridDumper(PrettyPrint):
                          kwas: Mapping[str,FridValue], path: str, /):
         path = path + '(' + name + ')'
         if not self.json_level:
-            assert is_frid_identifier(name)
+            assert not name or is_frid_identifier(name)  # name can be empty
             self.print(name, PPTokenType.ENTRY)
             self.print('(', PPTokenType.START)
             self.print_naked_list(args, path, ',')
