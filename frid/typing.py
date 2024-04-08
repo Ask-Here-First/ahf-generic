@@ -2,12 +2,15 @@ import types
 from abc import ABC, abstractmethod
 from datetime import date as dateonly, time as timeonly, datetime
 from collections.abc import Mapping, Sequence, Set
+from typing import TypeVar
 
 # Quick union types used in many places
 BlobTypes = bytes|bytearray|memoryview
 DateTypes = dateonly|timeonly|datetime   # Note that datetime in Python is deriveed from date
 
 # FRID types follow (Flexibly represented inteactive data)
+
+T = TypeVar('T', bound='FridMixin')
 
 class FridMixin(ABC):
     """The abstract base frid class to be loadable and dumpable.
@@ -29,7 +32,7 @@ class FridMixin(ABC):
         return [cls.__name__]
 
     @classmethod
-    def frid_from(cls, name: str, *args: 'FridValue', **kwds: 'FridValue') -> 'FridMixin':
+    def frid_from(cls: type[T], name: str, *args: 'FridValue', **kwds: 'FridValue') -> T:
         """Construct an instance with given name and arguments."""
         assert name in cls.frid_keys()
         return cls(*args, **kwds)

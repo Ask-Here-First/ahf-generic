@@ -126,13 +126,15 @@ def as_type(dtype: type[V], data, /, allow_none: bool=False) -> V|None:
         raise ValueError(f"Expecting type {dtype}, got {type(data).__name__}")
     return data
 @overload
-def get_as_type(dtype: type[V], map: StrKeyMap, key: str,
-                /, allow_none: Literal[False]=False) -> V: ...
+def get_as_type(dtype: type[V], map: StrKeyMap, /, key: str, default: V|None=None,
+                *, allow_none: Literal[False]=False) -> V: ...
 @overload
-def get_as_type(dtype: type[V], map: StrKeyMap, key: str,
-                /, allow_none: Literal[True]|bool) -> V|None: ...
-def get_as_type(dtype: type[V], map: StrKeyMap, key: str, /, allow_none: bool=False) -> V|None:
-    return as_type(dtype, map.get(key), allow_none=allow_none)
+def get_as_type(dtype: type[V], map: StrKeyMap, /, key: str, default: V|None=None,
+                *, allow_none: Literal[True]|bool) -> V|None: ...
+def get_as_type(
+        dtype: type[V], map: StrKeyMap, /, key: str, default=None, *, allow_none: bool=False
+) -> V|None:
+    return as_type(dtype, map.get(key, default), allow_none=allow_none)
 
 def as_key_value_pair(
         data: Sequence[tuple[K,V]]|Mapping[K,V]|Iterable
