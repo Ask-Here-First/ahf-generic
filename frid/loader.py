@@ -1,4 +1,4 @@
-import math, base64
+import math, types, base64
 from collections.abc import Callable, Iterator, Mapping, Sequence, Set
 from typing import  Any, Literal, NoReturn, TextIO, TypeVar
 
@@ -316,7 +316,9 @@ class FridLoader:
                 self.error(index, exc)
         return (index + count, value)
 
-    def scan_quoted_seq(self, index: int, path: str, /, quotes: str) -> tuple[int,FridPrime]:
+    def scan_quoted_seq(
+            self, index: int, path: str, /, quotes: str
+    ) -> tuple[int,FridPrime|types.EllipsisType]:
         """Scan a continuationm of quoted string after the first quoted str."""
         out = []
         while True:
@@ -331,6 +333,8 @@ class FridLoader:
         data = ''.join(out)
         if self.escape_seq and data.startswith(self.escape_seq):
             data = data[len(self.escape_seq):]
+            if not data:
+                return (index,...)
             if (out := self.parse_prime_str(data, ...)) is not ...:
                 return (index, out)
         return (index, data)
@@ -440,7 +444,9 @@ class FridLoader:
             self.error(start, f"Cannot find constructor called {name}")
         return (index, mixin.frid_from(name, *args, **kwds))
 
-    def scan_frid_value(self, index: int, path: str, /, empty: Any='') -> tuple[int,FridValue]:
+    def scan_frid_value(
+            self, index: int, path: str, /, empty: Any=''
+    ) -> tuple[int,FridValue|types.EllipsisType]:
         """Load the text representation."""
         index = self.skip_whitespace(index, path)
         if index >= self.length:
@@ -500,8 +506,9 @@ class FridLoader:
             index = self.skip_whitespace(index, path)
             if index < self.length:
                 self.error(index, f"Trailing data at {index} ({path=}): {self.buffer[index:]}")
+        if value is ...:
+            self.error(index, "Dummy is only supported for map values")
         return value
-
 
 class FridTextIOLoader(FridLoader):
     def __init__(self, t: TextIO, page: int = 16384, **kwargs):
