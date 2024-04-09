@@ -1,5 +1,5 @@
 import math, base64
-from collections.abc import Callable, Iterator, Mapping, Set
+from collections.abc import Callable, Iterator, Mapping, Sequence, Set
 from typing import  Any, Literal, NoReturn, TextIO, TypeVar
 
 from .typing import BlobTypes, DateTypes, FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
@@ -9,7 +9,7 @@ from .strops import str_find_any, StringEscapeDecode
 from .chrono import parse_datetime
 from .dumper import EXTRA_ESCAPE_PAIRS
 
-NO_QUOTE_CHARS = "~!?@#$%^&*/"
+NO_QUOTE_CHARS = "~!?@$%^&"   # Extra no quote chars; not including/ * # for potential comments
 ALLOWED_QUOTES = "'`\""
 
 T = TypeVar('T')
@@ -60,6 +60,7 @@ class FridLoader:
     def __init__(
             self, buffer: str|None=None, length: int|None=None, offset: int=0, /,
             *, json_level: Literal[0,1,5]=0, escape_seq: str|None=None,
+            comments: Sequence[tuple[str,str]]=(),
             frid_mixin: Mapping[str,type[FridMixin]]|Iterator[type[FridMixin]]|None=None,
             parse_real: Callable[[str],int|float|None]|None=None,
             parse_date: Callable[[str],DateTypes|None]|None=None,
@@ -71,6 +72,9 @@ class FridLoader:
         self.offset = offset
         self.length = length if length is not None else 1<<62 if buffer is None else len(buffer)
         self.anchor: int|None = None   # A place where the location is marked
+        if not all(opening and closing for opening, closing in comments):
+            raise ValueError(f"Invalid comments configuration: {comments}")
+        self.comments: Sequence[tuple[str,str]] = comments
         # The following are all constants
         self.json_level = json_level
         self.escape_seq = escape_seq
@@ -190,32 +194,6 @@ class FridLoader:
                 pass
         return default
 
-    def skip_fixed_size(self, index: int, path: str, nchars: int) -> int:
-        """Skips a number of characters without checking the content."""
-        index += nchars
-        if index > self.length:
-            self.error(self.length, f"Trying to pass beyound the EOS at {index}: {path=}")
-        return index
-
-    def skip_whitespace(self, index: int, path: str) -> int:
-        """Skips the all following whitespaces."""
-        while True:
-            try:
-                while index < self.length and self.buffer[index].isspace():
-                    index += 1
-                break
-            except IndexError:
-                index = self.fetch(index, path)
-        return index
-
-    def skip_prefix_str(self, index: int, path: str, prefix: str) -> int:
-        """Skips the `prefix` if it matches, or raise an ParseError."""
-        while len(self.buffer) < min(index + len(prefix), self.length):
-            index = self.fetch(index, path)
-        if not self.buffer.startswith(prefix, index):
-            self.error(index, f"Stream ends while expecting '{prefix}'")
-        return index + len(prefix)
-
     def peek_fixed_size(self, index: int, path: str, nchars: int) -> str:
         """Peeks a string with a fixed size given by `nchars`.
         - Returns the string with these number of chars, or shorter if end of
@@ -232,6 +210,57 @@ class FridLoader:
                 return self.buffer[index:(index + nchars)]
             except IndexError:
                 index = self.fetch(index, path)
+
+    def skip_fixed_size(self, index: int, path: str, nchars: int) -> int:
+        """Skips a number of characters without checking the content."""
+        index += nchars
+        if index > self.length:
+            self.error(self.length, f"Trying to pass beyound the EOS at {index}: {path=}")
+        return index
+
+    def skip_comments(self, index: int, path: str) -> int:
+        """Skip the comments in pairs."""
+        for opening, closing in self.comments:
+            if self.peek_fixed_size(index, path, len(opening)) != opening:
+                continue
+            index = self.skip_fixed_size(index, path, len(opening))
+            while True:
+                end_idx = self.buffer.find(closing, index)
+                if end_idx >= 0:
+                    assert end_idx >= index
+                    return end_idx + len(closing)
+                if len(self.buffer) >= self.length:
+                    if closing.isspace():
+                        # If the closing is a space (like newline), it is optional at end
+                        return self.length
+                    self.error(index, f"Expecting '{closing}' after {opening}")
+                index = self.fetch(index, path)
+            break
+        return index
+
+    def skip_whitespace(self, index: int, path: str) -> int:
+        """Skips the all following whitespaces."""
+        while True:
+            try:
+                while index < self.length and self.buffer[index].isspace():
+                    index += 1
+                new_idx = self.skip_comments(index, path)
+                if index >= self.length:
+                    return index
+                if new_idx <= index: # No progress
+                    break
+                index = new_idx
+            except IndexError:
+                index = self.fetch(index, path)
+        return index
+
+    def skip_prefix_str(self, index: int, path: str, prefix: str) -> int:
+        """Skips the `prefix` if it matches, or raise an ParseError."""
+        while len(self.buffer) < min(index + len(prefix), self.length):
+            index = self.fetch(index, path)
+        if not self.buffer.startswith(prefix, index):
+            self.error(index, f"Stream ends while expecting '{prefix}'")
+        return index + len(prefix)
 
     def scan_prime_data(self, index: int, path: str, /, empty: Any='',
                         accept=NO_QUOTE_CHARS) -> tuple[int,FridValue]:

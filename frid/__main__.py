@@ -500,6 +500,18 @@ class TestLoaderAndDumper(unittest.TestCase):
             with self.assertRaises(ValueError, msg=f"[{i}]: {k}"):
                 dump_into_str(k, json_level=True)
 
+    comment_cases = {
+        "\n123": 123, "\n[\n123,\n\n 456,]": [123, 456],
+        "123 # 456": 123, "123 # 456\n": 123, "// abc\n456": 456, "/* abc */ 123": 123,
+        "[123, #456,\n789]": [123, 789], "[1,/*1,\n3,*/ 4 // 5,\n # 6\n, 7]": [1,4,7],
+    }
+
+    def test_comments(self):
+        for i, (k, v) in enumerate(self.comment_cases.items()):
+            w = load_from_str(k, comments=[("#", "\n"), ("//", "\n"), ("/*", "*/")])
+            self.assertEqual(v, w, msg=f"[{i}]: {k}")
+
+
 if __name__ == '__main__':
     if _cov is not None:
         unittest.main(exit=False)
