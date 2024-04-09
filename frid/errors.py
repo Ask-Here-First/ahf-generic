@@ -3,7 +3,8 @@ from collections.abc import Sequence
 import traceback
 from types import TracebackType
 
-from .typing import FridMixin
+from .typing import FridMixin, FridValue
+from .helper import get_type_name
 from .guards import is_text_list_like
 
 FRID_ERROR_VENUE = os.getenv('FRID_ERROR_VENUE')
@@ -43,7 +44,8 @@ class FridError(FridMixin, Exception):
         assert name in cls.frid_keys()
         return FridError(error, trace=trace, **kwds)
 
-    def frid_repr(self) -> dict[str,str|int|list[str]]:
+    def frid_dict(self) -> dict[str,str|int|list[str]]:
+        """Convert the error into a dictionary"""
         out: dict[str,str|int|list[str]] = {'error': str(self)}
         trace = []
         if self.trace is not None:
@@ -64,3 +66,6 @@ class FridError(FridMixin, Exception):
         if FRID_ERROR_VENUE is not None:
             out['venue'] = FRID_ERROR_VENUE
         return out
+
+    def frid_repr(self) -> tuple[str,Sequence[FridValue],dict[str,str|int|list[str]]]:
+        return (get_type_name(self), (), self.frid_dict())

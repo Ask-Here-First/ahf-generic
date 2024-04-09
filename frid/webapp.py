@@ -1,5 +1,5 @@
 import os, json
-from collections.abc import AsyncIterable, Iterable, Mapping
+from collections.abc import AsyncIterable, Iterable, Mapping, Sequence
 from typing import Any, Literal
 from urllib.parse import unquote
 
@@ -241,12 +241,8 @@ class HttpError(HttpMixin, FridError):
     """
     def __init__(self, ht_status: int, *args, **kwargs):
         super().__init__(*args, ht_status=ht_status, **kwargs)
-    def frid_repr(self) -> dict[str,str|int|list[str]]:
-        out = super().frid_repr()
-        out['ht_status'] = self.ht_status
-        return out
     def set_response(self) -> 'HttpError':
-        self.http_data = self.frid_repr()
+        self.http_data = self.frid_dict()  # Only show the keyword part of this error
         super().set_response()
         return self
 
