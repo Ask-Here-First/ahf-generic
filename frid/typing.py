@@ -38,7 +38,7 @@ class FridMixin(ABC):
         return cls(*args, **kwds)
 
     @abstractmethod
-    def frid_repr(self) -> tuple[str,Sequence['FridValue'],Mapping[str,'FridValue']]:
+    def frid_repr(self) -> tuple[str,'FridArray','StrKeyMap']:
         """Converts an instance to a triplet of name, a list of positional values,
         and a dict of keyword values.
         """
@@ -50,5 +50,5 @@ FridExtra = FridMixin|Set[FridPrime]  # Only set of primes, no other
 FridMapVT = Mapping|Sequence|FridPrime|FridExtra|types.EllipsisType  # Allow ... for dict value
 StrKeyMap = Mapping[str,FridMapVT]
 FridSeqVT = StrKeyMap|Sequence|Set|FridPrime|FridMixin
-FridValue = StrKeyMap|Sequence[FridSeqVT]|FridPrime|FridExtra
-FridArray = Sequence[FridValue]
+FridArray = Sequence[FridSeqVT]
+FridValue = StrKeyMap|FridArray|FridPrime|FridExtra

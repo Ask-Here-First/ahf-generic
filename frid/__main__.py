@@ -70,9 +70,9 @@ class TestChrono(unittest.TestCase):
         self.assertEqual(strfr_datetime(datetime(
             2011, 2, 3, 11, 22, 33, 456789, timezone(timedelta(hours=5, minutes=30))
         )), "2011-02-03T112233.456+0530")
-        self.assertEqual(strfr_datetime(timeonly(11, 22, 33), prec=1), "0T112233.0")
-        self.assertEqual(strfr_datetime(timeonly(11, 22, 33), prec=0), "0T112233")
-        self.assertEqual(strfr_datetime(timeonly(11, 22, 33), prec=-1), "0T1122")
+        self.assertEqual(strfr_datetime(timeonly(11, 22, 33), precision=1), "0T112233.0")
+        self.assertEqual(strfr_datetime(timeonly(11, 22, 33), precision=0), "0T112233")
+        self.assertEqual(strfr_datetime(timeonly(11, 22, 33), precision=-1), "0T1122")
         self.assertIsNone(strfr_datetime(cast(datetime, 0)), None)
 
 class TestStrops(unittest.TestCase):
@@ -422,7 +422,7 @@ class TestLoaderAndDumper(unittest.TestCase):
             r = rng.randint(0, 15)
             dump_args = {
                 'print_real': None if r & 1 else lambda x: format(x, '+'),
-                'print_date': None if r & 2 else lambda v: strfr_datetime(v, prec=6),
+                'print_date': None if r & 2 else lambda v: strfr_datetime(v, precision=6),
                 'print_blob': None if r & 4 else lambda v: base64.b16encode(v).decode(),
                 'ascii_only': bool(r & 8),
             }

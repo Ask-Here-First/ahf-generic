@@ -179,8 +179,19 @@ def _callable_name(func: Callable) -> str:
         return func.__class__.__name__ + "()"
     return str(func)
 
+def get_qual_name(data) -> str:
+    """Return the data's qualified name."""
+    if hasattr(data, '__qualname__'):
+        return data.__qualname__
+    if isinstance(data, type):
+        data = data.__qualname__
+    return type(data).__qualname__
+
 def get_type_name(data) -> str:
     """Return the data type name."""
+    if isinstance(data, type):  # If data is already a type, return its type name
+        return data.__name__
+    # Or return its type's type name
     return type(data).__name__
 
 def get_func_name(func: Callable) -> str:

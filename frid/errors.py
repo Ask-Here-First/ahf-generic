@@ -1,10 +1,9 @@
-import os
+import os, traceback
 from collections.abc import Sequence
-import traceback
 from types import TracebackType
 
-from .typing import FridMixin, FridValue
-from .helper import get_type_name
+from .typing import FridArray, FridMixin
+from .helper import get_qual_name, get_type_name
 from .guards import is_text_list_like
 
 FRID_ERROR_VENUE = os.getenv('FRID_ERROR_VENUE')
@@ -21,7 +20,15 @@ class FridError(FridMixin, Exception):
     def __init__(self, *args, trace: TracebackType|Sequence[str]|None=None,
                  cause: BaseException|str|None=None, notes: Sequence[str]|None=None,
                  venue: str|None=None):
-        super().__init__(*args)
+        if args and isinstance(args[0], BaseException):
+            exc = args[0]
+            super().__init__(*exc.args, *args[1:])
+            if trace is None:
+                trace = exc.__traceback__
+            if cause is None:
+                cause = get_qual_name(exc)
+        else:
+            super().__init__(*args)
         self.notes: list[str] = list(notes) if notes else []
         self.cause: BaseException|str|None = cause
         self.venue: str|None = venue
@@ -67,5 +74,5 @@ class FridError(FridMixin, Exception):
             out['venue'] = FRID_ERROR_VENUE
         return out
 
-    def frid_repr(self) -> tuple[str,Sequence[FridValue],dict[str,str|int|list[str]]]:
+    def frid_repr(self) -> tuple[str,FridArray,dict[str,str|int|list[str]]]:
         return (get_type_name(self), (), self.frid_dict())

@@ -1,8 +1,8 @@
 import math, base64
 from collections.abc import Callable, Iterable, Mapping, Sequence, Set
-from typing import Any, Literal, TextIO
+from typing import Any, Literal, TextIO, overload
 
-from .typing import BlobTypes, FridMixin, FridValue, StrKeyMap
+from .typing import BlobTypes, FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
 from .chrono import DateTypes, strfr_datetime, timeonly, datetime, dateonly
 from .guards import is_frid_identifier, is_frid_quote_free, is_list_like
 from .pretty import PPToTextIOMixin, PrettyPrint, PPTokenType, PPToStringMixin
@@ -231,11 +231,11 @@ class FridDumper(PrettyPrint):
         if data and self.json_level in (0, 5):
             self.print(sep[0], PPTokenType.OPT_0)
 
-    def print_named_args(self, name: str, args: Sequence[FridValue],
-                         kwas: Mapping[str,FridValue], path: str, /, sep: str=',:'):
+    def print_named_args(self, name: str, args: FridArray,
+                         kwas: StrKeyMap, path: str, /, sep: str=',:'):
         path = path + '(' + name + ')'
         if not self.json_level:
-            assert not name or is_frid_identifier(name)  # name can be empty
+            # assert not name or is_frid_identifier(name) # Do not check name
             self.print(name, PPTokenType.ENTRY)
             self.print('(', PPTokenType.START)
             if args:
@@ -316,18 +316,28 @@ def dump_into_tio(data: FridValue, /, file: TextIO, *args, **kwargs) -> TextIO:
     dumper.print_frid_value(data)
     return file
 
-def dump_args_into_str(name: str, opas: Sequence[FridValue], kwas: Mapping[str,FridValue],
+def dump_args_into_str(name: str, opas: FridArray, kwas: StrKeyMap,
                        *args, **kwargs) -> str:
     dumper = FridStringDumper(*args, **kwargs)
     dumper.print_named_args(name, opas, kwas, '')
     return str(dumper)
 
-def dump_args_into_tio(name: str, opas: Sequence[FridValue], kwas: Mapping[str,FridValue],
+def dump_args_into_tio(name: str, opas: FridArray, kwas: StrKeyMap,
                        /, file: TextIO, *args, **kwargs) -> TextIO:
     dumper = FridTextIODumper(file, *args, **kwargs)
     dumper.print_named_args(name, opas, kwas, '')
     return file
 
+@overload
+def frid_redact(data: FridPrime, depth: int=16) -> FridPrime: ...
+@overload
+def frid_redact(data: FridArray, depth: int=16) -> FridArray: ...
+@overload
+def frid_redact(data: FridMixin, depth: int=16) -> str: ...
+@overload
+def frid_redact(data: StrKeyMap, depth: int=16) -> StrKeyMap: ...
+@overload
+def frid_redact(data: FridValue, depth: int) -> FridValue: ...
 def frid_redact(data, depth: int=16) -> FridValue:
     """Redacts the `data` of any type to a certain depth.
     - Keeps null and boolean as is.

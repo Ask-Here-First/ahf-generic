@@ -5,7 +5,7 @@ from typing import  Any, Literal, NoReturn, TextIO, TypeVar
 from .typing import BlobTypes, DateTypes, FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
 from .guards import is_frid_identifier, is_frid_prime, is_frid_quote_free, is_quote_free_char
 from .errors import FridError
-from .strops import str_find_any, StringEscapeDecode
+from .strops import escape_control_chars, str_find_any, StringEscapeDecode
 from .chrono import parse_datetime
 from .dumper import EXTRA_ESCAPE_PAIRS
 
@@ -233,7 +233,8 @@ class FridLoader:
                     if closing.isspace():
                         # If the closing is a space (like newline), it is optional at end
                         return self.length
-                    self.error(index, f"Expecting '{closing}' after {opening}")
+                    self.error(index, ("Expecting '" + escape_control_chars(closing)
+                                       + " after '" + escape_control_chars(opening) + "'"))
                 index = self.fetch(index, path)
             break
         return index

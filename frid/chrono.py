@@ -61,23 +61,30 @@ def parse_datetime(s: str) -> DateTypes|None:
         return parse_timeonly(s, m)
     return None
 
-def strfr_timeonly(time: timeonly, /, prec: int=3, prefix: str="0T") -> str:
+def strfr_timeonly(time: timeonly, /, precision: int=3,
+                   *, prefix: str="0T", colon: bool=False) -> str:
     """Convert to the ISO format just without the colons.
     - `prec` is the number of digits for subseconds; `< 0` if only up to minutes.
     - If the timezone is utc, use `Z` instead of `+0000`.
     """
-    if prec < 0:
-        out = time.strftime("%H%M")
+    if precision < 0:
+        if precision == -2:
+            out = time.strftime("%H")
+        elif precision == -1:
+            out = time.strftime("%H:%M" if colon else "%H%M")
+        else:
+            raise ValueError("Invalid precision: " + str(precision)
+                             + "; it must be either >=0 or -1 (to minutes) -2 (to hours)")
     else:
-        out = time.strftime("%H%M%S")
-        if prec > 0:
+        out = time.strftime("%H:%M:%S" if colon else "%H%M%S")
+        if precision > 0:
             micro = str(time.microsecond)
             if len(micro) < 6:
                 micro.zfill(6 - len(micro))
-            if prec < len(micro):
-                micro = micro[0:prec]
-            elif prec > len(micro):
-                micro = micro.ljust(prec, '0')
+            if precision < len(micro):
+                micro = micro[0:precision]
+            elif precision > len(micro):
+                micro = micro.ljust(precision, '0')
             out += '.' + micro
     if prefix:
         out = prefix + out
@@ -88,13 +95,15 @@ def strfr_timeonly(time: timeonly, /, prec: int=3, prefix: str="0T") -> str:
         return out + 'Z'
     return out + time.strftime("%z")
 
-def strfr_datetime(data: DateTypes, /, prec: int=3) -> str|None:
+def strfr_datetime(data: DateTypes, /, precision: int=3, colon: bool=False) -> str|None:
     """Show date/time/datetime format only without colons."""
     if isinstance(data, datetime):
-        return data.date().isoformat() + strfr_timeonly(data.timetz(), prec, prefix='T')
+        return data.date().isoformat() + strfr_timeonly(
+            data.timetz(), precision, prefix='T', colon=colon
+        )
     if isinstance(data, dateonly):
         return data.isoformat()
     if isinstance(data, timeonly):
-        return strfr_timeonly(data, prec)
+        return strfr_timeonly(data, precision, colon=colon)
     return None
 

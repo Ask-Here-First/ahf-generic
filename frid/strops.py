@@ -169,6 +169,26 @@ def str_transform(
     bound = _bound_index(n, bound)
     return str_transform__heap(s, transformers, start, bound, stop_at=stop_at)
 
+# Control-Keyboard @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
+# NON-PRINT ASCII  01234567890123456789012345678901
+control_charmap = "0123456abtnvfr789dghijklmpqeswyz"
+# Coding all common C/C++ escape sequence (07-13) plus \e (27) for ESCAPE as in bash
+# The rest are filled with ASCII in 0-9a-z in order, skipping "coux" as used in C/C++.
+_control_to_escape = {i: '\\' + v for i, v in enumerate(control_charmap)}
+_escape_to_control = {v: chr(i) for i, v in enumerate(control_charmap)}
+def escape_control_chars(key: str) -> str:
+    return key.translate(_control_to_escape)
+def _revive_control_transform(s: str, start: int, until: int, escape: str) -> tuple[int,str]:
+    index = start + len(escape)
+    if index >= until:
+        return (0, "")
+    c = _escape_to_control.get(s[index])
+    if c is None:
+        return (0, "")
+    return (len(escape) + 1, c)
+def revive_control_chars(s: str) -> str:
+    return str_transform(s, (('\\', _revive_control_transform),))[1]
+
 class StringEscapeEncode:
     def __init__(self, trans_pairs: str, escape_seq: str='\\',
                  hex_prefix: tuple[str|None,str|None,str|None]=(None, None, None)):
