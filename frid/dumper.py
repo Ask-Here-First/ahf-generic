@@ -174,9 +174,10 @@ class FridDumper(PrettyPrint):
             return data
         return None
 
-    def print_quoted_str(self, data: str, path: str, /, as_key: bool=False, quote: str='\"'):
+    def print_quoted_str(self, data: str, path: str,
+                         /, as_key: bool=False, quote: str='\"', escape: bool=False):
         """Prints a quoted string to stream with quotes."""
-        if self.escape_seq and data.startswith(self.escape_seq):
+        if self.escape_seq and (escape or data.startswith(self.escape_seq)):
             data = self.escape_seq + data
         self.print(quote + self.se_encoder(data, quote) + quote,
                    PPTokenType.LABEL if as_key else PPTokenType.ENTRY)
@@ -231,32 +232,39 @@ class FridDumper(PrettyPrint):
             self.print(sep[0], PPTokenType.OPT_0)
 
     def print_named_args(self, name: str, args: Sequence[FridValue],
-                         kwas: Mapping[str,FridValue], path: str, /):
+                         kwas: Mapping[str,FridValue], path: str, /, sep: str=',:'):
         path = path + '(' + name + ')'
         if not self.json_level:
             assert not name or is_frid_identifier(name)  # name can be empty
             self.print(name, PPTokenType.ENTRY)
             self.print('(', PPTokenType.START)
-            self.print_naked_list(args, path, ',')
-            self.print(',', PPTokenType.SEP_0)
-            self.print_naked_dict(kwas, path, ',=')
+            if args:
+                self.print_naked_list(args, path, ',')
+            if args and kwas:
+                self.print(',', PPTokenType.SEP_0)
+            if kwas:
+                self.print_naked_dict(kwas, path, ',=')
             self.print(')', PPTokenType.CLOSE)
             return
         if self.escape_seq is None:
             raise ValueError(f"FridMixin is not supported by json={self.json_level} at {path=}")
         if kwas:
+            assert isinstance(kwas, Mapping), str(kwas)
             self.print('{', PPTokenType.START)
             self.print_quoted_str('', path, as_key=True)
+            self.print(sep[1], PPTokenType.SEP_0)
         # Print as an array
         if args:
+            assert isinstance(kwas, Sequence), str(args)
             self.print('[', PPTokenType.START)
-            self.print_quoted_str(self.escape_seq + name, path)
-            self.print(',', PPTokenType.SEP_0)
+            self.print_quoted_str(name, path, escape=True)
+            self.print(sep[0], PPTokenType.SEP_0)
             self.print_naked_list(args)
             self.print(']', PPTokenType.CLOSE)
         else:
-            self.print_quoted_str(self.escape_seq + name, path)
+            self.print_quoted_str(name, path, escape=True)
         if kwas:
+            self.print(sep[0], PPTokenType.SEP_0)
             self.print_naked_dict(kwas)
             self.print('}', PPTokenType.CLOSE)
 

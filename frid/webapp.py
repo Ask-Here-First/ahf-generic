@@ -1,5 +1,5 @@
 import os, json
-from collections.abc import AsyncIterable, Iterable, Mapping, Sequence
+from collections.abc import AsyncIterable, Iterable, Mapping
 from typing import Any, Literal
 from urllib.parse import unquote
 
@@ -198,7 +198,7 @@ class HttpMixin:
                 body = self._streaming(self.http_data)
                 mime_type = "text/event-stream"
             elif self.mime_type == 'json':
-                body = json.dumps(self.http_data, json_level=1).encode()
+                body = json.dumps(self.http_data).encode() # TODO do escape
                 mime_type = self.mime_type
             elif self.mime_type == 'frid':
                 body = dump_into_str(self.http_data).encode()
