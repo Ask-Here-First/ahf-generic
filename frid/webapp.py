@@ -153,15 +153,27 @@ class HttpMixin:
                    http_data=http_data, **kwargs)
 
     @staticmethod
-    async def _streaming(stream: AsyncIterable[FridValue|Any]):
+    async def _streaming(stream: AsyncIterable[FridValue|tuple[str,FridValue]]):
         """This is an agent iterator that convert data to string."""
         async for item in stream:
-            if is_frid_value(item):
-                yield b"data: " + dump_into_str(
+            prefix = b''
+            if isinstance(item, tuple) and len(item) == 2:
+                (event, item) = item
+                if isinstance(event, str):
+                    prefix = b"event: " + event.encode() + b"\n"
+            if item is None:
+                if prefix:
+                    yield prefix + b'\n'
+            elif is_frid_value(item):
+                yield prefix + b"data: " + dump_into_str(
                     item, json_level=5, escape_seq=DEF_ESCAPE_SEQ
                 ).encode() + b"\n\n"
             else:
-                yield b"event: other\ndata: " + get_type_name(item).encode() + b"\n\n"
+                if prefix:
+                    prefix += prefix.rstrip() + b"-error\n"
+                else:
+                    prefix = b"event: error\n"
+                yield prefix + b"type=" + get_type_name(item).encode() + b"\n\n"
 
     def set_response(self) -> 'HttpMixin':
         """Update other HTTP fields according to http_data.
