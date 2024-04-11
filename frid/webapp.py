@@ -5,7 +5,6 @@ from urllib.parse import unquote
 
 from .typing import BlobTypes, FridValue
 from .errors import FridError
-from .helper import get_type_name
 from .guards import is_frid_value
 from .loader import load_from_str
 from .dumper import dump_into_str
@@ -169,11 +168,11 @@ class HttpMixin:
                     item, json_level=5, escape_seq=DEF_ESCAPE_SEQ
                 ).encode() + b"\n\n"
             else:
-                if prefix:
-                    prefix += prefix.rstrip() + b"-error\n"
-                else:
-                    prefix = b"event: error\n"
-                yield prefix + b"type=" + get_type_name(item).encode() + b"\n\n"
+                if not prefix:
+                    prefix = b"event: other\n"
+                yield prefix + b'\n'.join(
+                    b"data: " + x.encode() for x in str(item).splitlines()
+                ) + b"\n\n"
 
     def set_response(self) -> 'HttpMixin':
         """Update other HTTP fields according to http_data.
