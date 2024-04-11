@@ -21,7 +21,8 @@ except ImportError:
 from .typing import FridValue, StrKeyMap
 from .chrono import parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
-from .strops import StringEscapeDecode, StringEscapeEncode, str_transform, str_find_any
+from .strops import StringEscapeDecode, StringEscapeEncode
+from .strops import escape_control_chars, revive_control_chars, str_transform, str_find_any
 from .helper import Comparator
 from .dumper import dump_into_tio, dump_into_str
 from .loader import ParseError, load_from_str, load_from_tio
@@ -155,6 +156,18 @@ class TestStrops(unittest.TestCase):
         self.assertEqual(str_transform(
             s, {'a': self._add_next_by_one, 'c': self._add_next_by_one}, stop_at="c"
         ), (6, "a4b4c6"))
+
+    def test_escape_control_char(self):
+        cases = {
+            "\n ": r"\n ", " \r": r" \r", "abc": "abc",
+            "I'm a\tgood\r\nstu\\dent.\n": r"I'm a\tgood\r\nstu\\dent.\n",
+            " \a \b \t \n \r \v \f \x1b \0 ": r" \a \b \t \n \r \v \f \e \0 ",
+        }
+        for x, y in cases.items():
+            self.assertEqual(escape_control_chars(x), y)
+            self.assertEqual(revive_control_chars(y), x)
+        self.assertEqual(revive_control_chars("abc \\"), "abc \\")
+        self.assertEqual(revive_control_chars("abc\\!"), "abc\\!")
 
     def test_string_escape(self):
         s = "I'm a\tgood\r\nstudent.\n"

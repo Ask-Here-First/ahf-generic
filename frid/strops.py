@@ -169,25 +169,50 @@ def str_transform(
     bound = _bound_index(n, bound)
     return str_transform__heap(s, transformers, start, bound, stop_at=stop_at)
 
+# Using all common C/C++ escape sequence (07-13) plus \e (27) for ESCAPE as in bash
+# The rest are filled with ASCII in 0-9a-z in order, skipping "coux" as used in C/C++.
 # Control-Keyboard @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
 # NON-PRINT ASCII  01234567890123456789012345678901
 control_charmap = "0123456abtnvfr789dghijklmpqeswyz"
-# Coding all common C/C++ escape sequence (07-13) plus \e (27) for ESCAPE as in bash
-# The rest are filled with ASCII in 0-9a-z in order, skipping "coux" as used in C/C++.
-_control_to_escape = {i: '\\' + v for i, v in enumerate(control_charmap)}
-_escape_to_control = {v: chr(i) for i, v in enumerate(control_charmap)}
-def escape_control_chars(key: str) -> str:
-    return key.translate(_control_to_escape)
+
+_control_trans_tables: dict[str,dict[int,str]] = {}  # This is a two level map
+def _get_control_trans_table(eseq: str, /):
+    table = _control_trans_tables.get(eseq)
+    if table is None:
+        table = {i: eseq + v for i, v in enumerate(control_charmap)}
+        table[ord(eseq[0])] = eseq + eseq[0]
+        _control_trans_tables[eseq] = table
+    return table
+def escape_control_chars(s: str, eseq='\\', /) -> str:
+    """Escape all non-printable control characters in the string `s`.
+    - The default sequence sequence for commonly used non-printables are
+      the same as in C++ (include newline, tab, etc.)
+    - The default sequence sequence prefix is backslash like many C-derived
+      programming languages.
+    """
+    assert eseq
+    if s.isprintable() and eseq not in s:
+        return s
+    return s.translate(_get_control_trans_table(eseq))
+
+_revive_control_char_map = {v: chr(i) for i, v in enumerate(control_charmap)}
 def _revive_control_transform(s: str, start: int, until: int, escape: str) -> tuple[int,str]:
     index = start + len(escape)
     if index >= until:
         return (0, "")
-    c = _escape_to_control.get(s[index])
+    c = s[index]
+    if c == escape[0]:
+        return (len(escape) + 1, c)
+    c = _revive_control_char_map.get(c)
     if c is None:
         return (0, "")
     return (len(escape) + 1, c)
-def revive_control_chars(s: str) -> str:
-    return str_transform(s, (('\\', _revive_control_transform),))[1]
+def revive_control_chars(s: str, eseq='\\', /) -> str:
+    """Revives the control characters in escaped sequence done by escape_control_chars()."""
+    assert eseq
+    if eseq not in s:
+        return s
+    return str_transform(s, ((eseq, _revive_control_transform),))[1]
 
 class StringEscapeEncode:
     def __init__(self, trans_pairs: str, escape_seq: str='\\',
