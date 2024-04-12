@@ -267,7 +267,7 @@ class FridDumper(PrettyPrint):
             self.print_naked_list(args)
             self.print(']', PPTokenType.CLOSE)
         else:
-            self.print_quoted_str(name, path, escape=True)
+            self.print_quoted_str(name if kwas else name + "()", path, escape=True)
         if kwas:
             self.print(sep[0], PPTokenType.SEP_0)
             self.print_naked_dict(kwas)

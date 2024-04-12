@@ -587,6 +587,17 @@ class TestLoaderAndDumper(unittest.TestCase):
                 if not isinstance(other, TestClass):
                     return False
                 return self._args == other._args and self._kwds == other._kwds
+
+        test = TestClass()
+        frid = "TestClass()"
+        self.assertEqual(dump_into_str(test), frid)
+        self.assertEqual(load_from_str(frid, frid_mixin=[TestClass]), test)
+        json = '"#!TestClass()"'
+        self.assertEqual(dump_into_str(test, json_level=1, escape_seq="#!"), json)
+        self.assertEqual(load_from_str(
+            json, frid_mixin=[TestClass], json_level=1, escape_seq="#!"
+        ), test)
+
         test = TestClass("Test", a=3)
         frid = "TestClass(Test, a=3)"
         self.assertEqual(dump_into_str(test), frid)

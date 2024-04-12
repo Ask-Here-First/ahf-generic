@@ -3,7 +3,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence, Set
 from typing import  Any, Literal, NoReturn, TextIO, TypeVar, cast
 
 from .typing import (
-    PRESENT, BlobTypes, DateTypes, FridArray, FridBeing, FridMapVT,
+    MISSING, PRESENT, BlobTypes, DateTypes, FridArray, FridBeing, FridMapVT,
     FridMixin, FridPrime, FridSeqVT, FridValue, StrKeyMap
 )
 from .guards import (
@@ -333,9 +333,10 @@ class FridLoader:
 
     def scan_quoted_seq(
             self, index: int, path: str, /, quotes: str, check_mixin: bool=False,
-    ) -> tuple[int,FridPrime|FridBeing|DummyMixin]:
+    ) -> tuple[int,FridPrime|FridBeing|FridMixin]:
         """Scan a sequence of quoted strings."""
         out = []
+        start = index
         while True:
             index = self.skip_whitespace(index, path)
             c = self.peek_fixed_size(index, path, 1)
@@ -350,9 +351,13 @@ class FridLoader:
             data = data[len(self.escape_seq):]
             if not data:
                 return (index, PRESENT)
-            out = self.parse_prime_str(data, ...)
-            if check_mixin and isinstance(out, str):
+            if data.endswith("()"):
+                name = data[:-2]
+                if is_frid_identifier(name):
+                    return (index, self.construct_mixin(start, path, name, [], {}))
+            elif check_mixin and is_frid_identifier(data):
                 return (index, DummyMixin(data))
+            out = self.parse_prime_str(data, ...)
             if out is not ...:
                 return (index, out)
         return (index, data)
@@ -478,15 +483,19 @@ class FridLoader:
             self, index: int, path: str, /, stop: str='', sep: str=",="
     ) -> tuple[int,list[FridValue],dict[str,FridValue]]:
         args = []
-        kwas = {}
+        kwds = {}
         while True:
             (index, name) = self.scan_frid_value(index, path)
+            if not name:
+                break
             index = self.skip_whitespace(index, path)
             if index >= self.length:
                 self.error(index, f"Unexpected ending after '{name}' of a map: {path=}")
             c = self.peek_fixed_size(index, path, 1)
             if c == sep[0]:
                 index = self.skip_fixed_size(index, path, 1)
+                if kwds:
+                    self.error(index, "Unnamed argument following keyword argument")
                 args.append(name)
                 continue
             if c != sep[1]:
@@ -495,16 +504,16 @@ class FridLoader:
                 self.error(index, f"Invalid name type {type(name).__name__} of a map: {path=}")
             index = self.skip_fixed_size(index, path, 1)
             (index, value) = self.scan_frid_value(index, path + '/' + name)
-            if name in kwas:
+            if name in kwds:
                 self.error(index, f"Existing key '{name}' of a map: {path=}")
-            kwas[name] = value
+            kwds[name] = value
             index = self.skip_whitespace(index, path)
             if (c := self.peek_fixed_size(index, path, 1)) in stop:
                 break
             if c != sep[0]:
                 self.error(index, f"Expect '{sep[0]}' after the value for '{name}': {path=}")
             index = self.skip_fixed_size(index, path, 1)
-        return (index, args, kwas)
+        return (index, args, kwds)
 
     def scan_frid_value(
             self, index: int, path: str, /, empty: Any='', check_mixin: bool=False,
