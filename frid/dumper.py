@@ -260,7 +260,7 @@ class FridDumper(PrettyPrint):
             self.print(sep[1], PPTokenType.SEP_0)
         # Print as an array
         if args:
-            assert isinstance(kwas, Sequence), str(args)
+            assert isinstance(args, Sequence), str(args)
             self.print('[', PPTokenType.START)
             self.print_quoted_str(name, path, escape=True)
             self.print(sep[0], PPTokenType.SEP_0)

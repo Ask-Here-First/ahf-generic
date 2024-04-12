@@ -60,7 +60,7 @@ class FridMixin(ABC):
         return [cls.__name__]
 
     @classmethod
-    def frid_from(cls: type[T], name: str, *args: 'FridValue', **kwds: 'FridValue') -> T:
+    def frid_from(cls: type[T], name: str, *args: 'FridSeqVT', **kwds: 'FridMapVT') -> T:
         """Construct an instance with given name and arguments."""
         assert name in cls.frid_keys()
         return cls(*args, **kwds)

@@ -1,9 +1,14 @@
 import math, base64
 from collections.abc import Callable, Iterator, Mapping, Sequence, Set
-from typing import  Any, Literal, NoReturn, TextIO, TypeVar
+from typing import  Any, Literal, NoReturn, TextIO, TypeVar, cast
 
-from .typing import PRESENT, BlobTypes, DateTypes, FridArray, FridBeing, FridMixin, FridPrime, FridValue, StrKeyMap
-from .guards import is_frid_identifier, is_frid_prime, is_frid_quote_free, is_quote_free_char
+from .typing import (
+    PRESENT, BlobTypes, DateTypes, FridArray, FridBeing, FridMapVT,
+    FridMixin, FridPrime, FridSeqVT, FridValue, StrKeyMap
+)
+from .guards import (
+    is_dict_like, is_frid_identifier, is_frid_prime, is_frid_quote_free,  is_quote_free_char
+)
 from .errors import FridError
 from .strops import escape_control_chars, str_find_any, StringEscapeDecode
 from .chrono import parse_datetime
@@ -17,7 +22,7 @@ T = TypeVar('T')
 class ParseError(FridError):
     def __init__(self, s: str, index: int, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        note = s[(index-16):index] + '\u274e' + s[index:(index+16)]
+        note = s[max(index-16, 0):index] + '\u274e' + s[index:(index+16)]
         self.notes.append(note)
         self.input_string = s
         self.error_offset = index
@@ -26,6 +31,15 @@ class ParseError(FridError):
         if not self.notes:
             return s
         return s + " => " + " | ".join(self.notes)
+
+class DummyMixin(FridMixin):
+    def __init__(self, name: str, args: list[FridSeqVT]|None=None,
+                 kwds: dict[str,FridMapVT]|None=None):
+        self.name = name
+        self.args = args
+        self.kwds = kwds
+    def frid_repr(self) -> tuple[str,list[FridSeqVT],dict[str,FridMapVT]]:
+        return (self.name, self.args or [], self.kwds or {})
 
 class FridLoader:
     """This class loads data in buffer into Frid-allowed data structures.
@@ -318,8 +332,8 @@ class FridLoader:
         return (index + count, value)
 
     def scan_quoted_seq(
-            self, index: int, path: str, /, quotes: str
-    ) -> tuple[int,FridPrime|FridBeing]:
+            self, index: int, path: str, /, quotes: str, check_mixin: bool=False,
+    ) -> tuple[int,FridPrime|FridBeing|DummyMixin]:
         """Scan a sequence of quoted strings."""
         out = []
         while True:
@@ -336,30 +350,80 @@ class FridLoader:
             data = data[len(self.escape_seq):]
             if not data:
                 return (index, PRESENT)
-            if (out := self.parse_prime_str(data, ...)) is not ...:
+            out = self.parse_prime_str(data, ...)
+            if check_mixin and isinstance(out, str):
+                return (index, DummyMixin(data))
+            if out is not ...:
                 return (index, out)
         return (index, data)
 
-    def scan_naked_list(self, index: int, path: str,
-                        /, stop: str='', sep: str=',') -> tuple[int,FridArray]:
-        out = []
+    def construct_mixin(
+            self, start: int, path: str,
+            /, name: str, args: FridArray, kwds: StrKeyMap,
+    ) -> FridMixin:
+        mixin = self.frid_mixin.get(name)
+        if mixin is None:
+            self.error(start, f"Cannot find constructor called '{name}'")
+        return mixin.frid_from(name, *args, **kwds)
+    def try_mixin_in_seq(
+            self, data: list[FridSeqVT], start: int, path: str, *, parent_checking: bool=False
+    ) -> FridMixin|list[FridSeqVT]:
+        if not data:
+            return data
+        first = data[0]
+        if not isinstance(first, DummyMixin):
+            return data
+        # If the first entry is already a dummy with arguments, construct it to the real one
+        if first.args is not None:
+            data[0] = self.construct_mixin(start, path, first.name, first.args, {})
+            return data
+        # If the first entry is just a mixin name, then construct a dummy include the rest
+        if parent_checking:
+            return DummyMixin(first.name, data[1:])
+        # Otherwise construct a real mixin with the rest of the list as positional argument
+        return self.construct_mixin(start, path, first.name, data[1:], {})
+    def try_mixin_in_map(
+            self, data: dict[str,FridMapVT], start: int, path: str
+    ) -> FridMixin|dict[str,FridMapVT]:
+        if not self.escape_seq:
+            return data
+        first = data.get('')
+        if not isinstance(first, DummyMixin):
+            return data
+        data.pop('')
+        return self.construct_mixin(start, path, first.name, first.args or [], data)
+
+    def scan_naked_list(
+            self, index: int, path: str,
+            /, stop: str='', sep: str=',', check_mixin: bool=False,
+    ) -> tuple[int,list[FridSeqVT]|FridMixin]:
+        out: list[FridSeqVT] = []
+        start = index
         while True:
-            (index, value) = self.scan_frid_value(index, path, empty=...)
+            (index, value) = self.scan_frid_value(
+                index, path, empty=...,
+                # Only check for mixin for the first item (`not out``) and with escape
+                check_mixin=(not out and bool(self.escape_seq))
+            )
             index = self.skip_whitespace(index, path)
             if (c := self.peek_fixed_size(index, path, 1)) in stop:  # Empty is also a sub-seq
                 break
             if c != sep[0]:
                 self.error(index, f"Unexpected '{c}' after {len(out)}th list entry: {path=}")
             index = self.skip_fixed_size(index, path, 1)
+            assert not isinstance(value, FridBeing)
             out.append(value if value is not ... else '')
         # The last entry that is not an empty string will be added to the data.
         if value is not ...:
+            assert not isinstance(value, FridBeing)
             out.append(value)
-        return (index, out)
+        # Check if this is a mixin (only if caller does not ask for a mixin)
+        return (index, self.try_mixin_in_seq(out, start, path, parent_checking=check_mixin))
 
     def scan_naked_dict(self, index: int, path: str,
-                        /, stop: str='', sep: str=",:") -> tuple[int,StrKeyMap|Set]:
-        out = {}
+                        /, stop: str='', sep: str=",:") -> tuple[int,StrKeyMap|Set|FridMixin]:
+        out: dict[FridPrime,FridMapVT] = {}
+        start = index
         while True:
             (index, key) = self.scan_frid_value(index, path, empty='')
             if not is_frid_prime(key):
@@ -388,7 +452,9 @@ class FridLoader:
             if not isinstance(key, str):
                 self.error(index, f"Invalid key type {type(key).__name__} of a map: {path=}")
             index = self.skip_fixed_size(index, path, 1)
-            (index, value) = self.scan_frid_value(index, path + '/' + key)
+            (index, value) = self.scan_frid_value(
+                index, path + '/' + key, check_mixin=(not key and bool(self.escape_seq))
+            )
             out[key] = value
             index = self.skip_whitespace(index, path)
             if (c := self.peek_fixed_size(index, path, 1)) in stop:  # Empty is also a sub-seq
@@ -397,11 +463,15 @@ class FridLoader:
                 self.error(index, f"Expect '{sep[0]}' after the value for '{key}': {path=}")
             index = self.skip_fixed_size(index, path, len(c))
         # Convert into a set if non-empty and all values are PRESENT
-        if out:
-            if all(v is PRESENT for v in out.values()):
-                out = set(out.keys())
-            elif any(not isinstance(k, str) for k in out.keys()):
-                self.error(index, f"Not a map but keys are not all string: {path=}")
+        if out and all(v is PRESENT for v in out.values()):
+            return (index, set(out.keys()))
+        if not is_dict_like(out):
+            self.error(index, f"Not a set but keys are not all string: {path=}")
+        # Now we check if this is a mixin
+        if self.escape_seq:
+            x = self.try_mixin_in_map(cast(dict[str,FridMapVT], out), start, path)
+            if x is not out:
+                return (index, x)
         return (index, out)
 
     def scan_naked_args(
@@ -436,17 +506,8 @@ class FridLoader:
             index = self.skip_fixed_size(index, path, 1)
         return (index, args, kwas)
 
-    def construct_mixin(
-            self, index: int, path: str, start: int,
-            /, name: str,  args: list[FridValue], kwds: dict[str,FridValue]
-    ) -> tuple[int,FridValue]:
-        mixin = self.frid_mixin.get(name)
-        if mixin is None:
-            self.error(start, f"Cannot find constructor called {name}")
-        return (index, mixin.frid_from(name, *args, **kwds))
-
     def scan_frid_value(
-            self, index: int, path: str, /, empty: Any=''
+            self, index: int, path: str, /, empty: Any='', check_mixin: bool=False,
     ) -> tuple[int,FridValue|FridBeing]:
         """Load the text representation."""
         index = self.skip_whitespace(index, path)
@@ -455,14 +516,16 @@ class FridLoader:
         c = self.peek_fixed_size(index, path, 1)
         if c == '[':
             index = self.skip_fixed_size(index, path, 1)
-            (index, value) = self.scan_naked_list(index, path, ']')
+            (index, value) = self.scan_naked_list(index, path, ']', check_mixin=check_mixin)
             return (self.skip_prefix_str(index, path, ']'), value)
         if c == '{':
             index = self.skip_fixed_size(index, path, 1)
             (index, value) = self.scan_naked_dict(index, path, '}')
             return (self.skip_prefix_str(index, path, '}'), value)
         if c in ALLOWED_QUOTES:
-            return self.scan_quoted_seq(index, path, quotes=ALLOWED_QUOTES)
+            return self.scan_quoted_seq(
+                index, path, quotes=ALLOWED_QUOTES, check_mixin=bool(check_mixin)
+            )
         if c == '(' and self.parse_expr is not None:
             (index, value) = self.scan_data_until(index, path, ')')
             index = self.skip_prefix_str(index, path, ')')
@@ -471,15 +534,16 @@ class FridLoader:
         self.anchor = index
         try:
             (index, value) = self.scan_prime_data(index, path, empty=empty)
-            if index < self.length or not isinstance(value, str):
-                return (index, value)
             index = self.skip_whitespace(index, path)
+            if index >= self.length or not isinstance(value, str):
+                return (index, value)
             c = self.peek_fixed_size(index, path, 1)
             if self.frid_mixin and c == '(' and is_frid_identifier(value):
+                index = self.skip_fixed_size(index, path, 1)
                 name = value
-                (index, args, kwas) = self.scan_naked_args(index, path, ')')
+                (index, args, kwds) = self.scan_naked_args(index, path, ')')
                 index = self.skip_prefix_str(index, path, ')')
-                return self.construct_mixin(index, path, self.anchor, name, args, kwas)
+                return (index, self.construct_mixin(self.anchor, path, name, args, kwds))
             return (index, value)
         except ParseError:
             index = self.anchor
@@ -506,7 +570,7 @@ class FridLoader:
         if index < self.length:
             index = self.skip_whitespace(index, path)
             if index < self.length:
-                self.error(index, f"Trailing data at {index} ({path=}): {self.buffer[index:]}")
+                self.error(index, f"Trailing data at {index} ({path=})")
         if isinstance(value, FridBeing):
             self.error(index, "PRESENT or MISSING is only supported for map values")
         return value

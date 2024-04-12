@@ -19,13 +19,13 @@ try:
 except ImportError:
     _cov = None
 
-from .typing import MISSING, PRESENT, FridBeing, FridValue, StrKeyMap
+from .typing import MISSING, PRESENT, FridBeing, FridMixin, FridValue, StrKeyMap
 from .chrono import parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode
 from .strops import escape_control_chars, revive_control_chars, str_transform, str_find_any
 from .helper import Comparator, Substitute, get_func_name, get_qual_name, get_type_name
-from .dumper import dump_into_tio, dump_into_str
+from .dumper import dump_args_into_str, dump_into_tio, dump_into_str
 from .loader import ParseError, load_from_str, load_from_tio
 
 class TestChrono(unittest.TestCase):
@@ -571,6 +571,31 @@ class TestLoaderAndDumper(unittest.TestCase):
         for i, (k, v) in enumerate(self.comment_cases.items()):
             w = load_from_str(k, comments=[("#", "\n"), ("//", "\n"), ("/*", "*/")])
             self.assertEqual(v, w, msg=f"[{i}]: {k}")
+
+    def test_mixins(self):
+        class TestClass(FridMixin):
+            def __init__(self, *args, **kwds):
+                self._args = args
+                self._kwds = kwds
+            def frid_repr(self):
+                return (get_type_name(self), self._args, self._kwds)
+            def __repr__(self):
+                return dump_args_into_str(*self.frid_repr())
+            def __eq__(self, other):
+                if self is other:
+                    return True
+                if not isinstance(other, TestClass):
+                    return False
+                return self._args == other._args and self._kwds == other._kwds
+        test = TestClass("Test", a=3)
+        frid = "TestClass(Test, a=3)"
+        self.assertEqual(dump_into_str(test), frid)
+        self.assertEqual(load_from_str(frid, frid_mixin=[TestClass]), test)
+        json = """{"": ["#!TestClass", "Test"], "a": 3}"""
+        self.assertEqual(dump_into_str(test, json_level=1, escape_seq="#!"), json)
+        self.assertEqual(load_from_str(
+            json, frid_mixin=[TestClass], json_level=1, escape_seq="#!"
+        ), test)
 
 
 if __name__ == '__main__':
