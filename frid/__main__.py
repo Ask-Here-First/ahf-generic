@@ -1,3 +1,4 @@
+from functools import partial
 import os, io, sys, math, json, string, base64, unittest, importlib
 from random import Random
 from typing import Literal, cast
@@ -23,7 +24,7 @@ from .chrono import parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode
 from .strops import escape_control_chars, revive_control_chars, str_transform, str_find_any
-from .helper import Comparator, Substitute
+from .helper import Comparator, Substitute, get_func_name, get_qual_name, get_type_name
 from .dumper import dump_into_tio, dump_into_str
 from .loader import ParseError, load_from_str, load_from_tio
 
@@ -258,15 +259,38 @@ class TestHelper(unittest.TestCase):
         self.assertEqual(sub("[${a}]", a=PRESENT), "[.+]")
         self.assertEqual(sub("${a}"), ".-")
         self.assertEqual(sub("a"), "a")
-        self.assertEqual(sub("The ${var} is here", {'var': "data"}),
-                         "The data is here")
-        self.assertEqual(sub("The ${var} is here", var="data"),
-                         "The data is here")
+        self.assertEqual(sub("The ${key}=${val} is here", {'key': "data", 'val': 3}),
+                         "The data=3 is here")
+        self.assertEqual(sub("The ${var} is here", var="data"), "The data is here")
         self.assertEqual(sub({
             'a': "${var1}", 'b': ["${var2}", "${var3}"]
         }, var1=3, var2=['abc', 4], var3='def'), {
             'a': 3, 'b': ['abc', 4, 'def']
         })
+        self.assertEqual(sub(["${var1}", "${var2}"], var1=PRESENT, var2=MISSING), [".+", ".-"])
+        with self.assertRaises(ValueError):
+            sub("abc ${def")
+        # This is for the pattern
+        self.assertEqual(sub("${var*}", var1="x", var2="y"), {'1': "x", '2': "y"})
+        self.assertEqual(sub("[${va*}]", var1="x", var2="y"), "[{r1: x, r2: y}]")
+
+    def test_type_check(self):
+        self.assertEqual(get_type_name(FridBeing), "FridBeing")
+        self.assertEqual(get_type_name(PRESENT), "FridBeing")
+        self.assertEqual(get_type_name(MISSING), "FridBeing")
+        self.assertEqual(get_qual_name(FridBeing), "FridBeing")
+        self.assertEqual(get_qual_name(PRESENT), "FridBeing")
+        self.assertEqual(get_qual_name(MISSING), "FridBeing")
+        self.assertEqual(get_func_name(self.test_type_check), "test_type_check()")
+        self.assertEqual(get_func_name(id), "id()")
+        def test(a, b, c):
+            pass
+        self.assertEqual(get_func_name(test), "test()")
+        self.assertIsInstance(partial(test, 3), partial)
+        self.assertEqual(get_func_name(partial(test)), "test()")
+        self.assertEqual(get_func_name(partial(test, 3)), "test(3,...)")
+        self.assertEqual(get_func_name(partial(test, b=3)), "test(...,b=3,...)")
+
 
 class TestLoaderAndDumper(unittest.TestCase):
     common_cases = {

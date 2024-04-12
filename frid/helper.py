@@ -134,8 +134,7 @@ class Substitute:
             index = start + len(prefix)
             end = s.find(self.suffix, index, bound)
             if end < 0:
-                if len(s) < bound:
-                    raise IndexError(f"Search ends at {index}")
+                assert len(s) == bound
                 raise ValueError(f"Missing '{self.suffix}' at {index}")
             expr = s[index:end]
             return (len(self.suffix) + end - start,
@@ -169,7 +168,7 @@ class Substitute:
                 r = self.sub_data(v, values)
                 if isinstance(r, FridBeing):
                     out.append(self.present if r else self.missing)
-                if is_list_like(r):
+                elif is_list_like(r):
                     out.extend(r)
                 else:
                     out.append(r)
@@ -185,20 +184,18 @@ class Substitute:
         return result
 
 def _callable_name(func: Callable) -> str:
-    if hasattr(func, '__qualname__'):
-        return func.__qualname__
+    # if hasattr(func, '__qualname__'):
+    #     return func.__qualname__
     if hasattr(func, '__name__'):
         return func.__name__
-    if hasattr(func, '__class__'):
+    if hasattr(func, '__class__'):  # pragma: no cover
         return func.__class__.__name__ + "()"
-    return str(func)
+    return str(func)  # pragma: no cover
 
 def get_qual_name(data) -> str:
     """Return the data's qualified name."""
     if hasattr(data, '__qualname__'):
         return data.__qualname__
-    if isinstance(data, type):
-        data = data.__qualname__
     return type(data).__qualname__
 
 def get_type_name(data) -> str:
@@ -211,10 +208,10 @@ def get_type_name(data) -> str:
 def get_func_name(func: Callable) -> str:
     """Returns the proper function names for regular or partial functions."""
     if not isinstance(func, partial):
-        return _callable_name(func)
+        return _callable_name(func) + "()"
     if not func.args and not func.keywords:
-        return _callable_name(func.func)
-    name = _callable_name(func.func).removesuffix("()") + "("
+        return _callable_name(func.func) + "()"
+    name = _callable_name(func.func) + "("
     if func.args:
         name += ','.join(str(x) for x in func.args) + ",..."
     else:

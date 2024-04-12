@@ -34,6 +34,8 @@ class FridBeing():
         return self is self._present
     def __str__(self):
         return "_present_" if self else "_missing_"
+    def __repr__(self):
+        return self.__class__.__name__ + '(' + str(self) + ')'
 
 PRESENT = FridBeing(True)
 MISSING = FridBeing(False)
