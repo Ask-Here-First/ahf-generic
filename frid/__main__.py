@@ -23,7 +23,7 @@ from .chrono import parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode
 from .strops import escape_control_chars, revive_control_chars, str_transform, str_find_any
-from .helper import Comparator
+from .helper import Comparator, Substitute
 from .dumper import dump_into_tio, dump_into_str
 from .loader import ParseError, load_from_str, load_from_tio
 
@@ -64,17 +64,21 @@ class TestChrono(unittest.TestCase):
     def test_strfr(self):
         self.assertEqual(strfr_datetime(dateonly(2011, 2, 13)), "2011-02-13")
         self.assertEqual(strfr_datetime(timeonly(10, 20, 30)), "0T102030.000")
+        self.assertEqual(strfr_datetime(timeonly(10, 20, 30), colon=True), "0T10:20:30.000")
         self.assertEqual(strfr_datetime(timeonly(10, 20, 30, 22, timezone.utc)),
                          "0T102030.220Z")
         self.assertEqual(strfr_datetime(datetime(2011, 2, 3, 11, 22, 33, 456789)),
                          "2011-02-03T112233.456")
         self.assertEqual(strfr_datetime(datetime(
             2011, 2, 3, 11, 22, 33, 456789, timezone(timedelta(hours=5, minutes=30))
-        )), "2011-02-03T112233.456+0530")
+        ), colon=True), "2011-02-03T11:22:33.456+0530")
         self.assertEqual(strfr_datetime(timeonly(11, 22, 33), precision=1), "0T112233.0")
         self.assertEqual(strfr_datetime(timeonly(11, 22, 33), precision=0), "0T112233")
         self.assertEqual(strfr_datetime(timeonly(11, 22, 33), precision=-1), "0T1122")
+        self.assertEqual(strfr_datetime(timeonly(11, 22, 33), precision=-2), "0T11")
         self.assertIsNone(strfr_datetime(cast(datetime, 0)), None)
+        with self.assertRaises(ValueError):
+            strfr_datetime(timeonly(11, 22, 33), precision=-3)
 
 class TestStrops(unittest.TestCase):
     def test_str_find_any(self):
@@ -244,6 +248,18 @@ class TestHelper(unittest.TestCase):
         self.assertFalse(cmp({'a': 1}, {'a': 3, 'b': 2}))
         self.assertFalse(cmp({'a': 1}, {}))
         self.assertFalse(cmp({'a': 1}, 3))
+
+    def test_substitute(self):
+        sub = Substitute()
+        self.assertEqual(sub("The ${var} is here", {'var': "data"}),
+                         "The data is here")
+        self.assertEqual(sub("The ${var} is here", var="data"),
+                         "The data is here")
+        self.assertEqual(sub({
+            'a': "${var1}", 'b': ["${var2}", "${var3}"]
+        }, var1=3, var2=['abc', 4], var3='def'), {
+            'a': 3, 'b': ['abc', 4, 'def']
+        })
 
 class TestLoaderAndDumper(unittest.TestCase):
     common_cases = {

@@ -9,30 +9,31 @@ from .dumper import dump_into_str
 
 P = ParamSpec('P')
 T = TypeVar('T')
-CompareFunc = Callable[Concatenate[T,FridValue,P],bool]
-RecursiveFunc = Callable[Concatenate[T,FridValue,Callable[...,bool],P],bool]
+PrimitiveCompFunc = Callable[Concatenate[T,FridValue,P],bool]
+RecursiveCompFunc = Callable[Concatenate[T,FridValue,Callable[...,bool],P],bool]
 
 class Comparator(Generic[P]):
+    """A flexiable data comparitor."""
     def __init__(
             self, *, default: bool=False,
-            compare_none: CompareFunc[None,P]|None=None,
-            compare_bool: CompareFunc[bool,P]|None=None,
-            compare_real: CompareFunc[int|float,P]|None=None,
-            compare_text: CompareFunc[str,P]|None=None,
-            compare_blob: CompareFunc[BlobTypes,P]|None=None,
-            compare_date: CompareFunc[DateTypes,P]|None=None,
-            compare_list: RecursiveFunc[FridArray,P]|None=None,
-            compare_dict: RecursiveFunc[StrKeyMap,P]|None=None
+            compare_none: PrimitiveCompFunc[None,P]|None=None,
+            compare_bool: PrimitiveCompFunc[bool,P]|None=None,
+            compare_real: PrimitiveCompFunc[int|float,P]|None=None,
+            compare_text: PrimitiveCompFunc[str,P]|None=None,
+            compare_blob: PrimitiveCompFunc[BlobTypes,P]|None=None,
+            compare_date: PrimitiveCompFunc[DateTypes,P]|None=None,
+            compare_list: RecursiveCompFunc[FridArray,P]|None=None,
+            compare_dict: RecursiveCompFunc[StrKeyMap,P]|None=None
     ):
         self._default: bool = default
-        self._compare_none: CompareFunc[None,P] = compare_none or self.is_none
-        self._compare_bool: CompareFunc[bool,P] = compare_bool or self.equal_item
-        self._compare_real: CompareFunc[int|float,P] = compare_real or self.equal_item
-        self._compare_text: CompareFunc[str,P] = compare_text or self.equal_item
-        self._compare_blob: CompareFunc[BlobTypes,P] = compare_blob or self.equal_item
-        self._compare_date: CompareFunc[DateTypes,P] = compare_date or self.equal_item
-        self._compare_list: RecursiveFunc[FridArray,P] = compare_list or self.equal_list
-        self._compare_dict: RecursiveFunc[StrKeyMap,P] = compare_dict or self.equal_dict
+        self._compare_none: PrimitiveCompFunc[None,P] = compare_none or self.is_none
+        self._compare_bool: PrimitiveCompFunc[bool,P] = compare_bool or self.equal_item
+        self._compare_real: PrimitiveCompFunc[int|float,P] = compare_real or self.equal_item
+        self._compare_text: PrimitiveCompFunc[str,P] = compare_text or self.equal_item
+        self._compare_blob: PrimitiveCompFunc[BlobTypes,P] = compare_blob or self.equal_item
+        self._compare_date: PrimitiveCompFunc[DateTypes,P] = compare_date or self.equal_item
+        self._compare_list: RecursiveCompFunc[FridArray,P] = compare_list or self.equal_list
+        self._compare_dict: RecursiveCompFunc[StrKeyMap,P] = compare_dict or self.equal_dict
 
     def __call__(self, d1: FridValue, d2: FridValue,
                  /, *args: P.args, **kwargs: P.kwargs) -> bool:
@@ -92,6 +93,7 @@ class Comparator(Generic[P]):
             k in d2 and comparator(v, d2[k], *args, **kwargs) for k, v in d1.items()
         )
 class Substitute:
+    """Substitutes delimited variables in template strings into their values."""
     def __init__(self, prefix: str="${", suffix: str="}", default: FridValue=None):
         self.prefix = prefix
         self.suffix = suffix
@@ -132,9 +134,10 @@ class Substitute:
             if end < 0:
                 if len(s) < bound:
                     raise IndexError(f"Search ends at {index}")
-                raise ValueError(f"Missing '}}' at {index}")
+                raise ValueError(f"Missing '{self.suffix}' at {index}")
             expr = s[index:end]
-            return (len(self.suffix) + end, self.textuate(self.evaluate(expr, values, default)))
+            return (len(self.suffix) + end - start,
+                    self.textuate(self.evaluate(expr, values, default)))
         return str_transform(s, {self.prefix: _transform})[1]
     _T = TypeVar('_T', bound=FridValue)
     @overload
@@ -168,7 +171,13 @@ class Substitute:
                     out.append(r)
             return out
         return data
-    __call__ = sub
+    def __call__(self, data: FridValue, values: StrKeyMap|None=None, /, **kwargs: FridValue):
+        if values is None:
+            values = kwargs
+        elif kwargs is not None:
+            values = dict(values)
+            values.update(kwargs)
+        return self.sub(data, values)
 
 def _callable_name(func: Callable) -> str:
     if hasattr(func, '__qualname__'):
