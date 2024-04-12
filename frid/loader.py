@@ -3,7 +3,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence, Set
 from typing import  Any, Literal, NoReturn, TextIO, TypeVar, cast
 
 from .typing import (
-    MISSING, PRESENT, BlobTypes, DateTypes, FridArray, FridBeing, FridMapVT,
+    PRESENT, BlobTypes, DateTypes, FridArray, FridBeing, FridMapVT,
     FridMixin, FridPrime, FridSeqVT, FridValue, StrKeyMap
 )
 from .guards import (
