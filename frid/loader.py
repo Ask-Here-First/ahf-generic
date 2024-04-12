@@ -1,8 +1,8 @@
-import math, types, base64
+import math, base64
 from collections.abc import Callable, Iterator, Mapping, Sequence, Set
 from typing import  Any, Literal, NoReturn, TextIO, TypeVar
 
-from .typing import BlobTypes, DateTypes, FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
+from .typing import PRESENT, BlobTypes, DateTypes, FridArray, FridBeing, FridMixin, FridPrime, FridValue, StrKeyMap
 from .guards import is_frid_identifier, is_frid_prime, is_frid_quote_free, is_quote_free_char
 from .errors import FridError
 from .strops import escape_control_chars, str_find_any, StringEscapeDecode
@@ -319,8 +319,8 @@ class FridLoader:
 
     def scan_quoted_seq(
             self, index: int, path: str, /, quotes: str
-    ) -> tuple[int,FridPrime|types.EllipsisType]:
-        """Scan a continuationm of quoted string after the first quoted str."""
+    ) -> tuple[int,FridPrime|FridBeing]:
+        """Scan a sequence of quoted strings."""
         out = []
         while True:
             index = self.skip_whitespace(index, path)
@@ -335,7 +335,7 @@ class FridLoader:
         if self.escape_seq and data.startswith(self.escape_seq):
             data = data[len(self.escape_seq):]
             if not data:
-                return (index,...)
+                return (index, PRESENT)
             if (out := self.parse_prime_str(data, ...)) is not ...:
                 return (index, out)
         return (index, data)
@@ -373,14 +373,14 @@ class FridLoader:
                 if key == "":
                     # Not allowing item separator with empty key and no key/value separator
                     self.error(index, f"Missing data before '{sep[0]}'")
-                # Using value ... if key is non-empty
+                # Using value PRESENT if key is non-empty
                 index = self.skip_fixed_size(index, path, len(c))
-                out[key] = ...
+                out[key] = PRESENT
                 continue
             if c in stop:
-                # If stops without key/value separator, add key=... only for non-empty key
+                # If stops without key/value separator, add key=PRESENT only for non-empty key
                 if key != "":
-                    out[key] = ...
+                    out[key] = PRESENT
                 break
             if c != sep[1]:
                 self.error(index, f"Expect '{sep[1]}' after key '{key}' of a map: {path=}")
@@ -396,9 +396,9 @@ class FridLoader:
             if c != sep[0]:
                 self.error(index, f"Expect '{sep[0]}' after the value for '{key}': {path=}")
             index = self.skip_fixed_size(index, path, len(c))
-        # Convert into a set if non-empty and all values are ...
+        # Convert into a set if non-empty and all values are PRESENT
         if out:
-            if all(v is ... for v in out.values()):
+            if all(v is PRESENT for v in out.values()):
                 out = set(out.keys())
             elif any(not isinstance(k, str) for k in out.keys()):
                 self.error(index, f"Not a map but keys are not all string: {path=}")
@@ -447,7 +447,7 @@ class FridLoader:
 
     def scan_frid_value(
             self, index: int, path: str, /, empty: Any=''
-    ) -> tuple[int,FridValue|types.EllipsisType]:
+    ) -> tuple[int,FridValue|FridBeing]:
         """Load the text representation."""
         index = self.skip_whitespace(index, path)
         if index >= self.length:
@@ -507,8 +507,8 @@ class FridLoader:
             index = self.skip_whitespace(index, path)
             if index < self.length:
                 self.error(index, f"Trailing data at {index} ({path=}): {self.buffer[index:]}")
-        if value is ...:
-            self.error(index, "Dummy is only supported for map values")
+        if isinstance(value, FridBeing):
+            self.error(index, "PRESENT or MISSING is only supported for map values")
         return value
 
 class FridTextIOLoader(FridLoader):

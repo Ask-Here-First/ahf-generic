@@ -2,7 +2,8 @@ from collections.abc import Callable, Mapping, Sequence
 from functools import partial
 from typing import Concatenate, Generic, ParamSpec, TypeVar, overload
 
-from .typing import BlobTypes, DateTypes, FridArray, FridMapVT, FridSeqVT, FridValue, StrKeyMap
+from .typing import MISSING, BlobTypes, DateTypes, FridBeing
+from .typing import FridArray, FridMapVT, FridSeqVT, FridValue, StrKeyMap
 from .guards import is_list_like
 from .strops import str_transform
 from .dumper import dump_into_str
@@ -94,40 +95,41 @@ class Comparator(Generic[P]):
         )
 class Substitute:
     """Substitutes delimited variables in template strings into their values."""
-    def __init__(self, prefix: str="${", suffix: str="}", default: FridValue=None):
+    def __init__(self, prefix: str="${", suffix: str="}",
+                 *, present: str='?', missing: str=''):
         self.prefix = prefix
         self.suffix = suffix
-        self.default = default
-    def textuate(self, data: FridValue) -> str:
+        self.present = present
+        self.missing = missing
+    def textuate(self, data: FridValue|FridBeing) -> str:
         """Convert data to text in the case it is in the middle of a string.
         This method can be overridden by a derived class
         """
         if isinstance(data, str):
             return data
+        if isinstance(data, FridBeing):
+            return self.present if data else self.missing
         return dump_into_str(data)
 
-    def evaluate(self, expr: str, values: StrKeyMap, default) -> FridValue:
+    def evaluate(self, expr: str, values: StrKeyMap) -> FridValue|FridBeing:
         """Evaluate an expression against the values."""
         expr = expr.strip()
+        # Currently only handles the wildcard as the end of variable
         if expr.endswith('*'):
             expr = expr[:-1]
-            return {k[len(expr):]: v for k, v in values.items() if k.startswith(expr)}
-        v = values.get(expr, default)
-        if v is ...:
-            return default
-        return v
+            return {k[len(expr):]: v for k, v in values.items()
+                    if k.startswith(expr) and v is not MISSING}
+        return values.get(expr, MISSING)
 
-    def sub_text(self, s: str, values: StrKeyMap|None, default) -> FridValue:
+    def sub_text(self, s: str, values: StrKeyMap) -> FridValue|FridBeing:
         """Return the string `s` with placeholder variable replaced with values.
         If a variable does not exist in `values`
-        - Returns `...` (ellipsis)  if the template contains only a single variable;
+        - Returns MISSING if the template contains only a single variable;
         - Returns as is if template contains more than a single variable.
         """
-        if not values:
-            return s
         if s.startswith(self.prefix) and s.endswith(self.suffix):
             name = s[2:-1]
-            return self.evaluate(name, values, default)
+            return self.evaluate(name, values)
         def _transform(s: str, start: int, bound: int, prefix: str):
             index = start + len(prefix)
             end = s.find(self.suffix, index, bound)
@@ -137,47 +139,50 @@ class Substitute:
                 raise ValueError(f"Missing '{self.suffix}' at {index}")
             expr = s[index:end]
             return (len(self.suffix) + end - start,
-                    self.textuate(self.evaluate(expr, values, default)))
+                    self.textuate(self.evaluate(expr, values)))
         return str_transform(s, {self.prefix: _transform})[1]
     _T = TypeVar('_T', bound=FridValue)
     @overload
-    def sub(self, data: StrKeyMap, values: StrKeyMap|None=None) -> dict[str,FridMapVT]: ...
+    def sub_data(self, data: StrKeyMap, values: StrKeyMap) -> dict[str,FridMapVT]: ...
     @overload
-    def sub(self, data: FridArray, values: StrKeyMap|None=None) -> list[FridSeqVT]: ...
+    def sub_data(self, data: FridArray, values: StrKeyMap) -> list[FridSeqVT]: ...
     @overload
-    def sub(self, data: str, values: StrKeyMap|None=None) -> FridValue: ...
+    def sub_data(self, data: str, values: StrKeyMap) -> FridValue: ...
     @overload
-    def sub(self, data: _T, values: StrKeyMap|None=None) -> _T: ...
-    def sub(self, data: FridValue, values: StrKeyMap|None=None) -> FridValue:
+    def sub_data(self, data: _T, values: StrKeyMap) -> _T: ...
+    def sub_data(self, data: FridValue, values: StrKeyMap) -> FridValue|FridBeing:
         """Substitute the placeholders in data (only for its values).
         The placeholders are escaped with `${......}` (only for string value).
         The enclosed string `......` is used as the key to get the actual value
         in `values`.
         """
         if isinstance(data, str):
-            return self.sub_text(data, values, self.default)
+            return self.sub_text(data, values)
         if isinstance(data, Mapping):
-            return {k: ... if v is ... else self.sub(v, values) for k, v in data.items()}
+            # We get rid of MISSING here
+            return {k: v if isinstance(v, FridBeing) else self.sub_data(v, values)
+                    for k, v in data.items() if v is not MISSING}
         if isinstance(data, Sequence):
             # Special handling for array: array return value do "splice"
             out = []
             for v in data:
-                r = self.sub(v, values)
-                if r is ...:
-                    continue
+                r = self.sub_data(v, values)
+                if isinstance(r, FridBeing):
+                    out.append(self.present if r else self.missing)
                 if is_list_like(r):
                     out.extend(r)
                 else:
                     out.append(r)
             return out
         return data
-    def __call__(self, data: FridValue, values: StrKeyMap|None=None, /, **kwargs: FridValue):
-        if values is None:
-            values = kwargs
-        elif kwargs is not None:
-            values = dict(values)
-            values.update(kwargs)
-        return self.sub(data, values)
+    def __call__(self, data: FridValue, values: StrKeyMap|None=None,
+                 /, **kwargs: FridValue|FridBeing) -> FridValue:
+        if values:
+            kwargs.update(values)
+        result = self.sub_data(data, kwargs)
+        if isinstance(result, FridBeing):
+            return self.present if result else self.missing
+        return result
 
 def _callable_name(func: Callable) -> str:
     if hasattr(func, '__qualname__'):

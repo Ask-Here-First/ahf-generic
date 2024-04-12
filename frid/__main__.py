@@ -18,7 +18,7 @@ try:
 except ImportError:
     _cov = None
 
-from .typing import FridValue, StrKeyMap
+from .typing import MISSING, PRESENT, FridBeing, FridValue, StrKeyMap
 from .chrono import parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode
@@ -250,7 +250,14 @@ class TestHelper(unittest.TestCase):
         self.assertFalse(cmp({'a': 1}, 3))
 
     def test_substitute(self):
-        sub = Substitute()
+        sub = Substitute(present=".+", missing=".-")
+        self.assertEqual(sub(3), 3)
+        self.assertEqual(sub("${a}", a=MISSING), ".-")
+        self.assertEqual(sub("${a}", a=PRESENT), ".+")
+        self.assertEqual(sub("[${a}]", a=MISSING), "[.-]")
+        self.assertEqual(sub("[${a}]", a=PRESENT), "[.+]")
+        self.assertEqual(sub("${a}"), ".-")
+        self.assertEqual(sub("a"), "a")
         self.assertEqual(sub("The ${var} is here", {'var': "data"}),
                          "The data is here")
         self.assertEqual(sub("The ${var} is here", var="data"),
@@ -356,6 +363,7 @@ class TestLoaderAndDumper(unittest.TestCase):
                 assert t is not ...
                 if t == prev_value:
                     continue
+                assert not isinstance(t, FridBeing)
                 self.assertEqual(s, dump_into_str(t, json_level=json_level),
                                 f"[{i}] {s} <== {t} ({json_level=})")
             except Exception:

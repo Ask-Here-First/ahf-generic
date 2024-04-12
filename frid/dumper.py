@@ -2,7 +2,7 @@ import math, base64
 from collections.abc import Callable, Iterable, Mapping, Sequence, Set
 from typing import Any, Literal, TextIO, overload
 
-from .typing import BlobTypes, FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
+from .typing import MISSING, PRESENT, BlobTypes, FridArray, FridBeing, FridMixin, FridPrime, FridValue, StrKeyMap
 from .chrono import DateTypes, strfr_datetime, timeonly, datetime, dateonly
 from .guards import is_frid_identifier, is_frid_quote_free, is_list_like
 from .pretty import PPToTextIOMixin, PrettyPrint, PPTokenType, PPToStringMixin
@@ -213,20 +213,25 @@ class FridDumper(PrettyPrint):
 
     def print_naked_dict(self, data: StrKeyMap, path: str="", /, sep: str=',:'):
         """Prints a map to the stream without opening and closing delimiters."""
-        for i, (k, v) in enumerate(data.items()):
+        i = 0
+        for k, v in data.items():
+            if v is MISSING:
+                continue
             if i > 0:
                 self.print(sep[0], PPTokenType.SEP_0)
+            i += 1
             if not isinstance(k, str):
                 raise ValueError(f"Key is not a string: {k}")
-            # Empty key with non-... value we can omit the key (i.e., unquoted)
-            if k != '' or v is ...:
+            # Empty key with non-present value we can omit the key (i.e., unquoted)
+            if k != '' or v is PRESENT:
                 if self._is_unquoted_key(k):
                     self.print(k, PPTokenType.LABEL)
                 else:
                     self.print_quoted_str(k, path, as_key=True)
-                if v is ...:  # If the value is ..., print only key without colon
+                if v is PRESENT:  # If the value is PRESENT, print only key without colon
                     continue
             self.print(sep[1], PPTokenType.SEP_1)
+            assert not isinstance(v, FridBeing)
             self.print_frid_value(v, path)
         if data and self.json_level in (0, 5):
             self.print(sep[0], PPTokenType.OPT_0)
@@ -338,7 +343,9 @@ def frid_redact(data: FridMixin, depth: int=16) -> str: ...
 def frid_redact(data: StrKeyMap, depth: int=16) -> StrKeyMap: ...
 @overload
 def frid_redact(data: FridValue, depth: int) -> FridValue: ...
-def frid_redact(data, depth: int=16) -> FridValue:
+@overload
+def frid_redact(data: FridBeing, depth: int) -> FridBeing: ...
+def frid_redact(data, depth: int=16) -> FridValue|FridBeing:
     """Redacts the `data` of any type to a certain depth.
     - Keeps null and boolean as is.
     - Converts string to 's' + length.
@@ -369,14 +376,16 @@ def frid_redact(data, depth: int=16) -> FridValue:
         return 'd'
     if isinstance(data, FridMixin):
         return data.frid_keys()[0]
+    if isinstance(data, FridBeing):
+        return data
     if not data:
         return data   # As is for empty mapping or sequence
     if isinstance(data, Mapping):
         if depth <= 0:
-            return {k: ... for k in data.keys()}
+            return {k: PRESENT for k in data.keys()}
         # Do not decrement the depth if value is a sequence; keep elipsis as is
-        return {k: v if v is ... else frid_redact(v, depth if is_list_like(v) else depth - 1)
-                for k, v in data.items()}
+        return {k: frid_redact(v, depth if is_list_like(v) else depth - 1)
+                for k, v in data.items() if v is not MISSING}
     if isinstance(data, Sequence):
         if depth <= 0:
             return [len(data)]
