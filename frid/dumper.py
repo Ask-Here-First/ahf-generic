@@ -382,8 +382,8 @@ def frid_redact(data, depth: int=16) -> FridValue|FridBeing:
         return data   # As is for empty mapping or sequence
     if isinstance(data, Mapping):
         if depth <= 0:
-            return {k: frid_redact(v, depth) if is_list_like(v) else PRESENT for k, v in data.items()
-                    if v is not MISSING}
+            return {k: frid_redact(v, depth) if is_list_like(v) else PRESENT
+                    for k, v in data.items() if v is not MISSING}
         # Do not decrement the depth if value is a sequence; keep elipsis as is
         return {k: frid_redact(v, depth if is_list_like(v) else depth - 1)
                 for k, v in data.items() if v is not MISSING}

@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
 from datetime import date as dateonly, time as timeonly, datetime
 from collections.abc import Mapping, Sequence, Set
-from typing import TypeVar
+from enum import Enum
+from typing import TypeVar, final
 
 # Quick union types used in many places
 BlobTypes = bytes|bytearray|memoryview
@@ -11,34 +12,21 @@ DateTypes = dateonly|timeonly|datetime   # Note that datetime in Python is deriv
 
 T = TypeVar('T', bound='FridMixin')
 
-class FridBeing():
-    """This class introduces to singletons, PRESENT and MISSING.
+@final
+class FridBeing(Enum):
+    """This "being or not being" class introduces two special values, PRESENT and MISSING.
     The main purpose is to be used for values of a map. If the value
     is PRESENT for a key, it means the key is present but there is
     no meaningful associated value. If the value is MISSING for a key,
     the the entry in the map should be handled as it is not there.
     """
-    _present = None
-    _missing = None
-
-    def __new__(cls, b: bool, /):
-        if b:
-            if cls._present is None:
-                cls._present = super().__new__(cls)
-            return cls._present
-        else:
-            if cls._missing is None:
-                cls._missing = super().__new__(cls)
-            return cls._missing
+    PRESENT = True
+    MISSING = False
     def __bool__(self):
-        return self is self._present
-    def __str__(self):
-        return "_present_" if self else "_missing_"
-    def __repr__(self):
-        return self.__class__.__name__ + '(' + str(self) + ')'
+        return self.value
 
-PRESENT = FridBeing(True)
-MISSING = FridBeing(False)
+PRESENT = FridBeing.PRESENT
+MISSING = FridBeing.MISSING
 
 class FridMixin(ABC):
     """The abstract base frid class to be loadable and dumpable.
