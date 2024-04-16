@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from datetime import date as dateonly, time as timeonly, datetime
 from collections.abc import Mapping, Sequence, Set
 from enum import Enum
-from typing import TypeVar, final
+from typing import Literal, TypeVar
 
 # Quick union types used in many places
 BlobTypes = bytes|bytearray|memoryview
@@ -10,9 +10,8 @@ DateTypes = dateonly|timeonly|datetime   # Note that datetime in Python is deriv
 
 # FRID types follow (Flexibly represented inteactive data)
 
-T = TypeVar('T', bound='FridMixin')
+_T = TypeVar('_T', bound='FridMixin')
 
-@final
 class FridBeing(Enum):
     """This "being or not being" class introduces two special values, PRESENT and MISSING.
     The main purpose is to be used for values of a map. If the value
@@ -25,8 +24,10 @@ class FridBeing(Enum):
     def __bool__(self):
         return self.value
 
-PRESENT = FridBeing.PRESENT
-MISSING = FridBeing.MISSING
+PresentType = Literal[FridBeing.PRESENT]
+MissingType = Literal[FridBeing.MISSING]
+PRESENT: PresentType = FridBeing.PRESENT
+MISSING: MissingType = FridBeing.MISSING
 
 class FridMixin(ABC):
     """The abstract base frid class to be loadable and dumpable.
@@ -48,7 +49,7 @@ class FridMixin(ABC):
         return [cls.__name__]
 
     @classmethod
-    def frid_from(cls: type[T], name: str, *args: 'FridSeqVT', **kwds: 'FridMapVT') -> T:
+    def frid_from(cls: type[_T], name: str, *args: 'FridSeqVT', **kwds: 'FridMapVT') -> _T:
         """Construct an instance with given name and arguments."""
         assert name in cls.frid_keys()
         return cls(*args, **kwds)
@@ -63,7 +64,7 @@ class FridMixin(ABC):
 # The Prime types must all be immutable and hashable
 FridPrime = str|float|int|bool|BlobTypes|DateTypes|None
 FridExtra = FridMixin|Set[FridPrime]  # Only set of primes, no other
-FridMapVT = Mapping|Sequence|FridPrime|FridExtra|FridBeing  # Allow ... for dict value
+FridMapVT = Mapping|Sequence|FridPrime|FridExtra|FridBeing  # Allow PRESENT/MISSING for dict
 StrKeyMap = Mapping[str,FridMapVT]
 FridSeqVT = StrKeyMap|Sequence|Set|FridPrime|FridMixin
 FridArray = Sequence[FridSeqVT]
