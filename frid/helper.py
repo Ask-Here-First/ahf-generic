@@ -1,8 +1,8 @@
 from collections.abc import Callable, Mapping, Sequence
 from functools import partial
-from typing import Concatenate, Generic, ParamSpec, TypeVar, overload
+from typing import Concatenate, Generic, ParamSpec, TypeVar, cast, overload
 
-from .typing import MISSING, BlobTypes, DateTypes, FridBeing
+from .typing import MISSING, BlobTypes, DateTypes, FridBeing, MissingType
 from .typing import FridArray, FridMapVT, FridSeqVT, FridValue, StrKeyMap
 from .guards import is_list_like
 from .strops import str_transform
@@ -182,6 +182,41 @@ class Substitute:
         if isinstance(result, FridBeing):
             return self.present if result else self.missing
         return result
+
+def merge_data(old: T|MissingType, new: T) -> T:
+    if old is MISSING:
+        return new
+    if isinstance(new, bool):
+        return bool(old) or new
+    if isinstance(new, int|float):
+        return old + new if isinstance(old, int|float) else new
+    if isinstance(new, Mapping):
+        if isinstance(old, Mapping):
+            d = dict(old)
+            for k, v in new.items():
+                old_v = d.get(k, MISSING)
+                v = merge_data(old_v, v)
+                if v is not MISSING:
+                    d[k] = v
+            return cast(T, d)
+        return new
+    if isinstance(new, str):
+        if isinstance(old, str):
+            return old + new
+        return new
+    if isinstance(new, BlobTypes):
+        if isinstance(old, BlobTypes):
+            return bytes(old) + new
+        return new
+    if isinstance(new, Sequence):
+        if isinstance(old, Sequence) and not isinstance(old, str|BlobTypes):
+            x = list(old)
+        else:
+            x = [old]
+        x.extend(new)
+        return cast(T, x)
+    return new
+
 
 def _callable_name(func: Callable) -> str:
     # if hasattr(func, '__qualname__'):

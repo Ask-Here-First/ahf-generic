@@ -136,7 +136,7 @@ def get_as_type(
 ) -> V|None:
     return as_type(dtype, map.get(key, default), allow_none=allow_none)
 
-def as_key_value_pair(
+def as_kv_pairs(
         data: Sequence[tuple[K,V]]|Mapping[K,V]|Iterable
 ) -> Sequence[tuple[K,V]]:
     """Converts the `data` to a sequence of key value pairs.

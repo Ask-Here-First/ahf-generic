@@ -1,7 +1,7 @@
 import heapq
 from collections.abc import Callable, Iterable, Mapping
 
-from frid.guards import as_key_value_pair
+from frid.guards import as_kv_pairs
 
 def _bound_index(limit: int, index: int|None=None, /) -> int:
     """Puts the index within the bound between 0..limit.
@@ -97,7 +97,7 @@ def str_transform__heap(
     # (next_occcurences_index, handler_index, prefix, handler)
     heap = [
         (hpos, prio, text, func)
-        for prio, (text, func) in enumerate(as_key_value_pair(transformers))
+        for prio, (text, func) in enumerate(as_kv_pairs(transformers))
         if (hpos := s.find(text, start, bound)) >= 0
     ]
     heapq.heapify(heap)
