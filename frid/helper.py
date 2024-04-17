@@ -183,7 +183,7 @@ class Substitute:
             return self.present if result else self.missing
         return result
 
-def merge_data(old: T|MissingType, new: T) -> T:
+def frid_merge(old: T|MissingType, new: T) -> T:
     if old is MISSING:
         return new
     if isinstance(new, bool):
@@ -195,7 +195,7 @@ def merge_data(old: T|MissingType, new: T) -> T:
             d = dict(old)
             for k, v in new.items():
                 old_v = d.get(k, MISSING)
-                v = merge_data(old_v, v)
+                v = frid_merge(old_v, v)
                 if v is not MISSING:
                     d[k] = v
             return cast(T, d)
