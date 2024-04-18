@@ -69,3 +69,6 @@ StrKeyMap = Mapping[str,FridMapVT]
 FridSeqVT = StrKeyMap|Sequence|Set|FridPrime|FridMixin
 FridArray = Sequence[FridSeqVT]
 FridValue = StrKeyMap|FridArray|FridPrime|FridExtra
+
+FridTypeName = Literal['text','blob','list','dict','real','date','null','bool','']
+FridTypeSize = tuple[FridTypeName,int]

@@ -2,8 +2,9 @@ from collections.abc import Callable, Mapping, Sequence
 from functools import partial
 from typing import Concatenate, Generic, ParamSpec, TypeVar, cast, overload
 
-from .typing import MISSING, BlobTypes, DateTypes, FridBeing, MissingType
+from .typing import MISSING, BlobTypes, DateTypes, FridBeing, FridTypeSize, MissingType
 from .typing import FridArray, FridMapVT, FridSeqVT, FridValue, StrKeyMap
+from .chrono import dateonly, timeonly, datetime
 from .guards import is_list_like
 from .strops import str_transform
 from .dumper import dump_into_str
@@ -216,6 +217,25 @@ def frid_merge(old: T|MissingType, new: T) -> T:
         x.extend(new)
         return cast(T, x)
     return new
+
+def frid_type_size(data: FridValue) -> FridTypeSize:
+    if data is None:
+        return ('null', 0)
+    if isinstance(data, str):
+        return ('text', len(data))
+    if isinstance(data, bool):
+        return ('bool', 0)
+    if isinstance(data, int|float):
+        return ('real', 0)
+    if isinstance(data, BlobTypes):
+        return ('blob', len(data))
+    if isinstance(data, dateonly|timeonly|datetime):
+        return ('date', 0)
+    if isinstance(data, Mapping):
+        return ('dict', len(data))
+    if isinstance(data, Sequence):
+        return ('list', len(data))
+    return ('', -1)
 
 
 def _callable_name(func: Callable) -> str:
