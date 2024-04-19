@@ -1,9 +1,8 @@
 """This class implement a basic value store that retrives the whole data then do selection.
 It will derive a memory based store from there
 """
-import asyncio
+import asyncio, threading
 from dataclasses import dataclass, field
-import threading
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import TypeVar, cast
@@ -23,11 +22,11 @@ class SimpleValueStore(ValueStore):
     @abstractmethod
     def _get(self, key: str) -> FridValue|MissingType:
         """Get the whole data from the store associated to the given `key`."""
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     @abstractmethod
     def _put(self, key: str, val: FridValue) -> bool:
         """Write the whole data into the store associated to the given `key`."""
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     @abstractmethod
     def _rmw(self, key: str, mod: Callable[...,tuple[FridValue|FridBeing,_T]],
              *args, **kwargs) -> _T:
@@ -42,27 +41,27 @@ class SimpleValueStore(ValueStore):
                 + If it is MISSING, delete the key.
         - This method returns the second return value of `mod()` as is.
         """
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     @abstractmethod
     def _del(self, key: str) -> bool:
         """Delete the data in the store associated to the given `key`.
         - Returns boolean to indicate if the key is deleted (or if the store is changed).
         """
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
 
     @abstractmethod
     async def _aget(self, key: str) -> FridValue|MissingType:
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     @abstractmethod
     async def _aput(self, key: str, val: FridValue) -> bool:
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     @abstractmethod
     async def _armw(self, key: str, mod: Callable[...,tuple[FridValue|FridBeing,_T]],
                     *args, **kwargs) -> _T:
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     @abstractmethod
     async def _adel(self, key: str) -> bool:
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
 
     def _key(self, key: VStoreKey) -> str:
         """Generate string based key depending if the key is tuple or named tuple.
@@ -71,7 +70,8 @@ class SimpleValueStore(ValueStore):
         if isinstance(key, str):
             return key
         if isinstance(key, tuple):
-            return '\t'.join(escape_control_chars(str(k)) for k in key)
+            # Using the DEL key to escape
+            return '\t'.join(escape_control_chars(str(k), '\x7f') for k in key)
         raise ValueError(f"Invalid key type {type(key)}")
 
     def _fix_indexes(self, sel: tuple[int,int], val_len: int):

@@ -5,12 +5,10 @@ from abc import ABC, abstractmethod
 from collections.abc import Collection, Iterable, Sequence
 from contextlib import AbstractContextManager, AbstractAsyncContextManager
 from enum import Flag
-import threading
 from typing import Any, Mapping, TypeVar, overload
 
 from ..typing import MISSING, BlobTypes, FridTypeSize
 from ..typing import FridArray, FridBeing, FridSeqVT, FridValue, MissingType, StrKeyMap
-from ..autils import AsyncReentrantLock
 from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap
 
 VStoreKey = str|tuple[str|int,...]
@@ -33,34 +31,34 @@ class ValueStore(ABC):
     @abstractmethod
     def substore(self, name: str, *args: str) -> 'ValueStore':
         """Returns a substore ValueStore as given by a list of names."""
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
 
     @abstractmethod
     def get_lock(self, name: str|None=None) -> AbstractContextManager:
         """Returns an reentrant lock for desired concurrency."""
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     @abstractmethod
     def get_meta(self, keys: Iterable[VStoreKey]) -> Mapping[VStoreKey,FridTypeSize]:
         """Gets the meta data of a list of `keys` and returns a map for existing keys.
         Notes: There is no atomicity guarantee for this method.
         """
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
         """Gets the value of the given `key` in the value store.
         - If `sel` is specified, use the selection rule to select the partial data to return.
         - If the value of the key is missing, return MISSING.
         """
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     def put_frid(self, key: VStoreKey, val: FridValue, /, flags=VSPutFlag.UNCHECKED) -> bool:
         """Puts the value `val` into the store for the given `key`.
         - Returns true iff the storage changes.
         """
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         """Deletes the data associated with the given `key` from the store.
         - Returns true iff the storage changes.
         """
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
         """Returns the data associated with a list of keys in the store."""
         with self.get_lock():
@@ -120,17 +118,17 @@ class ValueStore(ABC):
 
     @abstractmethod
     def aget_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     @abstractmethod
     async def aget_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     async def aget_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|MissingType:
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     async def aput_frid(self, key: VStoreKey, val: FridValue,
                         /, flags=VSPutFlag.UNCHECKED) -> bool:
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     async def adel_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
     async def aget_bulk(self, keys: Iterable[VStoreKey],
                         /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
         async with self.aget_lock():
