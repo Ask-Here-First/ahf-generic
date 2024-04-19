@@ -4,6 +4,20 @@ from typing import TypeVar
 
 T = TypeVar('T')
 
+class AsyncReentrantLock(asyncio.Lock):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._count = 0
+    async def acquire(self) -> bool:
+        if not self._count:
+            await super().acquire()
+        self._count += 1
+        return True
+    def release(self):
+        self._count -= 1
+        if self._count <= 0:
+            super().release()
+
 async def proxied_async_iterable(data: Iterable[T]) -> AsyncIterable[T]:
     for x in data:
         yield x

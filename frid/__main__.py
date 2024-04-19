@@ -13,7 +13,6 @@ try:
         modules = [x for x in sys.modules.values() if x.__name__.startswith("frid.")]
         for module in modules:
             importlib.reload(module)
-        print("Running unit tests with coverage ...")
     else:
         _cov = None
 except ImportError:
@@ -627,12 +626,16 @@ class TestLoaderAndDumper(unittest.TestCase):
 
 if __name__ == '__main__':
     if _cov is not None:
-        unittest.main(exit=False)
+        print("Running unit tests with coverage ...")
+    else:
+        print("Running unit tests ...")
+
+    unittest.main(exit=False)
+    unittest.main("frid.kvs.__main__", exit=False)
+
+    if _cov is not None:
         _cov.stop()
         _cov.save()
         print("Generating HTML converage report ...")
         _cov.html_report()
         print("Report is in [ htmlcov/index.html ].")
-    else:
-        print("Running unit tests ...")
-        unittest.main()

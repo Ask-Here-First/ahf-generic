@@ -2,6 +2,7 @@ import unittest
 
 from .store import VSPutFlag, ValueStore
 from .basic import MemoryValueStore
+from .proxy import AsyncToSyncProxyStore, SyncToASyncProxyStore
 
 class VStoreTest(unittest.TestCase):
     def check_text_store(self, store: ValueStore):
@@ -88,13 +89,28 @@ class VStoreTest(unittest.TestCase):
         self.assertTrue(store.del_frid("key0"))
         self.assertFalse(store.get_dict("key0"))
 
-    def test_memory_store(self):
-        store = MemoryValueStore()
+    def do_test_store(self, store: ValueStore):
         self.check_text_store(store)
         self.check_blob_store(store)
         self.check_list_store(store)
         self.check_dict_store(store)
-        self.assertFalse(store.get_data())
+        proxy = SyncToASyncProxyStore(store)
+        self.check_text_store(proxy)
+        self.check_blob_store(proxy)
+        self.check_list_store(proxy)
+        self.check_dict_store(proxy)
+        # Note we test using Sync API so we need the following to test async API
+        proxy = SyncToASyncProxyStore(AsyncToSyncProxyStore(store))
+        self.check_text_store(proxy)
+        self.check_blob_store(proxy)
+        self.check_list_store(proxy)
+        self.check_dict_store(proxy)
+
+    def test_memory_store(self):
+        store = MemoryValueStore()
+        self.assertFalse(store.all_data())
+        self.do_test_store(store)
+        self.assertFalse(store.all_data())
 
 if __name__ == '__main__':
     unittest.main()
