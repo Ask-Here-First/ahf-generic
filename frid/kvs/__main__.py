@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 
 from .store import VSPutFlag, ValueStore
@@ -105,6 +106,17 @@ class VStoreTest(unittest.TestCase):
         self.check_blob_store(proxy)
         self.check_list_store(proxy)
         self.check_dict_store(proxy)
+        proxy = SyncToASyncProxyStore(AsyncToSyncProxyStore(store, executor=True))
+        self.check_text_store(proxy)
+        self.check_blob_store(proxy)
+        self.check_list_store(proxy)
+        self.check_dict_store(proxy)
+        with ThreadPoolExecutor() as executor:
+            proxy = SyncToASyncProxyStore(AsyncToSyncProxyStore(store, executor=executor))
+            self.check_text_store(proxy)
+            self.check_blob_store(proxy)
+            self.check_list_store(proxy)
+            self.check_dict_store(proxy)
 
     def test_memory_store(self):
         store = MemoryValueStore()

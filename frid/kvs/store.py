@@ -2,10 +2,11 @@
 
 import asyncio
 from abc import ABC, abstractmethod
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Collection, Iterable, Sequence
+from concurrent.futures import Executor
 from contextlib import AbstractContextManager, AbstractAsyncContextManager
 from enum import Flag
-from typing import Any, Mapping, TypeVar, overload
+from typing import Any, Concatenate, Mapping, ParamSpec, TypeVar, overload
 
 from ..typing import MISSING, BlobTypes, FridTypeSize
 from ..typing import FridArray, FridBeing, FridSeqVT, FridValue, MissingType, StrKeyMap
@@ -18,6 +19,7 @@ VStoreSel = VSListSel|VSDictSel
 VStorePutBulkData = Mapping[VStoreKey,FridValue]|Sequence[tuple[VStoreKey,FridValue]]|Iterable
 
 _T = TypeVar('_T')
+_P = ParamSpec('_P')
 
 class VSPutFlag(Flag):
     UNCHECKED = 0       # Special value to skip all the checks
@@ -199,6 +201,7 @@ class ValueStore(ABC):
             # TODO: what to do for other flags: no need to check if result is not affected
         return True
 
+AsyncRunType = Callable[Concatenate[Callable[...,_T],_P],Awaitable[_T]]
 class AsyncToSyncStoreMixin(ValueStore):
     """This mixin converts the sync value store API to an async one.
 
@@ -211,24 +214,43 @@ class AsyncToSyncStoreMixin(ValueStore):
             pass
     ```
     """
+    def __init__(self, *args, executor: Executor|AsyncRunType|bool=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        if isinstance(executor, Executor):
+            self._executor = executor
+            self._asyncrun: AsyncRunType = self.loop_exec
+        elif isinstance(executor, Callable):
+            self._executor = None
+            self._asyncrun = executor
+        elif executor:
+            self._executor = None
+            self._asyncrun = self.loop_exec
+        else:
+            self._executor = None
+            self._asyncrun = self.func_call
+    @staticmethod
+    async def func_call(func: Callable[...,_T], *args) -> _T:
+        return func(*args)
+    async def loop_exec(self, app: Callable[...,_T], *args) -> _T:
+        return await asyncio.get_running_loop().run_in_executor(self._executor, app, *args)
     async def aget_lock(self, name: str|None=None):
         raise NotImplementedError  # pragma: no cover --- not going to be used
     async def aget_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
-        return self.get_meta(keys)
+        return await self._asyncrun(self.get_meta, keys)
     async def aget_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
-        return self.get_frid(key, sel)
+        return await self._asyncrun(self.get_frid, key, sel)
     async def aput_frid(self, key: VStoreKey, val: FridValue,
                         /, flags=VSPutFlag.UNCHECKED) -> int|bool:
-        return self.put_frid(key, val, flags)
+        return await self._asyncrun(self.put_frid, key, val, flags)
     async def adel_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
-        return self.del_frid(key, sel)
+        return await self._asyncrun(self.del_frid, key, sel)
     async def aget_bulk(self, keys: Iterable[VStoreKey],
                         /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
-        return self.get_bulk(keys, alt)
+        return await self._asyncrun(self.get_bulk, keys, alt)
     async def aput_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
-        return self.put_bulk(data, flags)
+        return await self._asyncrun(self.put_bulk, data, flags)
     async def adel_bulk(self, keys: Iterable[VStoreKey], /) -> int:
-        return self.del_bulk(keys)
+        return await self._asyncrun(self.del_bulk, keys)
 
 class SyncToAsyncStoreMixin(ValueStore):
     """This mixin converts the async value store API to a sync one with asyncio.run().
