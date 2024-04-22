@@ -7,12 +7,13 @@ from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import TypeVar, cast
 
-
-from ..typing import MISSING, PRESENT, FridBeing, FridMapVT, FridTypeSize, FridValue, MissingType, StrKeyMap
+from ..typing import MISSING, PRESENT, BlobTypes, FridBeing, FridMapVT, FridTypeSize, FridValue, MissingType, StrKeyMap
 from ..autils import AsyncReentrantLock
 from ..guards import is_frid_array
 from ..helper import frid_merge, frid_type_size
 from ..strops import escape_control_chars
+from ..dumper import dump_into_str
+from ..loader import load_from_str
 from .store import VSPutFlag, VStoreKey, VStoreSel, ValueStore
 
 _T = TypeVar('_T')
@@ -62,6 +63,11 @@ class SimpleValueStore(ValueStore):
     @abstractmethod
     async def _adel(self, key: str) -> bool:
         raise NotImplementedError  # pragma: no cover
+
+    def _encode(self, val: FridValue) -> FridValue:
+        return val
+    def _decode(self, val: FridValue) -> FridValue:
+        return val
 
     def _key(self, key: VStoreKey) -> str:
         """Generate string based key depending if the key is tuple or named tuple.
@@ -120,11 +126,16 @@ class SimpleValueStore(ValueStore):
         """Gets selection for an general value."""
         if sel is None:
             return val
+        val = self._decode(val)
         if isinstance(val, Mapping):
-            return self._get_sel_map(val, cast(str|Iterable[str], sel))
-        if isinstance(val, Sequence):
-            return self._get_seq_sel(val, cast(int|slice|tuple[int,int], sel))
-        raise ValueError(f"Selector is not None for data type {type(val)}")
+            out = self._get_sel_map(val, cast(str|Iterable[str], sel))
+        elif isinstance(val, Sequence):
+            out = self._get_seq_sel(val, cast(int|slice|tuple[int,int], sel))
+        else:
+            raise ValueError(f"Selector is not None for data type {type(val)}")
+        if out is MISSING:
+            return MISSING
+        return self._encode(out)
     def _add(self, old: FridValue|MissingType, new: FridValue,
              flags: VSPutFlag) -> tuple[FridValue|FridBeing,bool]:
         """Adds or replaces the `new` value into the `old` values depending on the `flags.
@@ -136,8 +147,9 @@ class SimpleValueStore(ValueStore):
         if flags & VSPutFlag.NO_CHANGE:
             return (PRESENT, False)
         if flags & VSPutFlag.KEEP_BOTH:
-            return (frid_merge(old, new), True)  # TODO: frid_merge() to accept more flags
-        return (new, True)
+            # TODO: frid_merge() to accept more flags
+            return (self._encode(frid_merge(self._decode(old), new)), True)
+        return (self._encode(new), True)
     def _del_list_sel(self, val: list, sel: int|slice|tuple[int,int]) -> int:
         """Deletes the selected items in the list.
         - Returns the number of items deleted.
@@ -163,17 +175,22 @@ class SimpleValueStore(ValueStore):
             return 0 if val.pop(sel, MISSING) is MISSING else 1
         return sum(bool(val.pop(k, MISSING) is not MISSING) for k in sel)
     def _del_sel(self, val: FridValue, sel: VStoreSel) -> tuple[FridValue,int]:
-        """Deletes the selected items in general. Note it will try to delete in place."""
+        """Deletes the selected items in general. Note it will try to delete in place.
+        - Returns a pair: the updated value and the number of items deleted.
+        """
         assert sel is not None
+        val = self._decode(val)
         if isinstance(val, Mapping):
             if not isinstance(val, dict):
                 val = dict(val)
-            return (val, self._del_dict_sel(val, cast(str|Iterable[str], sel)))
-        if is_frid_array(val):
+            cnt = self._del_dict_sel(val, cast(str|Iterable[str], sel))
+        elif is_frid_array(val):
             if not isinstance(val, list):
                 val = list(val)
-            return (val, self._del_list_sel(val, cast(int|slice|tuple[int,int], sel)))
-        raise ValueError(f"Data type {type(val)} does not support partial removal")
+            cnt = self._del_list_sel(val, cast(int|slice|tuple[int,int], sel))
+        else:
+            raise ValueError(f"Data type {type(val)} does not support partial removal")
+        return (self._encode(val), cnt)
 
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
         key = self._key(key)
@@ -187,7 +204,7 @@ class SimpleValueStore(ValueStore):
         key = self._key(key)
         with self.get_lock(key):
             if flags == VSPutFlag.UNCHECKED:
-                return self._put(key, val)
+                return self._put(key, self._encode(val))
             return self._rmw(key, self._add, val, flags)
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         key = self._key(key)
@@ -208,7 +225,7 @@ class SimpleValueStore(ValueStore):
         key = self._key(key)
         async with self.aget_lock(key):
             if flags == VSPutFlag.UNCHECKED:
-                return await self._aput(key, val)
+                return await self._aput(key, self._encode(val))
             return await self._armw(key, self._add, val, flags)
     async def adel_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         key = self._key(key)
@@ -217,21 +234,26 @@ class SimpleValueStore(ValueStore):
                 return await self._adel(key)
             return bool(await self._armw(key, self._del_sel, sel))
 
-
-@dataclass
-class StoreMetaData:
-    data: dict[str,FridValue] = field(default_factory=dict)
-    tlock: threading.RLock = field(default_factory=threading.RLock)
-    alock: asyncio.Lock = field(default_factory=AsyncReentrantLock)
+class BinaryValueStore(SimpleValueStore):
+    """This store encodes the data into a binary string."""
+    def _encode(self, val: FridValue) -> BlobTypes:
+        return dump_into_str(val).encode('utf-8')
+    def _decode(self, val: BlobTypes) -> FridValue:
+        return load_from_str(bytes(val).decode('utf-8'))
 
 class MemoryValueStore(SimpleValueStore):
-    StorageType = dict[tuple[str,...],StoreMetaData]
+    @dataclass
+    class StoreMeta:
+        store: dict[str,FridValue] = field(default_factory=dict)
+        tlock: threading.RLock = field(default_factory=threading.RLock)
+        alock: asyncio.Lock = field(default_factory=AsyncReentrantLock)
+    StorageType = dict[tuple[str,...],StoreMeta]
 
     def __init__(self, storage: StorageType|None=None, names: tuple[str,...]=()):
         super().__init__()
         self._storage = storage if storage is not None else {}
-        self._meta = self._storage.setdefault(names, StoreMetaData())
-        self._data = self._meta.data
+        self._meta = self._storage.setdefault(names, self.StoreMeta())
+        self._data = self._meta.store
     def all_data(self) -> Mapping[str,FridValue]:
         return self._data
 
