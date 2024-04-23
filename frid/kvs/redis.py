@@ -14,11 +14,11 @@ from ..helper import frid_merge, frid_type_size
 from ..dumper import dump_into_str
 from ..loader import load_from_str
 from .store import VSDictSel, VSListSel, VStoreSel, is_dict_sel, is_list_sel
-from .store import AsyncToSyncStoreMixin, ValueStore, VStorePutBulkData, VSPutFlag, VStoreKey
+from .store import ValueStore, VStorePutBulkData, VSPutFlag, VStoreKey
 
 _T = TypeVar('_T')
 
-class RedisValueStore(AsyncToSyncStoreMixin): # (ValueStore):
+class RedisValueStore(ValueStore):
     NAMESPACE_SEP = '\t'
     def __init__(self, host: str|None=None, port: int=0,
                  username: str|None=None, password: str|None=None,

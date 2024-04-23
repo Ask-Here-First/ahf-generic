@@ -95,13 +95,12 @@ class VStoreTest(unittest.TestCase):
         self.check_blob_store(store)
         self.check_list_store(store)
         self.check_dict_store(store)
-        if no_async:
-            return
-        proxy = SyncToASyncProxyStore(store)
-        self.check_text_store(proxy)
-        self.check_blob_store(proxy)
-        self.check_list_store(proxy)
-        self.check_dict_store(proxy)
+        if not no_async:
+            proxy = SyncToASyncProxyStore(store)
+            self.check_text_store(proxy)
+            self.check_blob_store(proxy)
+            self.check_list_store(proxy)
+            self.check_dict_store(proxy)
         # Note we test using Sync API so we need the following to test async API
         proxy = SyncToASyncProxyStore(AsyncToSyncProxyStore(store))
         self.check_text_store(proxy)

@@ -259,6 +259,15 @@ class AsyncToSyncStoreMixin(ValueStore):
         return await self._asyncrun(self.put_bulk, data, flags)
     async def adel_bulk(self, keys: Iterable[VStoreKey], /) -> int:
         return await self._asyncrun(self.del_bulk, keys)
+    async def aget_text(self, key: VStoreKey, alt: _T=None) -> str|_T:
+        return await self._asyncrun(self.get_text, key, alt)
+    async def aget_blob(self, key: VStoreKey, alt: _T=None) -> BlobTypes|_T:
+        return await self._asyncrun(self.get_blob, key, alt)
+    async def aget_list(self, key: VStoreKey, sel: VSListSel, /, alt: _T=None) -> FridValue|_T:
+        return await self._asyncrun(self.get_list, key, sel, alt)
+    async def aget_dict(self, key: VStoreKey, sel: VSDictSel=None,
+                        /, alt: _T=None) -> FridValue|_T:
+        return await self._asyncrun(self.get_dict, key, sel, alt)
 
 class SyncToAsyncStoreMixin(ValueStore):
     """This mixin converts the async value store API to a sync one with asyncio.run().
@@ -288,3 +297,11 @@ class SyncToAsyncStoreMixin(ValueStore):
         return asyncio.run(self.aput_bulk(data, flags))
     def del_bulk(self, keys: Iterable[VStoreKey], /) -> int:
         return asyncio.run(self.adel_bulk(keys))
+    def get_text(self, key: VStoreKey, /, alt: _T=None) -> str|_T:
+        return asyncio.run(self.aget_text(key, alt))
+    def get_blob(self, key: VStoreKey, /, alt: _T=None) -> BlobTypes|_T:
+        return asyncio.run(self.aget_blob(key, alt))
+    def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=None) -> FridValue|_T:
+        return asyncio.run(self.aget_list(key, sel, alt))
+    def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt: _T=None) -> FridValue|_T:
+        return asyncio.run(self.aget_dict(key, sel, alt))

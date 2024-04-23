@@ -2,8 +2,8 @@ from collections.abc import Iterable, Mapping
 from contextlib import AbstractAsyncContextManager
 from typing import TypeVar
 
-from ..typing import MISSING, FridBeing, FridSeqVT, FridTypeSize, FridValue
-from .store import VSPutFlag, VStoreKey, VStorePutBulkData, VStoreSel
+from ..typing import MISSING, BlobTypes, FridBeing, FridSeqVT, FridTypeSize, FridValue
+from .store import VSDictSel, VSListSel, VSPutFlag, VStoreKey, VStorePutBulkData, VStoreSel
 from .store import AsyncToSyncStoreMixin, SyncToAsyncStoreMixin, ValueStore
 
 
@@ -34,6 +34,14 @@ class ProxyStore(ValueStore):
         return self._store.put_bulk(data, flags)
     def del_bulk(self, keys: Iterable[VStoreKey], /) -> int:
         return self._store.del_bulk(keys)
+    def get_text(self, key: VStoreKey, /, alt: _T=None) -> str|_T:
+        return self._store.get_text(key, alt)
+    def get_blob(self, key: VStoreKey, /, alt: _T=None) -> BlobTypes|_T:
+        return self._store.get_blob(key, alt)
+    def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=None) -> FridValue|_T:
+        return self._store.get_list(key, sel, alt)
+    def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt: _T=None) -> FridValue|_T:
+        return self._store.get_dict(key, sel, alt)
 
     def aget_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
         return self._store.aget_lock(name)
@@ -53,6 +61,15 @@ class ProxyStore(ValueStore):
         return await self._store.aput_bulk(data, flags)
     async def adel_bulk(self, keys: Iterable[VStoreKey], /) -> int:
         return await self._store.adel_bulk(keys)
+    async def aget_text(self, key: VStoreKey, alt: _T=None) -> str|_T:
+        return await self._store.aget_text(key, alt)
+    async def aget_blob(self, key: VStoreKey, alt: _T=None) -> BlobTypes|_T:
+        return await self._store.aget_blob(key, alt)
+    async def aget_list(self, key: VStoreKey, sel: VSListSel, /, alt: _T=None) -> FridValue|_T:
+        return await self._store.aget_list(key, sel, alt)
+    async def aget_dict(self, key: VStoreKey, sel: VSDictSel=None,
+                        /, alt: _T=None) -> FridValue|_T:
+        return await self._store.aget_dict(key, sel, alt)
 
 class AsyncToSyncProxyStore(AsyncToSyncStoreMixin, ProxyStore):
     pass
