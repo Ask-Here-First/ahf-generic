@@ -6,17 +6,25 @@ from collections.abc import Awaitable, Callable, Collection, Iterable, Sequence
 from concurrent.futures import Executor
 from contextlib import AbstractContextManager, AbstractAsyncContextManager
 from enum import Flag
-from typing import Any, Concatenate, Mapping, ParamSpec, TypeVar, overload
+from typing import Any, Concatenate, Mapping, ParamSpec, TypeGuard, TypeVar, overload
 
 from ..typing import MISSING, BlobTypes, FridTypeSize
 from ..typing import FridArray, FridBeing, FridSeqVT, FridValue, MissingType, StrKeyMap
-from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap
+from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap, is_list_like
 
 VStoreKey = str|tuple[str|int,...]
 VSListSel = int|slice|tuple[int,int]|None
 VSDictSel = str|Iterable[str]|None
 VStoreSel = VSListSel|VSDictSel
 VStorePutBulkData = Mapping[VStoreKey,FridValue]|Sequence[tuple[VStoreKey,FridValue]]|Iterable
+
+def is_list_sel(sel) -> TypeGuard[VSListSel]:
+    return isinstance(sel, int|slice) or (
+        isinstance(sel, tuple) and len(sel) == 2
+        and isinstance(sel[0], int) and isinstance(sel[1], int)
+    )
+def is_dict_sel(sel) -> TypeGuard[VSDictSel]:
+    return isinstance(sel, str) or is_list_like(sel, str)
 
 _T = TypeVar('_T')
 _P = ParamSpec('_P')

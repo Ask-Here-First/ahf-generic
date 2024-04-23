@@ -158,11 +158,9 @@ def as_kv_pairs(
 def is_frid_prime(data) -> TypeGuard[FridPrime]:
     return data is None or isinstance(data, str|BlobTypes|DateTypes|int|float|bool)
 def is_frid_array(data) -> TypeGuard[FridArray]:
-    return isinstance(data, Sequence) and all(is_frid_value(x) for x in data)
+    return is_list_like(data, is_frid_value)
 def is_frid_skmap(data) -> TypeGuard[StrKeyMap]:
-    return isinstance(data, Mapping) and all(
-        isinstance(k, str) and is_frid_value(v) or v is ... for k, v in data.items()
-    )
+    return is_dict_like(data, is_frid_value)
 def is_frid_value(data) -> TypeGuard[FridValue]:
     return (is_frid_prime(data) or is_frid_array(data) or is_frid_skmap(data)
             or isinstance(data, FridMixin))

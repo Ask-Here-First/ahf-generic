@@ -1,5 +1,5 @@
+import os, unittest
 from concurrent.futures import ThreadPoolExecutor
-import unittest
 
 from .store import VSPutFlag, ValueStore
 from .basic import MemoryValueStore
@@ -90,11 +90,13 @@ class VStoreTest(unittest.TestCase):
         self.assertTrue(store.del_frid("key0"))
         self.assertFalse(store.get_dict("key0"))
 
-    def do_test_store(self, store: ValueStore):
+    def do_test_store(self, store: ValueStore, no_async=False):
         self.check_text_store(store)
         self.check_blob_store(store)
         self.check_list_store(store)
         self.check_dict_store(store)
+        if no_async:
+            return
         proxy = SyncToASyncProxyStore(store)
         self.check_text_store(proxy)
         self.check_blob_store(proxy)
@@ -123,6 +125,22 @@ class VStoreTest(unittest.TestCase):
         self.assertFalse(store.all_data())
         self.do_test_store(store)
         self.assertFalse(store.all_data())
+
+    def test_redis_store(self):
+        try:
+            from .redis import RedisValueStore
+        except Exception:
+            return
+        host = os.getenv('REDIS_KVS_HOST')
+        if not host:
+            return
+        store = RedisValueStore(
+            host=host, port=int(os.getenv('REDIS_KVS_PORT', 6379)),
+            username=os.getenv('REDIS_KVS_USER'), password=os.getenv('REDIS_KVS_PASS')
+        ).substore("UNITTEST")
+        store.wipe_all()
+        self.do_test_store(store, no_async=True)
+        store.wipe_all()
 
 if __name__ == '__main__':
     unittest.main()
