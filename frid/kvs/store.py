@@ -20,6 +20,7 @@ VStorePutBulkData = Mapping[VStoreKey,FridValue]|Sequence[tuple[VStoreKey,FridVa
 
 _T = TypeVar('_T')
 _P = ParamSpec('_P')
+_Self = TypeVar('_Self', bound='ValueStore')  # TODO: remove this in 3.11
 
 class VSPutFlag(Flag):
     UNCHECKED = 0       # Special value to skip all the checks
@@ -31,7 +32,7 @@ class VSPutFlag(Flag):
 
 class ValueStore(ABC):
     @abstractmethod
-    def substore(self, name: str, *args: str) -> 'ValueStore':
+    def substore(self: _Self, name: str, *args: str) -> _Self:
         """Returns a substore ValueStore as given by a list of names."""
         raise NotImplementedError  # pragma: no cover
 
@@ -39,6 +40,8 @@ class ValueStore(ABC):
     def get_lock(self, name: str|None=None) -> AbstractContextManager:
         """Returns an reentrant lock for desired concurrency."""
         raise NotImplementedError  # pragma: no cover
+    def finalize(self):
+        """Calling to finalize this store before drop the reference."""
     @abstractmethod
     def get_meta(self, keys: Iterable[VStoreKey]) -> Mapping[VStoreKey,FridTypeSize]:
         """Gets the meta data of a list of `keys` and returns a map for existing keys.
@@ -122,6 +125,8 @@ class ValueStore(ABC):
     @abstractmethod
     def aget_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
         raise NotImplementedError  # pragma: no cover
+    async def afinalize(self):
+        """Calling to finalize this store before drop the reference."""
     @abstractmethod
     async def aget_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
         raise NotImplementedError  # pragma: no cover
@@ -332,8 +337,10 @@ class AsyncToSyncStoreMixin(ValueStore):
         return func(*args)
     async def loop_exec(self, app: Callable[...,_T], *args) -> _T:
         return await asyncio.get_running_loop().run_in_executor(self._executor, app, *args)
-    async def aget_lock(self, name: str|None=None):
+    def aget_lock(self, name: str|None=None):
         raise NotImplementedError  # pragma: no cover --- not going to be used
+    async def afinalize(self):
+        return await self._asyncrun(self.finalize)
     async def aget_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
         return await self._asyncrun(self.get_meta, keys)
     async def aget_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
@@ -361,7 +368,7 @@ class AsyncToSyncStoreMixin(ValueStore):
         return await self._asyncrun(self.get_dict, key, sel, alt)
 
 class SyncToAsyncStoreMixin(ValueStore):
-    """This mixin converts the async value store API to a sync one with asyncio.run().
+    """This mixin converts the async value store API to a sync one with an event loop.
 
     Assuming there is already a sync version of the class calls MySyncStore
     that implements ValueStore, one can just use
@@ -370,29 +377,48 @@ class SyncToAsyncStoreMixin(ValueStore):
             pass
     ```
     """
+    def __init__(self, *args, loop: asyncio.AbstractEventLoop|None=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if loop is not None:
+            self._loop_owner = False
+            self._loop = loop
+        else:
+            # print("Creating a new event loop")
+            self._loop = asyncio.new_event_loop()
+            self._loop_owner = True
+    def __del__(self):
+        self._del_loop()
+    def _del_loop(self):
+        if self._loop_owner:
+            self._loop.close()
+            self._loop_owner = False
+
     def get_lock(self, name: str|None=None):
         raise NotImplementedError  # pragma: no cover --- not going to be used
+    def finalize(self):
+        result = self._loop.run_until_complete(self.afinalize())
+        self._del_loop()
+        return result
     def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
-        return asyncio.run(self.aget_meta(keys))
+        return self._loop.run_until_complete(self.aget_meta(keys))
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
-        return asyncio.run(self.aget_frid(key, sel))
+        return self._loop.run_until_complete(self.aget_frid(key, sel))
     def put_frid(self, key: VStoreKey, val: FridValue,
                  /, flags=VSPutFlag.UNCHECKED) -> int|bool:
-        return asyncio.run(self.aput_frid(key, val, flags))
+        return self._loop.run_until_complete(self.aput_frid(key, val, flags))
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
-        return asyncio.run(self.adel_frid(key, sel))
-    def get_bulk(self, keys: Iterable[VStoreKey],
-                        /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
-        return asyncio.run(self.aget_bulk(keys, alt))
+        return self._loop.run_until_complete(self.adel_frid(key, sel))
+    def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+        return self._loop.run_until_complete(self.aget_bulk(keys, alt))
     def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
-        return asyncio.run(self.aput_bulk(data, flags))
+        return self._loop.run_until_complete(self.aput_bulk(data, flags))
     def del_bulk(self, keys: Iterable[VStoreKey], /) -> int:
-        return asyncio.run(self.adel_bulk(keys))
+        return self._loop.run_until_complete(self.adel_bulk(keys))
     def get_text(self, key: VStoreKey, /, alt: _T=None) -> str|_T:
-        return asyncio.run(self.aget_text(key, alt))
+        return self._loop.run_until_complete(self.aget_text(key, alt))
     def get_blob(self, key: VStoreKey, /, alt: _T=None) -> BlobTypes|_T:
-        return asyncio.run(self.aget_blob(key, alt))
+        return self._loop.run_until_complete(self.aget_blob(key, alt))
     def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=None) -> FridValue|_T:
-        return asyncio.run(self.aget_list(key, sel, alt))
+        return self._loop.run_until_complete(self.aget_list(key, sel, alt))
     def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt: _T=None) -> FridValue|_T:
-        return asyncio.run(self.aget_dict(key, sel, alt))
+        return self._loop.run_until_complete(self.aget_dict(key, sel, alt))

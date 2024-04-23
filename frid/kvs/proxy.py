@@ -18,6 +18,8 @@ class ProxyStore(ValueStore):
 
     def get_lock(self, name: str|None=None):
         return self._store.get_lock(name)
+    def finalize(self):
+        return self._store.finalize()
     def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
         return self._store.get_meta(keys)
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
@@ -45,6 +47,8 @@ class ProxyStore(ValueStore):
 
     def aget_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
         return self._store.aget_lock(name)
+    async def afinalize(self):
+        return await self._store.afinalize()
     async def aget_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
         return await self._store.aget_meta(keys)
     async def aget_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:

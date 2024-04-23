@@ -5,6 +5,7 @@ from typing import TypeVar, cast, overload
 from logging import error
 
 import redis
+from redis import asyncio as async_redis
 
 from ..typing import MISSING, BlobTypes, MissingType
 from ..typing import FridArray, FridSeqVT, FridTypeSize, FridValue, StrKeyMap
@@ -13,35 +14,28 @@ from ..strops import escape_control_chars
 from ..helper import frid_merge, frid_type_size
 from ..dumper import dump_into_str
 from ..loader import load_from_str
-from .store import VSDictSel, VSListSel, VStoreSel
+from .store import AsyncToSyncStoreMixin, SyncToAsyncStoreMixin, VSDictSel, VSListSel, VStoreSel
 from .store import ValueStore, VStorePutBulkData, VSPutFlag, VStoreKey
 
 _T = TypeVar('_T')
+_Self = TypeVar('_Self', bound='BaseRedisValueStore')  # TODO: remove this in 3.11
 
-class RedisValueStore(ValueStore):
+class BaseRedisValueStore(ValueStore):
     NAMESPACE_SEP = '\t'
-    def __init__(self, host: str|None=None, port: int=0,
-                 username: str|None=None, password: str|None=None,
-                 *, parent: 'RedisValueStore|None'=None, name_prefix: str='',
-                 frid_prefix: bytes=b'#!', blob_prefix: bytes=b'#='):
+    def __init__(self, *, parent: 'BaseRedisValueStore|None'=None,
+                 name_prefix: str='', frid_prefix: bytes=b'#!', blob_prefix: bytes=b'#='):
         super().__init__()
-        if isinstance(parent, __class__):
-            self._redis = parent._redis
-        else:
-            assert host is not None
-            self._redis = redis.StrictRedis(host=host, port=port,
-                                            username=username, password=password)
         self._name_prefix = name_prefix
         self._frid_prefix = frid_prefix
         self._blob_prefix = blob_prefix
 
-    def substore(self, name: str, *args: str) -> 'RedisValueStore':
+    def substore(self: _Self, name: str, *args: str) -> _Self:
         prefix = name + self.NAMESPACE_SEP
         if self._name_prefix:
             prefix = self._name_prefix + self.NAMESPACE_SEP + prefix
         if args:
             prefix += self.NAMESPACE_SEP.join(args) + self.NAMESPACE_SEP
-        return __class__(parent=self, name_prefix=prefix)
+        return self.__class__(parent=self, name_prefix=prefix)
 
     def _key_name(self, key: VStoreKey):
         if isinstance(key, tuple):
@@ -73,7 +67,7 @@ class RedisValueStore(ValueStore):
             return data.decode()
         if isinstance(data, (memoryview, bytearray)):  # pragma: no cover -- should not happen
             return bytes(data).decode('utf-8')
-        error(f"Incorrect Redis return type {type(data)}; expecting string") # pragma: no cover
+        raise ValueError(f"Incorrect Redis type {type(data)}; expect string") # pragma: no cover
         return None  # pragma: no cover
 
     def _encode_frid(self, data) -> bytes:
@@ -88,8 +82,7 @@ class RedisValueStore(ValueStore):
         if data is None:
             return alt
         if not isinstance(data, BlobTypes): # pragma: no cover -- should not happen
-            error(f"Incorrect Redis return type {type(data)}; expecting binary")
-            return alt
+            raise ValueError(f"Incorrect Redis type {type(data)}; expect binary")
         if not isinstance(data, bytes):  # pragma: no cover -- should not happen
             data = bytes(data)
         if data.startswith(self._frid_prefix):
@@ -111,8 +104,31 @@ class RedisValueStore(ValueStore):
                 out[key] = val
         return out
 
+class SyncRedisValueStore(AsyncToSyncStoreMixin, BaseRedisValueStore):
+    def __init__(self, host: str|None=None, port: int=0,
+                 username: str|None=None, password: str|None=None,
+                 *, parent: 'SyncRedisValueStore|None'=None, **kwargs):
+        super().__init__(parent=parent, **kwargs)
+        if isinstance(parent, self.__class__):
+            self._redis = parent._redis
+        else:
+            assert host is not None
+            self._redis = redis.StrictRedis(host=host, port=port,
+                                            username=username, password=password)
+    def wipe_all(self) -> int:
+        """This is mainly for testing."""
+        keys = self._redis.keys(self._name_prefix + "*")
+        if not isinstance(keys, Iterable):  # pragma: no cover
+            error(f"Redis.keys() returns a type {type(keys)}")
+            return -1
+        if not keys:
+            return 0
+        return self._check_type(self._redis.delete(*keys), int, -1)
+
     def get_lock(self, name: str|None=None) -> AbstractContextManager:
         return self._redis.lock((name or "*GLOBAL*") + "\v*LOCK*")
+    def finalize(self):
+        self._redis.close()
     def _get_name_meta(self, name: str) -> FridTypeSize|None:
         t = self._check_text(self._redis.type(name))
         if t == 'list':
@@ -131,18 +147,6 @@ class RedisValueStore(ValueStore):
         results = set(b.decode('utf-8') for b in results)
         return {k: v for k in keys if (name := self._key_name(k)) in results
                                       and (v := self._get_name_meta(name)) is not None}
-    def get_text(self, key: VStoreKey, /, alt: _T=None) -> str|_T:
-        data = self.get_frid(key)
-        if data is MISSING:
-            return alt
-        assert isinstance(data, str), type(data)
-        return data
-    def get_blob(self, key: VStoreKey, /, alt: _T=None) -> BlobTypes|_T:
-        data = self.get_frid(key)
-        if data is MISSING:
-            return alt
-        assert isinstance(data, BlobTypes), type(data)
-        return data
     def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=MISSING) -> FridValue|_T:
         redis_name = self._key_name(key)
         if sel is None:
@@ -262,15 +266,17 @@ class RedisValueStore(ValueStore):
     def del_dict(self, key: VStoreKey, sel: VSDictSel=None, /) -> bool:
         redis_name = self._key_name(key)
         if sel is None:
-            return bool(self._check_type(self._redis.delete(redis_name), int, 0))
-        if isinstance(sel, str):
-            return bool(self._check_type(self._redis.hdel(redis_name, sel), int, 0))
-        if isinstance(sel, Sequence):
+            result = self._redis.delete(redis_name)
+        elif isinstance(sel, str):
+            result = self._redis.hdel(redis_name, sel)
+        elif isinstance(sel, Sequence):
             assert is_list_like(sel, str)
             if not isinstance(sel, list):
                 sel = list(sel)
-            return bool(self._check_type(self._redis.hdel(redis_name, *sel), int, 0))
-        raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")  # pragma: no cover
+            result = self._redis.hdel(redis_name, *sel)
+        else:
+            raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")# pragma: no cover
+        return bool(self._check_type(result, int, 0))
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         redis_name = self._key_name(key)
         if sel is not None:
@@ -301,17 +307,221 @@ class RedisValueStore(ValueStore):
             *(self._key_name(k) for k in keys)
         ), int, 0)
 
-    def wipe_all(self) -> int:
+class AsyncRedisValueStore(SyncToAsyncStoreMixin, BaseRedisValueStore):
+    def __init__(self, host: str|None=None, port: int=0,
+                 username: str|None=None, password: str|None=None,
+                 *, parent: 'AsyncRedisValueStore|None'=None, **kwargs):
+        if isinstance(parent, self.__class__):
+            super().__init__(loop=parent._loop, **kwargs)
+            self._aredis = parent._aredis
+        else:
+            super().__init__(**kwargs)
+            assert host is not None
+            self._aredis = async_redis.StrictRedis(host=host, port=port,
+                                                   username=username, password=password)
+    async def awipe_all(self) -> int:
         """This is mainly for testing."""
-        keys = self._redis.keys(self._name_prefix + "*")
+        keys = await self._aredis.keys(self._name_prefix + "*")
         if not isinstance(keys, Iterable):  # pragma: no cover
             error(f"Redis.keys() returns a type {type(keys)}")
             return -1
         if not keys:
             return 0
-        return self._check_type(self._redis.delete(*keys), int, -1)
+        return self._check_type(await self._aredis.delete(*keys), int, -1)
 
     def aget_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
-        raise NotImplementedError  # pragma: no cover
-    async def aget_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
-        raise NotImplementedError  # pragma: no cover
+        return self._aredis.lock((name or "*GLOBAL*") + "\v*LOCK*")
+    async def afinalize(self):
+        await self._aredis.aclose()
+    async def _aget_name_meta(self, name: str) -> FridTypeSize|None:
+        t = self._check_text(await self._aredis.type(name))
+        if t == 'list':
+            result = await self._aredis.llen(name) # type: ignore
+            return ('list', self._check_type(result, int, 0))
+        if t == 'hash':
+            result = await self._aredis.hlen(name)  # type: ignore
+            return ('dict', self._check_type(result, int, 0))
+        data: FridValue|MissingType = self._decode_frid(await self._aredis.get(name))
+        if data is MISSING:
+            return None  # pragma: no cover -- this should not happen
+        return frid_type_size(data)
+    async def aget_meta(self, keys: Iterable[VStoreKey]) -> Mapping[VStoreKey,FridTypeSize]:
+        results = await self._aredis.keys()
+        if not isinstance(results, Iterable):  # pragma: no cover
+            error(f"Redis.keys() returns a type {type(results)}")
+            return {}
+        results = set(b.decode('utf-8') for b in results)
+        return {k: v for k in keys if (name := self._key_name(k)) in results
+                                      and (v := await self._aget_name_meta(name)) is not None}
+    async def aget_list(self, key: VStoreKey, sel: VSListSel=None,
+                        /, alt: _T=MISSING) -> FridValue|_T:
+        redis_name = self._key_name(key)
+        if sel is None:
+            result = await self._aredis.lrange(redis_name, 0, -1) # type: ignore
+            return self._decode_list(result)
+        if isinstance(sel, int):
+            result = await self._aredis.lindex(redis_name, sel)  # type: ignore
+            return self._decode_frid(result, alt)
+        (first, last) = self._list_bounds(sel)
+        result = await self._aredis.lrange(redis_name, first, last) # type: ignore
+        assert isinstance(result, Sequence)
+        if isinstance(sel, slice) and sel.step is not None and sel.step != 1:
+            result = result[::sel.step]
+        return self._decode_list(result)
+        raise ValueError(f"Invalid list selector type {type(sel)}: {sel}")  # pragma: no cover
+    async def aget_dict(self, key: VStoreKey, sel: VSDictSel=None,
+                        /, alt: _T=MISSING) -> FridValue|_T:
+        redis_name = self._key_name(key)
+        if sel is None:
+            data = await self._aredis.hgetall(redis_name) # type: ignore
+            return self._decode_dict(data)
+        if isinstance(sel, str):
+            data = await self._aredis.hget(redis_name, sel) # type: ignore
+            return self._decode_frid(data, alt)
+        if isinstance(sel, Sequence):
+            if not isinstance(sel, list):
+                sel = list(sel)  # pragma: no cover
+            data = await self._aredis.hmget(redis_name, sel) # type: ignore
+            assert is_list_like(data)
+            return {k: self._decode_frid(v) for i, k in enumerate(sel)
+                    if (v := data[i]) is not None}
+        raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")  # pragma: no cover
+    async def aget_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
+        if sel is not None:
+            if self._is_list_sel(sel):
+                return await self.aget_list(key, cast(VSListSel, sel))
+            if self._is_dict_sel(sel):
+                return await self.aget_dict(key, sel)
+            raise ValueError(f"Invalid selector type {type(sel)}: {sel}")  # pragma: no cover
+        redis_name = self._key_name(key)
+        t = self._check_text(await self._aredis.type(redis_name)) # Just opportunisitic; no lock
+        if t == 'list':
+            return await self.aget_list(key, cast(VSListSel, sel))
+        if t == 'hash':
+            return await self.aget_dict(key, sel)
+        return self._decode_frid(await self._aredis.get(redis_name))
+    async def aput_list(self, key: VStoreKey, val: FridArray,
+                        /, flags=VSPutFlag.UNCHECKED) -> bool:
+        redis_name = self._key_name(key)
+        encoded_val = [self._encode_frid(x) for x in val]
+        if flags & VSPutFlag.KEEP_BOTH and not (flags & VSPutFlag.NO_CHANGE):
+            if flags & VSPutFlag.NO_CREATE:
+                result = await self._aredis.rpushx(redis_name, *encoded_val) # type: ignore
+            else:
+                result = await self._aredis.rpush(redis_name, *encoded_val) # type: ignore
+        else:
+            async with self.aget_lock(redis_name):
+                if await self._aredis.exists(redis_name):
+                    if flags & VSPutFlag.NO_CHANGE:
+                        return False
+                    await self._aredis.delete(redis_name)
+                else:
+                    if flags & VSPutFlag.NO_CREATE:
+                        return False
+                result = await self._aredis.rpush(redis_name, *encoded_val) # type: ignore
+        return bool(self._check_type(result, int, 0))
+    async def aput_dict(
+            self, key: VStoreKey, val: StrKeyMap, /, flags=VSPutFlag.UNCHECKED
+    ) -> bool:
+        redis_name = self._key_name(key)
+        if not isinstance(val, dict):
+            val = dict(val)
+        if flags & VSPutFlag.KEEP_BOTH and not (
+            flags & (VSPutFlag.NO_CHANGE | VSPutFlag.NO_CREATE)
+        ):
+            result = await self._aredis.hset(redis_name, mapping=val) # type: ignore
+        else:
+            async with self.aget_lock(redis_name):
+                if await self._aredis.exists(redis_name):
+                    if flags & VSPutFlag.NO_CHANGE:
+                        return False
+                    await self._aredis.delete(redis_name)
+                else:
+                    if flags & VSPutFlag.NO_CREATE:
+                        return False
+                result = await self._aredis.hset(redis_name, mapping=val) # type: ignore
+        return bool(self._check_type(result, int, 0))
+    async def aput_frid(self, key: VStoreKey, val: FridValue,
+                        /, flags=VSPutFlag.UNCHECKED) -> bool:
+        if is_frid_array(val):
+            return await self.aput_list(key, val, flags)
+        if is_frid_skmap(val):
+            return await self.aput_dict(key, val, flags)
+        redis_name = self._key_name(key)
+        nx = bool(flags & VSPutFlag.NO_CHANGE)
+        xx = bool(flags & VSPutFlag.NO_CREATE)
+        if flags & VSPutFlag.KEEP_BOTH:
+           async with self.aget_lock():
+               data = await self._aredis.get(redis_name)
+               return self._check_bool(await self._aredis.set(redis_name, self._encode_frid(
+                   frid_merge(self._decode_frid(data), val)
+               ), nx=nx, xx=xx))
+        return self._check_bool(await self._aredis.set(
+            redis_name, self._encode_frid(val), nx=nx, xx=xx
+        ))
+    async def adel_list(self, key: VStoreKey, sel: VSListSel=None, /) -> bool:
+        redis_name = self._key_name(key)
+        if sel is None:
+            return bool(self._check_type(await self._aredis.delete(redis_name), int, 0))
+        (first, last) = self._list_bounds(sel)
+        if self._consecutive(sel):
+            if last == -1:
+                result = await self._aredis.ltrim(redis_name, 0, first - 1) # type: ignore
+                return self._check_bool(result)
+            if first == 0:
+                result = await self._aredis.ltrim(redis_name, last + 1, -1) # type: ignore
+                return self._check_bool(result)
+        async with self.aget_lock(redis_name):
+            result = await self._aredis.lrange(redis_name, 0, -1) # type: ignore
+            if not result:
+                return False
+            assert isinstance(result, list)
+            if self._list_delete(result, sel):
+                await self._aredis.delete(redis_name)
+                await self._aredis.rpush(redis_name, *result) # type: ignore
+                return True
+            return False
+    async def adel_dict(self, key: VStoreKey, sel: VSDictSel=None, /) -> bool:
+        redis_name = self._key_name(key)
+        if sel is None:
+            result = await self._aredis.delete(redis_name)
+        elif isinstance(sel, str):
+            result = await self._aredis.hdel(redis_name, sel) # type: ignore
+        elif isinstance(sel, Sequence):
+            assert is_list_like(sel, str)
+            if not isinstance(sel, list):
+                sel = list(sel)
+            result = await self._aredis.hdel(redis_name, *sel) # type: ignore
+        else:   # pragma: no cover
+            raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")
+        return bool(self._check_type(result, int, 0))
+    async def adel_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
+        redis_name = self._key_name(key)
+        if sel is not None:
+            if self._is_list_sel(sel):
+                return await self.adel_list(key, sel)
+            if self._is_dict_sel(sel):
+                return await self.adel_dict(key, sel)
+            raise ValueError(f"Invalid selector type {type(sel)}: {sel}")  # pragma: no cover
+        return bool(self._check_type(await self._aredis.delete(redis_name), int, 0))
+    async def aget_bulk(self, keys: Iterable[VStoreKey],
+                        /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+        redis_keys = self._key_list(keys)
+        data = await self._aredis.mget(redis_keys)
+        if not isinstance(data, Iterable):
+            return [alt] * len(redis_keys)
+        return [self._decode_frid(x, alt) for x in data]
+    async def aput_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
+        pairs = as_kv_pairs(data)
+        req = {self._key_name(k): self._encode_frid(v) for k, v in pairs}
+        if flags == VSPutFlag.UNCHECKED:
+            return len(pairs) if self._check_bool(await self._aredis.mset(req)) else 0
+        elif flags & VSPutFlag.NO_CHANGE and flags & VSPutFlag.ATOMICITY:
+            return len(pairs) if self._check_bool(await self._aredis.msetnx(req)) else 0
+        else:
+            return await super().aput_bulk(data, flags)
+    async def adel_bulk(self, keys: Iterable[VStoreKey]) -> int:
+        # No need to lock, assuming redis delete is atomic
+        return self._check_type(await self._aredis.delete(
+            *(self._key_name(k) for k in keys)
+        ), int, 0)

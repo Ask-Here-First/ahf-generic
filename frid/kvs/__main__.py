@@ -1,4 +1,4 @@
-import os, unittest
+import os, asyncio, unittest
 from concurrent.futures import ThreadPoolExecutor
 
 from frid.typing import MISSING
@@ -138,56 +138,85 @@ class VStoreTest(unittest.TestCase):
         self.assertTrue(store.del_frid("key0"))
         self.assertFalse(store.get_dict("key0"))
 
-    def do_test_store(self, store: ValueStore, no_async=False):
+    def do_test_store(self, store: ValueStore, loop: asyncio.AbstractEventLoop|None=None,
+                      no_proxy: bool=False):
         self.check_text_store(store)
         self.check_blob_store(store)
         self.check_list_store(store)
         self.check_dict_store(store)
-        if not no_async:
-            proxy = SyncToASyncProxyStore(store)
-            self.check_text_store(proxy)
-            self.check_blob_store(proxy)
-            self.check_list_store(proxy)
-            self.check_dict_store(proxy)
-        # Note we test using Sync API so we need the following to test async API
-        proxy = SyncToASyncProxyStore(AsyncToSyncProxyStore(store))
+        if no_proxy:
+            return
+        proxy = SyncToASyncProxyStore(store, loop=loop)
         self.check_text_store(proxy)
         self.check_blob_store(proxy)
         self.check_list_store(proxy)
         self.check_dict_store(proxy)
-        proxy = SyncToASyncProxyStore(AsyncToSyncProxyStore(store, executor=True))
+        # Note we test using Sync API so we need the following to test async API
+        proxy = SyncToASyncProxyStore(AsyncToSyncProxyStore(store), loop=loop)
+        self.check_text_store(proxy)
+        self.check_blob_store(proxy)
+        self.check_list_store(proxy)
+        self.check_dict_store(proxy)
+        proxy = SyncToASyncProxyStore(AsyncToSyncProxyStore(store, executor=True), loop=loop)
         self.check_text_store(proxy)
         self.check_blob_store(proxy)
         self.check_list_store(proxy)
         self.check_dict_store(proxy)
         with ThreadPoolExecutor() as executor:
-            proxy = SyncToASyncProxyStore(AsyncToSyncProxyStore(store, executor=executor))
+            proxy = SyncToASyncProxyStore(AsyncToSyncProxyStore(store, executor=executor),
+                                          loop=loop)
             self.check_text_store(proxy)
             self.check_blob_store(proxy)
             self.check_list_store(proxy)
             self.check_dict_store(proxy)
+            proxy.finalize()
 
     def test_memory_store(self):
         store = MemoryValueStore()
         self.assertFalse(store.all_data())
         self.do_test_store(store)
         self.assertFalse(store.all_data())
+        store.finalize()
 
-    def test_redis_store(self):
+    def test_sync_redis_store(self):
         try:
-            from .redis import RedisValueStore
+            from .redis import SyncRedisValueStore
         except Exception:
             return
         host = os.getenv('REDIS_KVS_HOST')
         if not host:
             return
-        store = RedisValueStore(
+        store = SyncRedisValueStore(
             host=host, port=int(os.getenv('REDIS_KVS_PORT', 6379)),
-            username=os.getenv('REDIS_KVS_USER'), password=os.getenv('REDIS_KVS_PASS')
+            username=os.getenv('REDIS_KVS_USER'), password=os.getenv('REDIS_KVS_PASS'),
         ).substore("UNITTEST")
         store.wipe_all()
-        self.do_test_store(store, no_async=True)
+        self.do_test_store(store)
         store.wipe_all()
+        store.finalize()
+
+    def test_async_redis_store(self):
+        try:
+            from .redis import AsyncRedisValueStore
+        except Exception:
+            return
+        loop = asyncio.new_event_loop()
+        host = os.getenv('REDIS_KVS_HOST')
+        if not host:
+            return
+        try:
+            store = AsyncRedisValueStore(
+                host=host, port=int(os.getenv('REDIS_KVS_PORT', 6379)),
+                username=os.getenv('REDIS_KVS_USER'), password=os.getenv('REDIS_KVS_PASS'),
+                loop=loop,
+            ).substore("UNITTEST")
+            loop.run_until_complete(store.awipe_all())
+            self.do_test_store(store, no_proxy=True)
+            loop.run_until_complete(store.awipe_all())
+            store.finalize()
+        finally:
+            loop.run_until_complete(loop.shutdown_default_executor())
+            loop.close()
 
 if __name__ == '__main__':
     unittest.main()
