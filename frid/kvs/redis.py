@@ -54,27 +54,27 @@ class RedisValueStore(ValueStore):
     @overload
     def _check_type(self, data, typ: type[_T], default: _T) -> _T: ...
     def _check_type(self, data, typ: type[_T], default: _T|None=None) -> _T|None:
-        if isinstance(data, typ):
-            return data
-        # TODO: generic code to log current or given stacktrace or exception
-        trace = '\n'.join(traceback.format_list(traceback.extract_stack()))
-        error(f"Incorrect Redis return type {type(data)}; expecting {typ}, at\n{trace}\n")
-        return default
+        if not isinstance(data, typ):  # pragma: no cover -- should not happen
+            # TODO: generic code to log current or given stacktrace or exception
+            trace = '\n'.join(traceback.format_list(traceback.extract_stack()))
+            error(f"Incorrect Redis return type {type(data)}; expecting {typ}, at\n{trace}\n")
+            return default
+        return data
     def _check_bool(self, data) -> bool:
         if data is None:
             return False   # Redis-py actually returns None for False sometimes
         return self._check_type(data, bool, False)
     def _check_text(self, data) -> str|None:
         if data is None:
-            return None
+            return None  # pragma: no cover -- should not happen
         if isinstance(data, str):
-            return data
+            return data  # pragma: no cover -- should not happen
         if isinstance(data, bytes):
             return data.decode()
-        if isinstance(data, (memoryview, bytearray)):
+        if isinstance(data, (memoryview, bytearray)):  # pragma: no cover -- should not happen
             return bytes(data).decode('utf-8')
-        error(f"Incorrect Redis return type {type(data)}; expecting string")
-        return None
+        error(f"Incorrect Redis return type {type(data)}; expecting string") # pragma: no cover
+        return None  # pragma: no cover
 
     def _encode_frid(self, data) -> bytes:
         if isinstance(data, BlobTypes):
@@ -87,10 +87,10 @@ class RedisValueStore(ValueStore):
     def _decode_frid(self, data, alt: _T=MISSING) -> FridValue|_T:
         if data is None:
             return alt
-        if not isinstance(data, BlobTypes):
+        if not isinstance(data, BlobTypes): # pragma: no cover -- should not happen
             error(f"Incorrect Redis return type {type(data)}; expecting binary")
             return alt
-        if not isinstance(data, bytes):
+        if not isinstance(data, bytes):  # pragma: no cover -- should not happen
             data = bytes(data)
         if data.startswith(self._frid_prefix):
             return load_from_str(data[len(self._frid_prefix):].decode('utf-8'))
@@ -99,7 +99,7 @@ class RedisValueStore(ValueStore):
         return data.decode('utf-8')
     def _decode_list(self, data) -> list[FridValue]:
         if not isinstance(data, Iterable):
-            return []
+            return []   # pragma: no cover -- should not happen
         # It should not have None is data, so it does not matter what alt is
         return [self._decode_frid(x, None) for x in data]
     def _decode_dict(self, data) -> dict[str,FridValue]|None:
@@ -111,21 +111,6 @@ class RedisValueStore(ValueStore):
                 out[key] = val
         return out
 
-    def _delete_list_range(self, name: str, index: int, until: int) -> bool:
-        if until == 0:
-            return self._check_bool(self._redis.ltrim(name, 0, index - 1))
-        if index == 0:
-            return self._check_bool(self._redis.ltrim(name, until, -1))
-        with self.get_lock(name):
-            data = self._redis.lrange(name, 0, -1)
-            if not data:
-                return False
-            assert isinstance(data, list)
-            if self._list_delete(data, (index, until)):
-                self._redis.delete(name)
-                self._redis.rpush(name, *data)
-                return True
-            return False
     def get_lock(self, name: str|None=None) -> AbstractContextManager:
         return self._redis.lock((name or "*GLOBAL*") + "\v*LOCK*")
     def _get_name_meta(self, name: str) -> FridTypeSize|None:
@@ -136,11 +121,12 @@ class RedisValueStore(ValueStore):
             return ('dict', self._check_type(self._redis.hlen(name), int, 0))
         data: FridValue|MissingType = self._decode_frid(self._redis.get(name))
         if data is MISSING:
-            return None
+            return None  # pragma: no cover -- this should not happen
         return frid_type_size(data)
     def get_meta(self, keys: Iterable[VStoreKey]) -> Mapping[VStoreKey,FridTypeSize]:
         results = self._redis.keys()
-        if not isinstance(results, Iterable):
+        if not isinstance(results, Iterable):  # pragma: no cover
+            error(f"Redis.keys() returns a type {type(results)}")
             return {}
         results = set(b.decode('utf-8') for b in results)
         return {k: v for k in keys if (name := self._key_name(k)) in results
@@ -163,18 +149,13 @@ class RedisValueStore(ValueStore):
             return self._decode_list(self._redis.lrange(redis_name, 0, -1))
         if isinstance(sel, int):
             return self._decode_frid(self._redis.lindex(redis_name, sel), alt)
-        if isinstance(sel, tuple):
-            (index, until) = sel
-            # Should not have missing entry here
-            return self._decode_list(self._redis.lrange(redis_name, index, until - 1))
-        if isinstance(sel, slice):
-            if sel.step is not None and sel.step != 1:
-                # Todo to support non-continuous slicing by getting the range then slice locally
-                raise ValueError(f"Non-continuous slicing is not supported {sel}")
-            return self._decode_list(self._redis.lrange(
-                redis_name, sel.start or 0, (sel.stop or 0) - 1,
-            ))  # Should not have missing entry here
-        raise ValueError(f"Invalid list selector type {type(sel)}: {sel}")
+        (first, last) = self._list_bounds(sel)
+        data = self._redis.lrange(redis_name, first, last)
+        assert isinstance(data, Sequence)
+        if isinstance(sel, slice) and sel.step is not None and sel.step != 1:
+            data = data[::sel.step]
+        return self._decode_list(data)
+        raise ValueError(f"Invalid list selector type {type(sel)}: {sel}")  # pragma: no cover
     def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt: _T=MISSING) -> FridValue|_T:
         redis_name = self._key_name(key)
         if sel is None:
@@ -183,24 +164,24 @@ class RedisValueStore(ValueStore):
             return self._decode_frid(self._redis.hget(redis_name, sel), alt)
         if isinstance(sel, Sequence):
             if not isinstance(sel, list):
-                sel = list(sel)
+                sel = list(sel)  # pragma: no cover
             data = self._redis.hmget(redis_name, sel)
             assert is_list_like(data)
             return {k: self._decode_frid(v) for i, k in enumerate(sel)
                     if (v := data[i]) is not None}
-        raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")
+        raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")  # pragma: no cover
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
         if sel is not None:
             if self._is_list_sel(sel):
                 return self.get_list(key, cast(VSListSel, sel))
             if self._is_dict_sel(sel):
                 return self.get_dict(key, sel)
-            raise ValueError(f"Invalid selector type {type(sel)}: {sel}")
+            raise ValueError(f"Invalid selector type {type(sel)}: {sel}")  # pragma: no cover
         redis_name = self._key_name(key)
         t = self._check_text(self._redis.type(redis_name)) # Just opportunisitic; no lock
         if t == 'list':
             return self.get_list(key, cast(VSListSel, sel))
-        if t == 'dict':
+        if t == 'hash':
             return self.get_dict(key, sel)
         return self._decode_frid(self._redis.get(redis_name))
     def put_list(self, key: VStoreKey, val: FridArray, /, flags=VSPutFlag.UNCHECKED) -> bool:
@@ -262,17 +243,22 @@ class RedisValueStore(ValueStore):
         redis_name = self._key_name(key)
         if sel is None:
             return bool(self._check_type(self._redis.delete(redis_name), int, 0))
-        if isinstance(sel, int):
-            return self._delete_list_range(redis_name, sel, sel + 1)
-        if isinstance(sel, tuple):
-            (index, until) = sel
-            return self._delete_list_range(redis_name, index, until)
-        if isinstance(sel, slice):
-            if sel.step is not None and sel.step != 1:
-                # Todo to support non-continuous slicing by getting the range then slice locally
-                raise ValueError(f"Non-continuous slicing is not supported {sel}")
-            return self._delete_list_range(redis_name, sel.start or 0, sel.stop or 0)
-        raise ValueError(f"Invalid list selector type {type(sel)}: {sel}")
+        (first, last) = self._list_bounds(sel)
+        if self._consecutive(sel):
+            if last == -1:
+                return self._check_bool(self._redis.ltrim(redis_name, 0, first - 1))
+            if first == 0:
+                return self._check_bool(self._redis.ltrim(redis_name, last + 1, -1))
+        with self.get_lock(redis_name):
+            data = self._redis.lrange(redis_name, 0, -1)
+            if not data:
+                return False
+            assert isinstance(data, list)
+            if self._list_delete(data, sel):
+                self._redis.delete(redis_name)
+                self._redis.rpush(redis_name, *data)
+                return True
+            return False
     def del_dict(self, key: VStoreKey, sel: VSDictSel=None, /) -> bool:
         redis_name = self._key_name(key)
         if sel is None:
@@ -284,7 +270,7 @@ class RedisValueStore(ValueStore):
             if not isinstance(sel, list):
                 sel = list(sel)
             return bool(self._check_type(self._redis.hdel(redis_name, *sel), int, 0))
-        raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")
+        raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")  # pragma: no cover
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         redis_name = self._key_name(key)
         if sel is not None:
@@ -292,7 +278,7 @@ class RedisValueStore(ValueStore):
                 return self.del_list(key, sel)
             if self._is_dict_sel(sel):
                 return self.del_dict(key, sel)
-            raise ValueError(f"Invalid selector type {type(sel)}: {sel}")
+            raise ValueError(f"Invalid selector type {type(sel)}: {sel}")  # pragma: no cover
         return bool(self._check_type(self._redis.delete(redis_name), int, 0))
     def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
         redis_keys = self._key_list(keys)
@@ -318,7 +304,8 @@ class RedisValueStore(ValueStore):
     def wipe_all(self) -> int:
         """This is mainly for testing."""
         keys = self._redis.keys(self._name_prefix + "*")
-        if not isinstance(keys, Iterable):
+        if not isinstance(keys, Iterable):  # pragma: no cover
+            error(f"Redis.keys() returns a type {type(keys)}")
             return -1
         if not keys:
             return 0

@@ -110,11 +110,15 @@ class SimpleValueStore(ValueStore):
             # TODO: frid_merge() to accept more flags
             return (self._encode(frid_merge(self._decode(old), new)), True)
         return (self._encode(new), True)
-    def _del_sel(self, val: FridValue, sel: VStoreSel) -> tuple[FridValue,int]:
+    def _del_sel(
+            self, val: FridValue|MissingType, sel: VStoreSel
+    ) -> tuple[FridValue|FridBeing,int]:
         """Deletes the selected items in general. Note it will try to delete in place.
         - Returns a pair: the updated value and the number of items deleted.
         """
         assert sel is not None
+        if val is MISSING:
+            return (MISSING, 0)
         val = self._decode(val)
         if isinstance(val, Mapping):
             if not isinstance(val, dict):
@@ -126,6 +130,8 @@ class SimpleValueStore(ValueStore):
             cnt = self._list_delete(val, cast(int|slice|tuple[int,int], sel))
         else:
             raise ValueError(f"Data type {type(val)} does not support partial removal")
+        if cnt == 0:
+            return (PRESENT, 0)
         return (self._encode(val), cnt)
 
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:

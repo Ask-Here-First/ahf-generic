@@ -213,6 +213,23 @@ class ValueStore(ABC):
     def _is_dict_sel(sel) -> TypeGuard[VSDictSel]:
         return isinstance(sel, str) or is_list_like(sel, str)
     @staticmethod
+    def _consecutive(sel: VSListSel) -> bool:
+        """Returns true if the selection is the consecutive indexes."""
+        return not isinstance(sel, slice) or sel.step is None or sel.step == 1
+    @staticmethod
+    def _list_bounds(sel: VSListSel) -> tuple[int,int]:
+        """Returns the index (may be negative) of the first and the last element."""
+        if isinstance(sel, int):
+            return (sel, sel)
+        if isinstance(sel, tuple):
+            (index, until) = sel
+            return (index, until - 1)
+        if isinstance(sel, slice):
+            if sel.step and sel.step < 0:
+                return ((sel.stop or 0) + 1, sel.start)
+            return (sel.start or 0, (sel.stop or 0) - 1)
+        raise ValueError(f"Invalid list selector type {type(sel)}: {sel}")
+    @staticmethod
     def _fix_indexes(sel: tuple[int,int], val_len: int):
         """Fixes the pair of indexes to handle negative indexes.
         - `val_len`: the length of the value, needed for negative indexes.
