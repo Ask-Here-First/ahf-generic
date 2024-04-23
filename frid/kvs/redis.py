@@ -13,7 +13,7 @@ from ..strops import escape_control_chars
 from ..helper import frid_merge, frid_type_size
 from ..dumper import dump_into_str
 from ..loader import load_from_str
-from .store import VSDictSel, VSListSel, VStoreSel, is_dict_sel, is_list_sel
+from .store import VSDictSel, VSListSel, VStoreSel
 from .store import ValueStore, VStorePutBulkData, VSPutFlag, VStoreKey
 
 _T = TypeVar('_T')
@@ -116,30 +116,16 @@ class RedisValueStore(ValueStore):
             return self._check_bool(self._redis.ltrim(name, 0, index - 1))
         if index == 0:
             return self._check_bool(self._redis.ltrim(name, until, -1))
-        with self.get_lock():
-            if index >= 0:
-                out1 = self._check_bool(self._redis.ltrim(name, 0, index - 1))
-                if until > 0:
-                    until -= index
-                out2 = self._check_bool(self._redis.ltrim(name, until, -1))
-            elif until <= 0:
-                out2 = self._check_bool(self._redis.ltrim(name, until, - 1))
-                index -= until  # Both are negative but index increases after subtraction
-                out1 = self._check_bool(self._redis.ltrim(name, 0, index))
-            else:
-                # We need to get the actual length here for index < 0 and until > 0
-                n = self._check_type(self._redis.llen(name), int, 0)
-                if not n:
-                    return False
-                index += n
-                if index > 0:
-                    out1 = self._check_bool(self._redis.ltrim(name, 0, index - 1))
-                else:
-                    index = 0
-                    out1 = False
-                until -= index
-                out2 = self._check_bool(self._redis.ltrim(name, until, -1))
-            return out1 or out2
+        with self.get_lock(name):
+            data = self._redis.lrange(name, 0, -1)
+            if not data:
+                return False
+            assert isinstance(data, list)
+            if self._list_delete(data, (index, until)):
+                self._redis.delete(name)
+                self._redis.rpush(name, *data)
+                return True
+            return False
     def get_lock(self, name: str|None=None) -> AbstractContextManager:
         return self._redis.lock((name or "*GLOBAL*") + "\v*LOCK*")
     def _get_name_meta(self, name: str) -> FridTypeSize|None:
@@ -182,7 +168,7 @@ class RedisValueStore(ValueStore):
             # Should not have missing entry here
             return self._decode_list(self._redis.lrange(redis_name, index, until - 1))
         if isinstance(sel, slice):
-            if sel.step is None or sel.step != 1:
+            if sel.step is not None and sel.step != 1:
                 # Todo to support non-continuous slicing by getting the range then slice locally
                 raise ValueError(f"Non-continuous slicing is not supported {sel}")
             return self._decode_list(self._redis.lrange(
@@ -205,12 +191,17 @@ class RedisValueStore(ValueStore):
         raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
         if sel is not None:
-            if is_list_sel(sel):
+            if self._is_list_sel(sel):
                 return self.get_list(key, cast(VSListSel, sel))
-            if is_dict_sel(sel):
+            if self._is_dict_sel(sel):
                 return self.get_dict(key, sel)
             raise ValueError(f"Invalid selector type {type(sel)}: {sel}")
         redis_name = self._key_name(key)
+        t = self._check_text(self._redis.type(redis_name)) # Just opportunisitic; no lock
+        if t == 'list':
+            return self.get_list(key, cast(VSListSel, sel))
+        if t == 'dict':
+            return self.get_dict(key, sel)
         return self._decode_frid(self._redis.get(redis_name))
     def put_list(self, key: VStoreKey, val: FridArray, /, flags=VSPutFlag.UNCHECKED) -> bool:
         redis_name = self._key_name(key)
@@ -277,7 +268,7 @@ class RedisValueStore(ValueStore):
             (index, until) = sel
             return self._delete_list_range(redis_name, index, until)
         if isinstance(sel, slice):
-            if sel.step is None or sel.step != 1:
+            if sel.step is not None and sel.step != 1:
                 # Todo to support non-continuous slicing by getting the range then slice locally
                 raise ValueError(f"Non-continuous slicing is not supported {sel}")
             return self._delete_list_range(redis_name, sel.start or 0, sel.stop or 0)
@@ -297,9 +288,9 @@ class RedisValueStore(ValueStore):
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         redis_name = self._key_name(key)
         if sel is not None:
-            if is_list_sel(sel):
+            if self._is_list_sel(sel):
                 return self.del_list(key, sel)
-            if is_dict_sel(sel):
+            if self._is_dict_sel(sel):
                 return self.del_dict(key, sel)
             raise ValueError(f"Invalid selector type {type(sel)}: {sel}")
         return bool(self._check_type(self._redis.delete(redis_name), int, 0))

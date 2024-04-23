@@ -7,7 +7,8 @@ from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import TypeVar, cast
 
-from ..typing import MISSING, PRESENT, BlobTypes, FridBeing, FridMapVT, FridTypeSize, FridValue, MissingType, StrKeyMap
+from ..typing import MISSING, PRESENT, FridBeing, BlobTypes, MissingType
+from ..typing import FridTypeSize, FridValue
 from ..autils import AsyncReentrantLock
 from ..guards import is_frid_array
 from ..helper import frid_merge, frid_type_size
@@ -80,61 +81,20 @@ class SimpleValueStore(ValueStore):
             return '\t'.join(escape_control_chars(str(k), '\x7f') for k in key)
         raise ValueError(f"Invalid key type {type(key)}")
 
-    def _fix_indexes(self, sel: tuple[int,int], val_len: int):
-        """Fixes the pair of indexes to handle negative indexes.
-        - `val_len`: the length of the value, needed for negative indexes.
-        """
-        (index, until) = sel
-        if not len(sel) == 2 or not isinstance(index, int) or not isinstance(until, int):
-            raise ValueError(f"Invalid selector: {sel}")
-        if index < 0:
-            index += val_len
-            if index < 0:
-                index = 0
-        if until <= 0:
-            until += val_len
-            if until < 0:
-                until = 0
-        return (index, until)
-
-    def _get_seq_sel(
-            self, val: Sequence, sel: int|slice|tuple[int,int], /,
-    ) -> FridValue|MissingType:
-        """Gets the selected elements in a sequence."""
-        if isinstance(sel, int):
-            return val[sel] if 0 <= sel < len(val) else MISSING
-        if isinstance(sel, slice):
-            return val[sel]
-        if isinstance(sel, tuple) and len(sel) == 2:
-            (index, until) = self._fix_indexes(sel, len(val))
-            return val[index:until]
-        raise ValueError(f"Invalid selector type {type(sel)}")
-    def _get_sel_map(
-            self, val: StrKeyMap, sel: str|Iterable[str]
-    ) -> StrKeyMap|FridValue|MissingType:
-        """Gets the selected elements in a mapping."""
-        if sel is None:
-            return val
-        if isinstance(sel, str):
-            out = val.get(sel, MISSING)
-            assert out is not PRESENT
-            return out
-        if isinstance(sel, Iterable):
-            return {k: v for k in val if not isinstance((v := val.get(k)), FridBeing)}
-        raise ValueError(f"Invalid selector type {type(sel)}")
     def _get_sel(self, val: FridValue, sel: VStoreSel) -> FridValue|MissingType:
         """Gets selection for an general value."""
         if sel is None:
             return val
         val = self._decode(val)
         if isinstance(val, Mapping):
-            out = self._get_sel_map(val, cast(str|Iterable[str], sel))
+            out = self._dict_select(val, cast(str|Iterable[str], sel))
         elif isinstance(val, Sequence):
-            out = self._get_seq_sel(val, cast(int|slice|tuple[int,int], sel))
+            out = self._list_select(val, cast(int|slice|tuple[int,int], sel))
         else:
             raise ValueError(f"Selector is not None for data type {type(val)}")
         if out is MISSING:
             return MISSING
+        assert not isinstance(out, FridBeing)
         return self._encode(out)
     def _add(self, old: FridValue|MissingType, new: FridValue,
              flags: VSPutFlag) -> tuple[FridValue|FridBeing,bool]:
@@ -150,30 +110,6 @@ class SimpleValueStore(ValueStore):
             # TODO: frid_merge() to accept more flags
             return (self._encode(frid_merge(self._decode(old), new)), True)
         return (self._encode(new), True)
-    def _del_list_sel(self, val: list, sel: int|slice|tuple[int,int]) -> int:
-        """Deletes the selected items in the list.
-        - Returns the number of items deleted.
-        """
-        if isinstance(sel, int):
-            if 0 <= sel < len(val):
-                del val[sel]
-                return 1
-            return 0
-        if isinstance(sel, slice):
-            del val[sel]
-        if isinstance(sel, tuple):
-            (index, until) = self._fix_indexes(sel, len(val))
-            old_len = len(val)
-            del val[index:until]
-            return len(val) - old_len
-        raise ValueError(f"Invalid sequence selector type {type(sel)}")
-    def _del_dict_sel(self, val: dict[str,FridMapVT], sel: str|Iterable[str]) -> int:
-        """Deletes the selected items in the dict.
-        - Returns the number of items deleted.
-        """
-        if isinstance(sel, str):
-            return 0 if val.pop(sel, MISSING) is MISSING else 1
-        return sum(bool(val.pop(k, MISSING) is not MISSING) for k in sel)
     def _del_sel(self, val: FridValue, sel: VStoreSel) -> tuple[FridValue,int]:
         """Deletes the selected items in general. Note it will try to delete in place.
         - Returns a pair: the updated value and the number of items deleted.
@@ -183,11 +119,11 @@ class SimpleValueStore(ValueStore):
         if isinstance(val, Mapping):
             if not isinstance(val, dict):
                 val = dict(val)
-            cnt = self._del_dict_sel(val, cast(str|Iterable[str], sel))
+            cnt = self._dict_delete(val, cast(str|Iterable[str], sel))
         elif is_frid_array(val):
             if not isinstance(val, list):
                 val = list(val)
-            cnt = self._del_list_sel(val, cast(int|slice|tuple[int,int], sel))
+            cnt = self._list_delete(val, cast(int|slice|tuple[int,int], sel))
         else:
             raise ValueError(f"Data type {type(val)} does not support partial removal")
         return (self._encode(val), cnt)

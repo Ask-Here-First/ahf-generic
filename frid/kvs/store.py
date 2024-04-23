@@ -18,14 +18,6 @@ VSDictSel = str|Iterable[str]|None
 VStoreSel = VSListSel|VSDictSel
 VStorePutBulkData = Mapping[VStoreKey,FridValue]|Sequence[tuple[VStoreKey,FridValue]]|Iterable
 
-def is_list_sel(sel) -> TypeGuard[VSListSel]:
-    return isinstance(sel, int|slice) or (
-        isinstance(sel, tuple) and len(sel) == 2
-        and isinstance(sel[0], int) and isinstance(sel[1], int)
-    )
-def is_dict_sel(sel) -> TypeGuard[VSDictSel]:
-    return isinstance(sel, str) or is_list_like(sel, str)
-
 _T = TypeVar('_T')
 _P = ParamSpec('_P')
 
@@ -111,7 +103,8 @@ class ValueStore(ABC):
         data = self.get_frid(key, sel)
         if data is MISSING:
             return alt
-        assert is_frid_array(data), type(data)
+        if not isinstance(sel, int):
+            assert is_frid_array(data), type(data)
         return data
     @overload
     def get_dict(self, key: VStoreKey, sel: str, /, alt: _T=None) -> FridValue|_T: ...
@@ -208,6 +201,87 @@ class ValueStore(ABC):
                 return count <= 0
             # TODO: what to do for other flags: no need to check if result is not affected
         return True
+
+    # Some general helper function below
+    @staticmethod
+    def _is_list_sel(sel) -> TypeGuard[VSListSel]:
+        return isinstance(sel, int|slice) or (
+            isinstance(sel, tuple) and len(sel) == 2
+            and isinstance(sel[0], int) and isinstance(sel[1], int)
+        )
+    @staticmethod
+    def _is_dict_sel(sel) -> TypeGuard[VSDictSel]:
+        return isinstance(sel, str) or is_list_like(sel, str)
+    @staticmethod
+    def _fix_indexes(sel: tuple[int,int], val_len: int):
+        """Fixes the pair of indexes to handle negative indexes.
+        - `val_len`: the length of the value, needed for negative indexes.
+        """
+        (index, until) = sel
+        if not len(sel) == 2 or not isinstance(index, int) or not isinstance(until, int):
+            raise ValueError(f"Invalid selector: {sel}")
+        if index < 0:
+            index += val_len
+            if index < 0:
+                index = 0
+        if until <= 0:
+            until += val_len
+            if until < 0:
+                until = 0
+        return (index, until)
+    @staticmethod
+    def _list_select(
+        val: Sequence[_T], sel: int|slice|tuple[int,int]
+    ) -> Sequence[_T]|_T|MissingType:
+        """Gets the selected elements in a sequence."""
+        if isinstance(sel, int):
+            return val[sel] if 0 <= sel < len(val) else MISSING
+        if isinstance(sel, slice):
+            return val[sel]
+        if isinstance(sel, tuple) and len(sel) == 2:
+            (index, until) = __class__._fix_indexes(sel, len(val))
+            return val[index:until]
+        raise ValueError(f"Invalid selector type {type(sel)}")
+    @staticmethod
+    def _dict_select(
+            val: Mapping[str,_T], sel: str|Iterable[str]
+    ) -> Mapping[str,_T]|_T|MissingType:
+        """Gets the selected elements in a mapping."""
+        if sel is None:
+            return val
+        if isinstance(sel, str):
+            return val.get(sel, MISSING)
+        if isinstance(sel, Iterable):
+            return {k: v for k in val if not isinstance((v := val.get(k, MISSING)), FridBeing)}
+        raise ValueError(f"Invalid selector type {type(sel)}")
+    @staticmethod
+    def _list_delete(val: list, sel: int|slice|tuple[int,int]) -> int:
+        """Deletes the selected items in the list.
+        - Returns the number of items deleted.
+        """
+        if isinstance(sel, int):
+            if 0 <= sel < len(val):
+                del val[sel]
+                return 1
+            return 0
+        old_len = len(val)
+        if isinstance(sel, slice):
+            del val[sel]
+            return len(val) - old_len
+        if isinstance(sel, tuple):
+            (index, until) = __class__._fix_indexes(sel, len(val))
+            del val[index:until]
+            return len(val) - old_len
+        raise ValueError(f"Invalid sequence selector type {type(sel)}")
+    @staticmethod
+    def _dict_delete(val: dict[str,Any], sel: str|Iterable[str]) -> int:
+        """Deletes the selected items in the dict.
+        - Returns the number of items deleted.
+        """
+        if isinstance(sel, str):
+            return 0 if val.pop(sel, MISSING) is MISSING else 1
+        return sum(bool(val.pop(k, MISSING) is not MISSING) for k in sel)
+
 
 AsyncRunType = Callable[Concatenate[Callable[...,_T],_P],Awaitable[_T]]
 class AsyncToSyncStoreMixin(ValueStore):

@@ -1,6 +1,8 @@
 import os, unittest
 from concurrent.futures import ThreadPoolExecutor
 
+from frid.typing import MISSING
+
 from .store import VSPutFlag, ValueStore
 from .basic import MemoryValueStore
 from .proxy import AsyncToSyncProxyStore, SyncToASyncProxyStore
@@ -57,6 +59,17 @@ class VStoreTest(unittest.TestCase):
         self.assertEqual(store.get_list("key0"), ["value00"])
         self.assertTrue(store.put_frid("key0", ["value01", "value02"], VSPutFlag.KEEP_BOTH))
         self.assertEqual(store.get_list("key0"), ["value00", "value01", "value02"])
+        self.assertEqual(store.get_list("key0", 1), "value01")
+        self.assertEqual(store.get_list("key0", (1, 2)), ["value01"])
+        self.assertEqual(store.get_list("key0", (1, 0)), ["value01", "value02"])
+        self.assertEqual(store.get_list("key0", (1, -1)), ["value01"])
+        self.assertEqual(store.get_list("key0", (-2, -1)), ["value01"])
+        self.assertEqual(store.get_list("key0", (-3, -1)), ["value00", "value01"])
+        self.assertEqual(store.get_list("key0", (-3, 1)), ["value00"])
+        self.assertEqual(store.get_list("key0", slice(1, 2)), ["value01"])
+        self.assertEqual(store.get_list("key0", slice(1, None)), ["value01", "value02"])
+        self.assertEqual(store.get_list("key0", slice(None, 1)), ["value00"])
+        self.assertEqual(store.get_list("key0", slice(None,2)), ["value00", "value01"])
         self.assertEqual(store.get_meta(["key0"]), {"key0": ("list", 3)})
         self.assertTrue(store.del_frid("key0", (1, 0)))
         self.assertEqual(store.get_meta(["key0"]), {"key0": ("list", 1)})
@@ -68,6 +81,30 @@ class VStoreTest(unittest.TestCase):
         self.assertEqual(store.get_list("key0"), ["value0"])
         self.assertTrue(store.del_frid("key0"))
         self.assertFalse(store.get_list("key0"))
+        self.assertFalse(store.put_frid("key0", ["value0a", "value0b"], VSPutFlag.NO_CREATE))
+        self.assertIs(store.get_frid("key0", 1), MISSING)
+        self.assertTrue(store.put_frid("key0", ["value01", "value01"], VSPutFlag.NO_CHANGE))
+        self.assertTrue(store.get_meta(["key0"]), ("list", 3))
+        self.assertEqual(store.get_frid("key0", 1), "value01")
+        self.assertFalse(store.put_frid("key0", ["value0x", "value0y"], VSPutFlag.NO_CHANGE))
+        self.assertEqual(store.get_frid("key0", 0), "value01")
+        self.assertTrue(store.put_frid("key0", ["value00", "value01"], VSPutFlag.NO_CREATE))
+        self.assertEqual(store.get_frid("key0", 0), "value00")
+        self.assertTrue(store.put_frid("key0", ["value02", "value03"], VSPutFlag.KEEP_BOTH))
+        self.assertTrue(store.put_frid("key0", ["value04"],
+                                       VSPutFlag.KEEP_BOTH | VSPutFlag.NO_CREATE))
+        self.assertEqual(store.get_frid("key0", slice(3,None)), ["value03", "value04"])
+        self.assertTrue(store.del_frid("key0", (4, 0)))
+        self.assertEqual(store.get_frid("key0", slice(3,None)), ["value03"])
+        self.assertTrue(store.del_frid("key0", slice(1)))
+        self.assertEqual(store.get_frid("key0"), ["value01", "value02", "value03"])
+        self.assertTrue(store.del_frid("key0", (1, 2)))
+        self.assertEqual(store.get_list("key0"), ["value01", "value03"])
+        self.assertTrue(store.del_frid("key0", (-2, -1)))
+        self.assertEqual(store.get_list("key0"), ["value03"])
+        self.assertTrue(store.del_frid("key0"))
+        self.assertFalse(store.get_list("key0"))
+
 
     def check_dict_store(self, store: ValueStore, auto_create=False):
         self.assertFalse(store.get_dict("key0"))  # None or empty for Redis
