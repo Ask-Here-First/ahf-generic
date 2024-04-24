@@ -259,7 +259,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
             if not data:
                 return False
             assert isinstance(data, list)
-            if utils._list_delete(data, sel):
+            if utils.list_delete(data, sel):
                 self._redis.delete(redis_name)
                 self._redis.rpush(redis_name, *data)
                 return True
@@ -476,7 +476,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             if not result:
                 return False
             assert isinstance(result, list)
-            if utils._list_delete(result, sel):
+            if utils.list_delete(result, sel):
                 await self._aredis.delete(redis_name)
                 await self._aredis.rpush(redis_name, *result) # type: ignore
                 return True

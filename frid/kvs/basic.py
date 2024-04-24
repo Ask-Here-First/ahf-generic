@@ -105,11 +105,11 @@ class _SimpleBaseStore:
         if isinstance(val, Mapping):
             if not isinstance(val, dict):
                 val = dict(val)
-            cnt = utils._dict_delete(val, cast(str|Iterable[str], sel))
+            cnt = utils.dict_delete(val, cast(str|Iterable[str], sel))
         elif is_frid_array(val):
             if not isinstance(val, list):
                 val = list(val)
-            cnt = utils._list_delete(val, cast(int|slice|tuple[int,int], sel))
+            cnt = utils.list_delete(val, cast(int|slice|tuple[int,int], sel))
         else:
             raise ValueError(f"Data type {type(val)} does not support partial removal")
         if cnt == 0:

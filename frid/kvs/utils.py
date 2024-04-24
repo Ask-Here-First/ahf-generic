@@ -100,7 +100,7 @@ def dict_select(
         return {k: v for k in val if not isinstance((v := val.get(k, MISSING)), FridBeing)}
     raise ValueError(f"Invalid selector type {type(sel)}")
 @staticmethod
-def _list_delete(val: list, sel: int|slice|tuple[int,int]) -> int:
+def list_delete(val: list, sel: int|slice|tuple[int,int]) -> int:
     """Deletes the selected items in the list.
     - Returns the number of items deleted.
     """
@@ -119,7 +119,7 @@ def _list_delete(val: list, sel: int|slice|tuple[int,int]) -> int:
         return len(val) - old_len
     raise ValueError(f"Invalid sequence selector type {type(sel)}")
 
-def _dict_delete(val: dict[str,Any], sel: str|Iterable[str]) -> int:
+def dict_delete(val: dict[str,Any], sel: str|Iterable[str]) -> int:
     """Deletes the selected items in the dict.
     - Returns the number of items deleted.
     """
