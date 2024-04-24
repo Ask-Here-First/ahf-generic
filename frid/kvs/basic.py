@@ -247,25 +247,34 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
         return self._data.pop(key, MISSING) is not MISSING
 
 class BinaryStoreMixin:
-    def __init__(self, *, frid_prefix: bytes=b'#!', blob_prefix: bytes=b'#=', **kwargs):
+    def __init__(self, *, frid_prefix: bytes=b'#!', blob_prefix: bytes=b'#=',
+                 text_prefix: bytes=b'', **kwargs):
         super().__init__(**kwargs)
         self._frid_prefix = frid_prefix
         self._blob_prefix = blob_prefix
+        self._text_prefix = text_prefix
+        self._decoders = [
+            (frid_prefix, lambda b: load_from_str(b.decode('utf-8'))),
+            (blob_prefix, lambda b: b),
+            (text_prefix, lambda b: b.decode('utf-8')),
+        ]
+        self._decoders.sort(reverse=True, key=lambda x: len(x[0]))
     def _encode(self, data: FridValue, append=False, /) -> bytes:
         if isinstance(data, BlobTypes):
             return self._blob_prefix + data
         if isinstance(data, str):
             b = data.encode('utf-8')
+            if self._text_prefix:
+                return self._text_prefix + b
             if not b.startswith(self._blob_prefix) and not b.startswith(self._frid_prefix):
-               return b
+               return self._text_prefix + b
         return self._frid_prefix + dump_into_str(data).encode('utf-8')
     def _decode(self, val: bytes, /) -> FridValue:
         if not isinstance(val, BlobTypes): # pragma: no cover -- should not happen
             raise ValueError(f"Incorrect encoded type {type(val)}; expect binary")
         if isinstance(val, memoryview|bytearray):  # pragma: no cover -- should not happen
             val = bytes(val)
-        if val.startswith(self._frid_prefix):
-            return load_from_str(val[len(self._frid_prefix):].decode('utf-8'))
-        if val.startswith(self._blob_prefix):
-            return val[len(self._blob_prefix):]
-        return val.decode('utf-8')
+        for prefix, decode in self._decoders:
+            if val.startswith(prefix):
+                return decode(val[len(prefix):])
+        raise ValueError(f"Invalid byte encoding of {len(val)} bytes")
