@@ -1,11 +1,10 @@
 import os, asyncio, unittest
 from concurrent.futures import ThreadPoolExecutor
 
-from frid.typing import MISSING
-
+from ..typing import MISSING
 from .store import VSPutFlag, ValueStore
 from .basic import MemoryValueStore
-from .proxy import AsyncToSyncProxyStore, SyncToASyncProxyStore
+from .proxy import AsyncProxyValueStore, ValueProxyAsyncStore
 
 class VStoreTest(unittest.TestCase):
     def check_text_store(self, store: ValueStore):
@@ -111,7 +110,7 @@ class VStoreTest(unittest.TestCase):
         self.assertFalse(store.get_list("key0"))
 
 
-    def check_dict_store(self, store: ValueStore, auto_create=False):
+    def check_dict_store(self, store: ValueStore):
         self.assertFalse(store.get_dict("key0"))  # None or empty for Redis
         self.assertTrue(store.put_frid("key0", {"n0": "value00"}))
         self.assertEqual(store.get_dict("key0"), {"n0": "value00"})
@@ -146,25 +145,20 @@ class VStoreTest(unittest.TestCase):
         self.check_dict_store(store)
         if no_proxy:
             return
-        proxy = SyncToASyncProxyStore(store, loop=loop)
-        self.check_text_store(proxy)
-        self.check_blob_store(proxy)
-        self.check_list_store(proxy)
-        self.check_dict_store(proxy)
         # Note we test using Sync API so we need the following to test async API
-        proxy = SyncToASyncProxyStore(AsyncToSyncProxyStore(store), loop=loop)
+        proxy = AsyncProxyValueStore(ValueProxyAsyncStore(store), loop=loop)
         self.check_text_store(proxy)
         self.check_blob_store(proxy)
         self.check_list_store(proxy)
         self.check_dict_store(proxy)
-        proxy = SyncToASyncProxyStore(AsyncToSyncProxyStore(store, executor=True), loop=loop)
+        proxy = AsyncProxyValueStore(ValueProxyAsyncStore(store, executor=True), loop=loop)
         self.check_text_store(proxy)
         self.check_blob_store(proxy)
         self.check_list_store(proxy)
         self.check_dict_store(proxy)
         with ThreadPoolExecutor() as executor:
-            proxy = SyncToASyncProxyStore(AsyncToSyncProxyStore(store, executor=executor),
-                                          loop=loop)
+            proxy = AsyncProxyValueStore(ValueProxyAsyncStore(store, executor=executor),
+                                         loop=loop)
             self.check_text_store(proxy)
             self.check_blob_store(proxy)
             self.check_list_store(proxy)
@@ -180,13 +174,13 @@ class VStoreTest(unittest.TestCase):
 
     def test_sync_redis_store(self):
         try:
-            from .redis import SyncRedisValueStore
+            from .redis import RedisValueStore
         except Exception:
             return
         host = os.getenv('REDIS_KVS_HOST')
         if not host:
             return
-        store = SyncRedisValueStore(
+        store = RedisValueStore(
             host=host, port=int(os.getenv('REDIS_KVS_PORT', 6379)),
             username=os.getenv('REDIS_KVS_USER'), password=os.getenv('REDIS_KVS_PASS'),
         ).substore("UNITTEST")
@@ -197,7 +191,7 @@ class VStoreTest(unittest.TestCase):
 
     def test_async_redis_store(self):
         try:
-            from .redis import AsyncRedisValueStore
+            from .redis import RedisAsyncStore
         except Exception:
             return
         loop = asyncio.new_event_loop()
@@ -205,13 +199,13 @@ class VStoreTest(unittest.TestCase):
         if not host:
             return
         try:
-            store = AsyncRedisValueStore(
+            store = RedisAsyncStore(
                 host=host, port=int(os.getenv('REDIS_KVS_PORT', 6379)),
                 username=os.getenv('REDIS_KVS_USER'), password=os.getenv('REDIS_KVS_PASS'),
                 loop=loop,
             ).substore("UNITTEST")
             loop.run_until_complete(store.awipe_all())
-            self.do_test_store(store, no_proxy=True)
+            self.do_test_store(AsyncProxyValueStore(store), no_proxy=True)
             loop.run_until_complete(store.awipe_all())
             store.finalize()
         finally:

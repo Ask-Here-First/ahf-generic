@@ -1,12 +1,10 @@
 """The Frid Value Store."""
 
-import asyncio
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable, Collection, Iterable, Sequence
-from concurrent.futures import Executor
+from collections.abc import Iterable, Sequence, Mapping
 from contextlib import AbstractContextManager, AbstractAsyncContextManager
 from enum import Flag
-from typing import Any, Concatenate, Mapping, ParamSpec, TypeGuard, TypeVar, overload
+from typing import Any, TypeGuard, TypeVar, overload
 
 from ..typing import MISSING, BlobTypes, FridTypeSize
 from ..typing import FridArray, FridBeing, FridSeqVT, FridValue, MissingType, StrKeyMap
@@ -19,8 +17,7 @@ VStoreSel = VSListSel|VSDictSel
 VStorePutBulkData = Mapping[VStoreKey,FridValue]|Sequence[tuple[VStoreKey,FridValue]]|Iterable
 
 _T = TypeVar('_T')
-_P = ParamSpec('_P')
-_Self = TypeVar('_Self', bound='ValueStore')  # TODO: remove this in 3.11
+_Self = TypeVar('_Self', bound='_BaseStore')  # TODO: remove this in 3.11
 
 class VSPutFlag(Flag):
     UNCHECKED = 0       # Special value to skip all the checks
@@ -30,19 +27,18 @@ class VSPutFlag(Flag):
     KEEP_BOTH = 0x10    # Keep both existing data and new data, using frid_merge()
     # TODO additional flags to pass to for frid_merge()
 
-class ValueStore(ABC):
+class _BaseStore(ABC):
     @abstractmethod
     def substore(self: _Self, name: str, *args: str) -> _Self:
         """Returns a substore ValueStore as given by a list of names."""
         raise NotImplementedError  # pragma: no cover
 
-    @abstractmethod
     def get_lock(self, name: str|None=None) -> AbstractContextManager:
         """Returns an reentrant lock for desired concurrency."""
         raise NotImplementedError  # pragma: no cover
     def finalize(self):
         """Calling to finalize this store before drop the reference."""
-    @abstractmethod
+        raise NotImplementedError  # pragma: no cover
     def get_meta(self, keys: Iterable[VStoreKey]) -> Mapping[VStoreKey,FridTypeSize]:
         """Gets the meta data of a list of `keys` and returns a map for existing keys.
         Notes: There is no atomicity guarantee for this method.
@@ -50,8 +46,12 @@ class ValueStore(ABC):
         raise NotImplementedError  # pragma: no cover
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
         """Gets the value of the given `key` in the value store.
-        - If `sel` is specified, use the selection rule to select the partial data to return.
-        - If the value of the key is missing, return MISSING.
+        - If `sel` is specified, uses the selection rule to select the partial data to return.
+        - If the value of the key is missing, returns MISSING.
+        There are a number of type specific get methods (get_{text,blob,list,dict}()).
+        By default, those methods will call get_frid() method and then verify
+        the type of return data; however implementations may choose to implement
+        those methods separately, or even call those functions using `sel` as a hint.
         """
         raise NotImplementedError  # pragma: no cover
     def put_frid(self, key: VStoreKey, val: FridValue, /, flags=VSPutFlag.UNCHECKED) -> bool:
@@ -66,148 +66,66 @@ class ValueStore(ABC):
         raise NotImplementedError  # pragma: no cover
     def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
         """Returns the data associated with a list of keys in the store."""
-        with self.get_lock():
-            return [v if (v := self.get_frid(k)) is not MISSING else alt for k in keys]
+        raise NotImplementedError  # pragma: no cover
     def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
         """Puts the data in the into the store.
         - `data`: either a key/value pairs or a list of tuple of key/value pairs
         """
-        pairs = as_kv_pairs(data)
-        with self.get_lock():
-            if not self._check_atomic(flags, pairs):
-                return 0
-            # If Atomicity for bulk is set and any other flags are set, we need to check
-            return sum(int(self.put_frid(k, v, flags)) for k, v in pairs)
+        raise NotImplementedError  # pragma: no cover
     def del_bulk(self, keys: Iterable[VStoreKey]) -> int:
         """Deletes the keys from the storage and returns the number of keys deleted.
         - Returns the number of keys deleted from the store.
         """
-        with self.get_lock():
-            return sum(int(self.del_frid(k)) for k in keys)
+        raise NotImplementedError  # pragma: no cover
 
     def get_text(self, key: VStoreKey, /, alt: _T=None) -> str|_T:
-        data = self.get_frid(key)
-        if data is MISSING:
-            return alt
-        assert isinstance(data, str), type(data)
-        return data
+        """Gets the text value associated with the given `key`.
+        - If the entry exists but is not of text type, it can either return
+          the string representation of the value, or reaise an exception.
+        - Returns the `alt` value if the entry is missing.
+        """
+        raise NotImplementedError  # pragma: no cover
     def get_blob(self, key: VStoreKey, /, alt: _T=None) -> BlobTypes|_T:
-        data = self.get_frid(key)
-        if data is MISSING:
-            return alt
-        assert isinstance(data, BlobTypes), type(data)
-        return data
+        """Gets the blob value associated with the given `key`.
+        - If the entry exists but is not of blob type, it can either return
+          the binary representation of the value, or reaise an exception.
+        - Returns the `alt` value if the entry is missing.
+        """
+        raise NotImplementedError  # pragma: no cover
     @overload
     def get_list(self, key: VStoreKey, sel: int, /, alt: _T=None) -> FridValue|_T: ...
     @overload
     def get_list(self, key: VStoreKey, sel: slice|tuple[int,int]|None=None,
                  /, alt: _T=None) -> FridArray|_T: ...
     def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=None) -> FridValue|_T:
-        data = self.get_frid(key, sel)
-        if data is MISSING:
-            return alt
-        if not isinstance(sel, int):
-            assert is_frid_array(data), type(data)
-        return data
+        """Gets the list value associated with the given `key`.
+        - If the selector `sel` is specified, it will be applied to the value.
+        - Returns the `alt` value if the entry is missing.
+        """
+        raise NotImplementedError  # pragma: no cover
     @overload
     def get_dict(self, key: VStoreKey, sel: str, /, alt: _T=None) -> FridValue|_T: ...
     @overload
     def get_dict(self, key: VStoreKey, sel: Iterable[str]|None=None,
                  /, alt: _T=None) -> StrKeyMap|_T: ...
     def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt: _T=None) -> FridValue|_T:
-        data = self.get_frid(key, sel)
-        if data is MISSING:
-            return alt
-        if not isinstance(sel, str):
-            assert is_frid_skmap(data), type(data)
-        return data
+        """Gets the dict value associated with the given `key`.
+        - If the selector `sel` is specified, it will be applied to the value.
+        - Returns the `alt` value if the entry is missing.
+        """
+        raise NotImplementedError  # pragma: no cover
 
-    @abstractmethod
-    def aget_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
-        raise NotImplementedError  # pragma: no cover
-    async def afinalize(self):
-        """Calling to finalize this store before drop the reference."""
-    @abstractmethod
-    async def aget_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
-        raise NotImplementedError  # pragma: no cover
-    async def aget_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|MissingType:
-        raise NotImplementedError  # pragma: no cover
-    async def aput_frid(self, key: VStoreKey, val: FridValue,
-                        /, flags=VSPutFlag.UNCHECKED) -> bool:
-        raise NotImplementedError  # pragma: no cover
-    async def adel_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
-        raise NotImplementedError  # pragma: no cover
-    async def aget_bulk(self, keys: Iterable[VStoreKey],
-                        /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
-        async with self.aget_lock():
-            return [v if (v := await self.aget_frid(k)) is not MISSING else alt for k in keys]
-    async def aput_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
-        pairs = as_kv_pairs(data)
-        async with self.aget_lock():
-            if not self._check_atomic(flags, pairs):
-                return 0
-            count = 0
-            for k, v in pairs:
-                if await self.aput_frid(k, v, flags):
-                    count += 1
-            return count
-    async def adel_bulk(self, keys: Iterable[VStoreKey], /) -> int:
-        async with self.aget_lock():
-            count = 0
-            for k in keys:
-                if await self.adel_frid(k):
-                    count += 1
-            return count
-    async def aget_text(self, key: VStoreKey, alt: _T=None) -> str|_T:
-        data = await self.aget_frid(key)
-        if data is MISSING:
-            return alt
-        assert isinstance(data, str), type(data)
-        return data
-    async def aget_blob(self, key: VStoreKey, alt: _T=None) -> BlobTypes|_T:
-        data = await self.aget_frid(key)
-        if data is MISSING:
-            return alt
-        assert isinstance(data, BlobTypes), type(data)
-        return data
-    @overload
-    async def aget_list(self, key: VStoreKey, sel: int, /, alt: _T=None) -> FridValue|_T: ...
-    @overload
-    async def aget_list(self, key: VStoreKey, sel: slice|tuple[int,int]|None,
-                        /, alt: _T=None) -> FridArray|_T: ...
-    async def aget_list(self, key: VStoreKey, sel: VSListSel, /, alt: _T=None) -> FridValue|_T:
-        data = await self.aget_frid(key, sel)
-        if data is MISSING:
-            return alt
-        if not isinstance(sel, int):
-            assert is_frid_array(data), type(data)
-        return data
-    @overload
-    async def aget_dict(self, key: VStoreKey, sel: str, /, alt: _T=None) -> FridValue|_T: ...
-    @overload
-    async def aget_dict(self, key: VStoreKey, sel: Iterable[str]|None=None,
-                        /, alt: _T=None) -> StrKeyMap|_T: ...
-    async def aget_dict(self, key: VStoreKey, sel: VSDictSel=None,
-                        /, alt: _T=None) -> FridValue|_T:
-        data = await self.aget_frid(key, sel)
-        if data is MISSING:
-            return alt
-        if not isinstance(sel, str):
-            assert is_frid_skmap(data), type(data)
-        return data
-
-    def _check_atomic(self, flags: VSPutFlag, pairs: Collection[tuple[VStoreKey,Any]]) -> bool:
-        """Checking if keys exists to decide if the atomic bulk operation can succeed."""
+    # The following are the helper methods
+    @staticmethod
+    def _check_flags(flags: VSPutFlag, total_count: int, exist_count: int) -> bool:
+        """Checking if keys exists to decide if the atomic put_bulk operation can succeed."""
         if flags & VSPutFlag.ATOMICITY and flags & (VSPutFlag.NO_CREATE | VSPutFlag.NO_CHANGE):
-            count = len(self.get_meta(k for k, _ in pairs))
             if flags & VSPutFlag.NO_CREATE:
-                return count >= len(pairs)
+                return exist_count >= total_count
             if flags & VSPutFlag.NO_CHANGE:
-                return count <= 0
+                return exist_count <= 0
             # TODO: what to do for other flags: no need to check if result is not affected
         return True
-
-    # Some general helper function below
     @staticmethod
     def _is_list_sel(sel) -> TypeGuard[VSListSel]:
         return isinstance(sel, int|slice) or (
@@ -304,121 +222,135 @@ class ValueStore(ABC):
             return 0 if val.pop(sel, MISSING) is MISSING else 1
         return sum(bool(val.pop(k, MISSING) is not MISSING) for k in sel)
 
+class ValueStore(_BaseStore):
+    @abstractmethod
+    def get_lock(self, name: str|None=None) -> AbstractContextManager:
+        raise NotImplementedError  # pragma: no cover
+    @abstractmethod
+    def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
+        raise NotImplementedError  # pragma: no cover
 
-AsyncRunType = Callable[Concatenate[Callable[...,_T],_P],Awaitable[_T]]
-class AsyncToSyncStoreMixin(ValueStore):
-    """This mixin converts the sync value store API to an async one.
+    def finalize(self):
+        pass
+    def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+        with self.get_lock():
+            return [v if (v := self.get_frid(k)) is not MISSING else alt for k in keys]
+    def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
+        pairs = as_kv_pairs(data)
+        with self.get_lock():
+            meta = self.get_meta(k for k, _ in pairs)
+            if not self._check_flags(flags, len(pairs), len(meta)):
+                return 0
+            # If Atomicity for bulk is set and any other flags are set, we need to check
+            return sum(int(self.put_frid(k, v, flags)) for k, v in pairs)
+    def del_bulk(self, keys: Iterable[VStoreKey]) -> int:
+        """Deletes the keys from the storage and returns the number of keys deleted.
+        - Returns the number of keys deleted from the store.
+        """
+        with self.get_lock():
+            return sum(int(self.del_frid(k)) for k in keys)
+    def get_text(self, key: VStoreKey, /, alt: _T=None) -> str|_T:
+        data = self.get_frid(key)
+        if data is MISSING:
+            return alt
+        assert isinstance(data, str), type(data)
+        return data
+    def get_blob(self, key: VStoreKey, /, alt: _T=None) -> BlobTypes|_T:
+        data = self.get_frid(key)
+        if data is MISSING:
+            return alt
+        assert isinstance(data, BlobTypes), type(data)
+        return data
+    def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=None) -> FridValue|_T:
+        data = self.get_frid(key, sel)
+        if data is MISSING:
+            return alt
+        if not isinstance(sel, int):
+            assert is_frid_array(data), type(data)
+        return data
+    def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt: _T=None) -> FridValue|_T:
+        data = self.get_frid(key, sel)
+        if data is MISSING:
+            return alt
+        if not isinstance(sel, str):
+            assert is_frid_skmap(data), type(data)
+        return data
 
-    This mixin should only be used to the implementation that are generally
-    considered as non-blocking (e.g., in memory or fast disk.)
-    Assuming there is already a sync version of the class calls MySyncStore
-    that implements ValueStore, one can just use
-    ```
-        class MyAsyncStore(AsyncToSyncValueStoreMixin, MySyncStore):
-            pass
-    ```
-    """
-    def __init__(self, *args, executor: Executor|AsyncRunType|bool=False, **kwargs):
-        super().__init__(*args, **kwargs)
-        if isinstance(executor, Executor):
-            self._executor = executor
-            self._asyncrun: AsyncRunType = self.loop_exec
-        elif isinstance(executor, Callable):
-            self._executor = None
-            self._asyncrun = executor
-        elif executor:
-            self._executor = None
-            self._asyncrun = self.loop_exec
-        else:
-            self._executor = None
-            self._asyncrun = self.func_call
-    @staticmethod
-    async def func_call(func: Callable[...,_T], *args) -> _T:
-        return func(*args)
-    async def loop_exec(self, app: Callable[...,_T], *args) -> _T:
-        return await asyncio.get_running_loop().run_in_executor(self._executor, app, *args)
-    def aget_lock(self, name: str|None=None):
-        raise NotImplementedError  # pragma: no cover --- not going to be used
+class AsyncStore(_BaseStore):
+    # Override all methods if signature is different
     async def afinalize(self):
-        return await self._asyncrun(self.finalize)
+        pass
+
+    @abstractmethod
+    def aget_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
+        raise NotImplementedError  # pragma: no cover
+    @abstractmethod
     async def aget_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
-        return await self._asyncrun(self.get_meta, keys)
-    async def aget_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
-        return await self._asyncrun(self.get_frid, key, sel)
+        raise NotImplementedError  # pragma: no cover
+    async def aget_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|MissingType:
+        raise NotImplementedError  # pragma: no cover
     async def aput_frid(self, key: VStoreKey, val: FridValue,
-                        /, flags=VSPutFlag.UNCHECKED) -> int|bool:
-        return await self._asyncrun(self.put_frid, key, val, flags)
-    async def adel_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
-        return await self._asyncrun(self.del_frid, key, sel)
+                        /, flags=VSPutFlag.UNCHECKED) -> bool:
+        raise NotImplementedError  # pragma: no cover
+    async def adel_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
+        raise NotImplementedError  # pragma: no cover
     async def aget_bulk(self, keys: Iterable[VStoreKey],
                         /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
-        return await self._asyncrun(self.get_bulk, keys, alt)
+        async with self.aget_lock():
+            return [v if (v := await self.aget_frid(k)) is not MISSING else alt for k in keys]
     async def aput_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
-        return await self._asyncrun(self.put_bulk, data, flags)
+        pairs = as_kv_pairs(data)
+        async with self.aget_lock():
+            meta = await self.aget_meta(k for k, _ in pairs)
+            if not self._check_flags(flags, len(pairs), len(meta)):
+                return 0
+            count = 0
+            for k, v in pairs:
+                if await self.aput_frid(k, v, flags):
+                    count += 1
+            return count
     async def adel_bulk(self, keys: Iterable[VStoreKey], /) -> int:
-        return await self._asyncrun(self.del_bulk, keys)
+        async with self.aget_lock():
+            count = 0
+            for k in keys:
+                if await self.adel_frid(k):
+                    count += 1
+            return count
     async def aget_text(self, key: VStoreKey, alt: _T=None) -> str|_T:
-        return await self._asyncrun(self.get_text, key, alt)
+        data = await self.aget_frid(key)
+        if data is MISSING:
+            return alt
+        assert isinstance(data, str), type(data)
+        return data
     async def aget_blob(self, key: VStoreKey, alt: _T=None) -> BlobTypes|_T:
-        return await self._asyncrun(self.get_blob, key, alt)
+        data = await self.aget_frid(key)
+        if data is MISSING:
+            return alt
+        assert isinstance(data, BlobTypes), type(data)
+        return data
+    @overload
+    async def aget_list(self, key: VStoreKey, sel: int, /, alt: _T=None) -> FridValue|_T: ...
+    @overload
+    async def aget_list(self, key: VStoreKey, sel: slice|tuple[int,int]|None,
+                        /, alt: _T=None) -> FridArray|_T: ...
     async def aget_list(self, key: VStoreKey, sel: VSListSel, /, alt: _T=None) -> FridValue|_T:
-        return await self._asyncrun(self.get_list, key, sel, alt)
+        data = await self.aget_frid(key, sel)
+        if data is MISSING:
+            return alt
+        if not isinstance(sel, int):
+            assert is_frid_array(data), type(data)
+        return data
+    @overload
+    async def aget_dict(self, key: VStoreKey, sel: str, /, alt: _T=None) -> FridValue|_T: ...
+    @overload
+    async def aget_dict(self, key: VStoreKey, sel: Iterable[str]|None=None,
+                        /, alt: _T=None) -> StrKeyMap|_T: ...
     async def aget_dict(self, key: VStoreKey, sel: VSDictSel=None,
                         /, alt: _T=None) -> FridValue|_T:
-        return await self._asyncrun(self.get_dict, key, sel, alt)
+        data = await self.aget_frid(key, sel)
+        if data is MISSING:
+            return alt
+        if not isinstance(sel, str):
+            assert is_frid_skmap(data), type(data)
+        return data
 
-class SyncToAsyncStoreMixin(ValueStore):
-    """This mixin converts the async value store API to a sync one with an event loop.
-
-    Assuming there is already a sync version of the class calls MySyncStore
-    that implements ValueStore, one can just use
-    ```
-        class MyAsyncStore(AsyncToSyncValueStoreMixin, MySyncStore):
-            pass
-    ```
-    """
-    def __init__(self, *args, loop: asyncio.AbstractEventLoop|None=None, **kwargs):
-        super().__init__(*args, **kwargs)
-        if loop is not None:
-            self._loop_owner = False
-            self._loop = loop
-        else:
-            # print("Creating a new event loop")
-            self._loop = asyncio.new_event_loop()
-            self._loop_owner = True
-    def __del__(self):
-        self._del_loop()
-    def _del_loop(self):
-        if self._loop_owner:
-            self._loop.close()
-            self._loop_owner = False
-
-    def get_lock(self, name: str|None=None):
-        raise NotImplementedError  # pragma: no cover --- not going to be used
-    def finalize(self):
-        result = self._loop.run_until_complete(self.afinalize())
-        self._del_loop()
-        return result
-    def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
-        return self._loop.run_until_complete(self.aget_meta(keys))
-    def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
-        return self._loop.run_until_complete(self.aget_frid(key, sel))
-    def put_frid(self, key: VStoreKey, val: FridValue,
-                 /, flags=VSPutFlag.UNCHECKED) -> int|bool:
-        return self._loop.run_until_complete(self.aput_frid(key, val, flags))
-    def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
-        return self._loop.run_until_complete(self.adel_frid(key, sel))
-    def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
-        return self._loop.run_until_complete(self.aget_bulk(keys, alt))
-    def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
-        return self._loop.run_until_complete(self.aput_bulk(data, flags))
-    def del_bulk(self, keys: Iterable[VStoreKey], /) -> int:
-        return self._loop.run_until_complete(self.adel_bulk(keys))
-    def get_text(self, key: VStoreKey, /, alt: _T=None) -> str|_T:
-        return self._loop.run_until_complete(self.aget_text(key, alt))
-    def get_blob(self, key: VStoreKey, /, alt: _T=None) -> BlobTypes|_T:
-        return self._loop.run_until_complete(self.aget_blob(key, alt))
-    def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=None) -> FridValue|_T:
-        return self._loop.run_until_complete(self.aget_list(key, sel, alt))
-    def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt: _T=None) -> FridValue|_T:
-        return self._loop.run_until_complete(self.aget_dict(key, sel, alt))

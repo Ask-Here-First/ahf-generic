@@ -7,19 +7,17 @@ from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import TypeVar, cast
 
-from ..typing import MISSING, PRESENT, FridBeing, BlobTypes, MissingType
+from ..typing import MISSING, PRESENT, FridBeing, MissingType
 from ..typing import FridTypeSize, FridValue
 from ..autils import AsyncReentrantLock
 from ..guards import is_frid_array
 from ..helper import frid_merge, frid_type_size
 from ..strops import escape_control_chars
-from ..dumper import dump_into_str
-from ..loader import load_from_str
-from .store import VSPutFlag, VStoreKey, VStoreSel, ValueStore
+from .store import _BaseStore, AsyncStore, VSPutFlag, VStoreKey, VStoreSel, ValueStore
 
 _T = TypeVar('_T')
 
-class SimpleValueStore(ValueStore):
+class _SimpleBaseStore(_BaseStore):
     """Simple value store are stores that always handles each item as a whole."""
     @abstractmethod
     def _get(self, key: str) -> FridValue|MissingType:
@@ -49,20 +47,6 @@ class SimpleValueStore(ValueStore):
         """Delete the data in the store associated to the given `key`.
         - Returns boolean to indicate if the key is deleted (or if the store is changed).
         """
-        raise NotImplementedError  # pragma: no cover
-
-    @abstractmethod
-    async def _aget(self, key: str) -> FridValue|MissingType:
-        raise NotImplementedError  # pragma: no cover
-    @abstractmethod
-    async def _aput(self, key: str, val: FridValue) -> bool:
-        raise NotImplementedError  # pragma: no cover
-    @abstractmethod
-    async def _armw(self, key: str, mod: Callable[...,tuple[FridValue|FridBeing,_T]],
-                    *args, **kwargs) -> _T:
-        raise NotImplementedError  # pragma: no cover
-    @abstractmethod
-    async def _adel(self, key: str) -> bool:
         raise NotImplementedError  # pragma: no cover
 
     def _encode(self, val: FridValue) -> FridValue:
@@ -134,6 +118,7 @@ class SimpleValueStore(ValueStore):
             return (PRESENT, 0)
         return (self._encode(val), cnt)
 
+class SimpleValueStore(_SimpleBaseStore, ValueStore):
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
         key = self._key(key)
         with self.get_lock(key):
@@ -155,6 +140,21 @@ class SimpleValueStore(ValueStore):
                 return self._del(key)
             return bool(self._rmw(key, self._del_sel, sel))
 
+class SimpleAsyncStore(_SimpleBaseStore, AsyncStore):
+    @abstractmethod
+    async def _aget(self, key: str) -> FridValue|MissingType:
+        raise NotImplementedError  # pragma: no cover
+    @abstractmethod
+    async def _aput(self, key: str, val: FridValue) -> bool:
+        raise NotImplementedError  # pragma: no cover
+    @abstractmethod
+    async def _armw(self, key: str, mod: Callable[...,tuple[FridValue|FridBeing,_T]],
+                    *args, **kwargs) -> _T:
+        raise NotImplementedError  # pragma: no cover
+    @abstractmethod
+    async def _adel(self, key: str) -> bool:
+        raise NotImplementedError  # pragma: no cover
+
     async def aget_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
         key = self._key(key)
         async with self.aget_lock(key):
@@ -175,13 +175,6 @@ class SimpleValueStore(ValueStore):
             if sel is None:
                 return await self._adel(key)
             return bool(await self._armw(key, self._del_sel, sel))
-
-class BinaryValueStore(SimpleValueStore):
-    """This store encodes the data into a binary string."""
-    def _encode(self, val: FridValue) -> BlobTypes:
-        return dump_into_str(val).encode('utf-8')
-    def _decode(self, val: BlobTypes) -> FridValue:
-        return load_from_str(bytes(val).decode('utf-8'))
 
 class MemoryValueStore(SimpleValueStore):
     @dataclass
@@ -207,10 +200,6 @@ class MemoryValueStore(SimpleValueStore):
     def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
         return {k: frid_type_size(v) for k in keys
                 if (v := self._get(self._key(k))) is not MISSING}
-    def aget_lock(self, name: str|None=None):
-        return self._meta.alock
-    async def aget_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
-        return self.get_meta(keys)
 
     def _get(self, key: str, /) -> FridValue|MissingType:
         return self._data.get(key, MISSING)
@@ -228,13 +217,3 @@ class MemoryValueStore(SimpleValueStore):
         return True
     def _del(self, key: str) -> bool:
         return self._data.pop(key, MISSING) is not MISSING
-
-    async def _aget(self, key: str) -> FridValue|MissingType:
-        return self._get(key)
-    async def _aput(self, key: str, val: FridValue) -> bool:
-        return self._put(key, val)
-    async def _armw(self, key: str, mod: Callable[...,tuple[FridValue|FridBeing,_T]],
-                    *args, **kwargs) -> _T:
-        return self._rmw(key, mod, *args, **kwargs)
-    async def _adel(self, key: str) -> bool:
-        return self._del(key)

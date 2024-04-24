@@ -14,15 +14,15 @@ from ..strops import escape_control_chars
 from ..helper import frid_merge, frid_type_size
 from ..dumper import dump_into_str
 from ..loader import load_from_str
-from .store import AsyncToSyncStoreMixin, SyncToAsyncStoreMixin, VSDictSel, VSListSel, VStoreSel
+from .store import AsyncStore, VSDictSel, VSListSel, VStoreSel
 from .store import ValueStore, VStorePutBulkData, VSPutFlag, VStoreKey
 
 _T = TypeVar('_T')
-_Self = TypeVar('_Self', bound='BaseRedisValueStore')  # TODO: remove this in 3.11
+_Self = TypeVar('_Self', bound='_RedisBaseStore')  # TODO: remove this in 3.11
 
-class BaseRedisValueStore(ValueStore):
+class _RedisBaseStore:
     NAMESPACE_SEP = '\t'
-    def __init__(self, *, parent: 'BaseRedisValueStore|None'=None,
+    def __init__(self, *, parent: '_RedisBaseStore|None'=None,
                  name_prefix: str='', frid_prefix: bytes=b'#!', blob_prefix: bytes=b'#='):
         super().__init__()
         self._name_prefix = name_prefix
@@ -104,10 +104,10 @@ class BaseRedisValueStore(ValueStore):
                 out[key] = val
         return out
 
-class SyncRedisValueStore(AsyncToSyncStoreMixin, BaseRedisValueStore):
+class RedisValueStore(_RedisBaseStore, ValueStore):
     def __init__(self, host: str|None=None, port: int=0,
                  username: str|None=None, password: str|None=None,
-                 *, parent: 'SyncRedisValueStore|None'=None, **kwargs):
+                 *, parent: 'RedisValueStore|None'=None, **kwargs):
         super().__init__(parent=parent, **kwargs)
         if isinstance(parent, self.__class__):
             self._redis = parent._redis
@@ -307,12 +307,11 @@ class SyncRedisValueStore(AsyncToSyncStoreMixin, BaseRedisValueStore):
             *(self._key_name(k) for k in keys)
         ), int, 0)
 
-class AsyncRedisValueStore(SyncToAsyncStoreMixin, BaseRedisValueStore):
+class RedisAsyncStore(_RedisBaseStore, AsyncStore):
     def __init__(self, host: str|None=None, port: int=0,
                  username: str|None=None, password: str|None=None,
-                 *, parent: 'AsyncRedisValueStore|None'=None, **kwargs):
+                 *, parent: 'RedisAsyncStore|None'=None, **kwargs):
         if isinstance(parent, self.__class__):
-            super().__init__(loop=parent._loop, **kwargs)
             self._aredis = parent._aredis
         else:
             super().__init__(**kwargs)
