@@ -7,28 +7,25 @@ from logging import error
 import redis
 from redis import asyncio as async_redis
 
-from ..typing import MISSING, BlobTypes, MissingType
+from ..typing import MISSING, MissingType
 from ..typing import FridArray, FridSeqVT, FridTypeSize, FridValue, StrKeyMap
 from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap, is_list_like
 from ..strops import escape_control_chars
 from ..helper import frid_merge, frid_type_size
-from ..dumper import dump_into_str
-from ..loader import load_from_str
 from . import utils
 from .store import ValueStore, AsyncStore
+from .basic import BinaryStoreMixin
 from .utils import VSDictSel, VSListSel, VStoreSel, BulkInput, VSPutFlag, VStoreKey
 
 _T = TypeVar('_T')
 _Self = TypeVar('_Self', bound='_RedisBaseStore')  # TODO: remove this in 3.11
 
-class _RedisBaseStore:
+class _RedisBaseStore(BinaryStoreMixin):
     NAMESPACE_SEP = '\t'
     def __init__(self, *, parent: '_RedisBaseStore|None'=None,
                  name_prefix: str='', frid_prefix: bytes=b'#!', blob_prefix: bytes=b'#='):
         super().__init__()
         self._name_prefix = name_prefix
-        self._frid_prefix = frid_prefix
-        self._blob_prefix = blob_prefix
 
     def substore(self: _Self, name: str, *args: str) -> _Self:
         prefix = name + self.NAMESPACE_SEP
@@ -71,36 +68,22 @@ class _RedisBaseStore:
         raise ValueError(f"Incorrect Redis type {type(data)}; expect string") # pragma: no cover
         return None  # pragma: no cover
 
-    def _encode_frid(self, data) -> bytes:
-        if isinstance(data, BlobTypes):
-            return self._blob_prefix + data
-        if isinstance(data, str):
-            b = data.encode('utf-8')
-            if not b.startswith(self._blob_prefix) and not b.startswith(self._frid_prefix):
-               return b
-        return self._frid_prefix + dump_into_str(data).encode('utf-8')
-    def _decode_frid(self, data, alt: _T=MISSING) -> FridValue|_T:
+    def _decode(self, data, /, alt: _T=MISSING) -> FridValue|_T:
+        # Note: data should be binary but string can also be processed.
+        # However, due to issues with Redis-py typing, we don't specify the type for data
         if data is None:
             return alt
-        if not isinstance(data, BlobTypes): # pragma: no cover -- should not happen
-            raise ValueError(f"Incorrect Redis type {type(data)}; expect binary")
-        if not isinstance(data, bytes):  # pragma: no cover -- should not happen
-            data = bytes(data)
-        if data.startswith(self._frid_prefix):
-            return load_from_str(data[len(self._frid_prefix):].decode('utf-8'))
-        if data.startswith(self._blob_prefix):
-            return data[len(self._blob_prefix):]
-        return data.decode('utf-8')
+        return super()._decode(data)
     def _decode_list(self, data) -> list[FridValue]:
         if not isinstance(data, Iterable):
             return []   # pragma: no cover -- should not happen
         # It should not have None is data, so it does not matter what alt is
-        return [self._decode_frid(x, None) for x in data]
+        return [self._decode(x, None) for x in data]
     def _decode_dict(self, data) -> dict[str,FridValue]|None:
         out = {}
         for k, v in as_kv_pairs(data):
             key = self._check_text(k)
-            val = self._decode_frid(v)
+            val = self._decode(v)
             if key is not None and val is not MISSING:
                 out[key] = val
         return out
@@ -136,7 +119,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
             return ('list', self._check_type(self._redis.llen(name), int, 0))
         if t == 'hash':
             return ('dict', self._check_type(self._redis.hlen(name), int, 0))
-        data: FridValue|MissingType = self._decode_frid(self._redis.get(name))
+        data: FridValue|MissingType = self._decode(self._redis.get(name))
         if data is MISSING:
             return None  # pragma: no cover -- this should not happen
         return frid_type_size(data)
@@ -153,7 +136,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         if sel is None:
             return self._decode_list(self._redis.lrange(redis_name, 0, -1))
         if isinstance(sel, int):
-            return self._decode_frid(self._redis.lindex(redis_name, sel), alt)
+            return self._decode(self._redis.lindex(redis_name, sel), alt)
         (first, last) = utils.list_bounds(sel)
         data = self._redis.lrange(redis_name, first, last)
         assert isinstance(data, Sequence)
@@ -166,13 +149,13 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         if sel is None:
             return self._decode_dict(self._redis.hgetall(redis_name))
         if isinstance(sel, str):
-            return self._decode_frid(self._redis.hget(redis_name, sel), alt)
+            return self._decode(self._redis.hget(redis_name, sel), alt)
         if isinstance(sel, Sequence):
             if not isinstance(sel, list):
                 sel = list(sel)  # pragma: no cover
             data = self._redis.hmget(redis_name, sel)
             assert is_list_like(data)
-            return {k: self._decode_frid(v) for i, k in enumerate(sel)
+            return {k: self._decode(v) for i, k in enumerate(sel)
                     if (v := data[i]) is not None}
         raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")  # pragma: no cover
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
@@ -188,10 +171,10 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
             return self.get_list(key, cast(VSListSel, sel))
         if t == 'hash':
             return self.get_dict(key, sel)
-        return self._decode_frid(self._redis.get(redis_name))
+        return self._decode(self._redis.get(redis_name))
     def put_list(self, key: VStoreKey, val: FridArray, /, flags=VSPutFlag.UNCHECKED) -> bool:
         redis_name = self._key_name(key)
-        encoded_val = [self._encode_frid(x) for x in val]
+        encoded_val = [self._encode(x) for x in val]
         if flags & VSPutFlag.KEEP_BOTH and not (flags & VSPutFlag.NO_CHANGE):
             if flags & VSPutFlag.NO_CREATE:
                 result = self._redis.rpushx(redis_name, *encoded_val)  # type: ignore
@@ -238,11 +221,11 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         if flags & VSPutFlag.KEEP_BOTH:
            with self.get_lock():
                data = self._redis.get(redis_name)
-               return self._check_bool(self._redis.set(redis_name, self._encode_frid(
-                   frid_merge(self._decode_frid(data), val)
+               return self._check_bool(self._redis.set(redis_name, self._encode(
+                   frid_merge(self._decode(data), val)
                ), nx=nx, xx=xx))
         return self._check_bool(self._redis.set(
-            redis_name, self._encode_frid(val), nx=nx, xx=xx
+            redis_name, self._encode(val), nx=nx, xx=xx
         ))
     def del_list(self, key: VStoreKey, sel: VSListSel=None, /) -> bool:
         redis_name = self._key_name(key)
@@ -292,10 +275,10 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         data = self._redis.mget(redis_keys)
         if not isinstance(data, Iterable):
             return [alt] * len(redis_keys)
-        return [self._decode_frid(x, alt) for x in data]
+        return [self._decode(x, alt) for x in data]
     def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         pairs = as_kv_pairs(data)
-        req = {self._key_name(k): self._encode_frid(v) for k, v in pairs}
+        req = {self._key_name(k): self._encode(v) for k, v in pairs}
         if flags == VSPutFlag.UNCHECKED:
             return len(pairs) if self._check_bool(self._redis.mset(req)) else 0
         elif flags & VSPutFlag.NO_CHANGE and flags & VSPutFlag.ATOMICITY:
@@ -341,7 +324,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         if t == 'hash':
             result = await self._aredis.hlen(name)  # type: ignore
             return ('dict', self._check_type(result, int, 0))
-        data: FridValue|MissingType = self._decode_frid(await self._aredis.get(name))
+        data: FridValue|MissingType = self._decode(await self._aredis.get(name))
         if data is MISSING:
             return None  # pragma: no cover -- this should not happen
         return frid_type_size(data)
@@ -361,7 +344,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             return self._decode_list(result)
         if isinstance(sel, int):
             result = await self._aredis.lindex(redis_name, sel)  # type: ignore
-            return self._decode_frid(result, alt)
+            return self._decode(result, alt)
         (first, last) = utils.list_bounds(sel)
         result = await self._aredis.lrange(redis_name, first, last) # type: ignore
         assert isinstance(result, Sequence)
@@ -377,13 +360,13 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             return self._decode_dict(data)
         if isinstance(sel, str):
             data = await self._aredis.hget(redis_name, sel) # type: ignore
-            return self._decode_frid(data, alt)
+            return self._decode(data, alt)
         if isinstance(sel, Sequence):
             if not isinstance(sel, list):
                 sel = list(sel)  # pragma: no cover
             data = await self._aredis.hmget(redis_name, sel) # type: ignore
             assert is_list_like(data)
-            return {k: self._decode_frid(v) for i, k in enumerate(sel)
+            return {k: self._decode(v) for i, k in enumerate(sel)
                     if (v := data[i]) is not None}
         raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")  # pragma: no cover
     async def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
@@ -399,11 +382,11 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             return await self.get_list(key, cast(VSListSel, sel))
         if t == 'hash':
             return await self.get_dict(key, sel)
-        return self._decode_frid(await self._aredis.get(redis_name))
+        return self._decode(await self._aredis.get(redis_name))
     async def aput_list(self, key: VStoreKey, val: FridArray,
                         /, flags=VSPutFlag.UNCHECKED) -> bool:
         redis_name = self._key_name(key)
-        encoded_val = [self._encode_frid(x) for x in val]
+        encoded_val = [self._encode(x) for x in val]
         if flags & VSPutFlag.KEEP_BOTH and not (flags & VSPutFlag.NO_CHANGE):
             if flags & VSPutFlag.NO_CREATE:
                 result = await self._aredis.rpushx(redis_name, *encoded_val) # type: ignore
@@ -453,11 +436,11 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         if flags & VSPutFlag.KEEP_BOTH:
            async with self.get_lock():
                data = await self._aredis.get(redis_name)
-               return self._check_bool(await self._aredis.set(redis_name, self._encode_frid(
-                   frid_merge(self._decode_frid(data), val)
+               return self._check_bool(await self._aredis.set(redis_name, self._encode(
+                   frid_merge(self._decode(data), val)
                ), nx=nx, xx=xx))
         return self._check_bool(await self._aredis.set(
-            redis_name, self._encode_frid(val), nx=nx, xx=xx
+            redis_name, self._encode(val), nx=nx, xx=xx
         ))
     async def adel_list(self, key: VStoreKey, sel: VSListSel=None, /) -> bool:
         redis_name = self._key_name(key)
@@ -510,10 +493,10 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         data = await self._aredis.mget(redis_keys)
         if not isinstance(data, Iterable):
             return [alt] * len(redis_keys)
-        return [self._decode_frid(x, alt) for x in data]
+        return [self._decode(x, alt) for x in data]
     async def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         pairs = as_kv_pairs(data)
-        req = {self._key_name(k): self._encode_frid(v) for k, v in pairs}
+        req = {self._key_name(k): self._encode(v) for k, v in pairs}
         if flags == VSPutFlag.UNCHECKED:
             return len(pairs) if self._check_bool(await self._aredis.mset(req)) else 0
         elif flags & VSPutFlag.NO_CHANGE and flags & VSPutFlag.ATOMICITY:

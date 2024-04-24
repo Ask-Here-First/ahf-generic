@@ -7,12 +7,14 @@ from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Concatenate, Generic, ParamSpec, TypeVar, cast
 
-from ..typing import MISSING, PRESENT, FridBeing, MissingType
+from ..typing import MISSING, PRESENT, BlobTypes, FridBeing, MissingType
 from ..typing import FridTypeSize, FridValue
 from ..autils import AsyncReentrantLock
-from ..guards import is_frid_array
+from ..guards import is_frid_array, is_frid_skmap
 from ..helper import frid_merge, frid_type_size
 from ..strops import escape_control_chars
+from ..dumper import dump_into_str
+from ..loader import load_from_str
 from . import utils
 from .store import AsyncStore, ValueStore
 from .utils import VSPutFlag, VStoreKey, VStoreSel
@@ -109,7 +111,7 @@ class _SimpleBaseStore(Generic[_E]):
         if val is MISSING:
             return (MISSING, 0)
         data = self._decode(val)
-        if isinstance(data, Mapping):
+        if is_frid_skmap(data):
             if not isinstance(data, dict):
                 data = dict(data)
             cnt = utils.dict_delete(data, cast(str|Iterable[str], sel))
@@ -243,3 +245,27 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
         return True
     def _del(self, key: str) -> bool:
         return self._data.pop(key, MISSING) is not MISSING
+
+class BinaryStoreMixin:
+    def __init__(self, *, frid_prefix: bytes=b'#!', blob_prefix: bytes=b'#=', **kwargs):
+        super().__init__(**kwargs)
+        self._frid_prefix = frid_prefix
+        self._blob_prefix = blob_prefix
+    def _encode(self, data: FridValue, append=False, /) -> bytes:
+        if isinstance(data, BlobTypes):
+            return self._blob_prefix + data
+        if isinstance(data, str):
+            b = data.encode('utf-8')
+            if not b.startswith(self._blob_prefix) and not b.startswith(self._frid_prefix):
+               return b
+        return self._frid_prefix + dump_into_str(data).encode('utf-8')
+    def _decode(self, val: bytes, /) -> FridValue:
+        if not isinstance(val, BlobTypes): # pragma: no cover -- should not happen
+            raise ValueError(f"Incorrect encoded type {type(val)}; expect binary")
+        if isinstance(val, memoryview|bytearray):  # pragma: no cover -- should not happen
+            val = bytes(val)
+        if val.startswith(self._frid_prefix):
+            return load_from_str(val[len(self._frid_prefix):].decode('utf-8'))
+        if val.startswith(self._blob_prefix):
+            return val[len(self._blob_prefix):]
+        return val.decode('utf-8')
