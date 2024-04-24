@@ -13,11 +13,13 @@ from ..autils import AsyncReentrantLock
 from ..guards import is_frid_array
 from ..helper import frid_merge, frid_type_size
 from ..strops import escape_control_chars
-from .store import _BaseStore, AsyncStore, VSPutFlag, VStoreKey, VStoreSel, ValueStore
+from . import utils
+from .store import AsyncStore, ValueStore
+from .utils import VSPutFlag, VStoreKey, VStoreSel
 
 _T = TypeVar('_T')
 
-class _SimpleBaseStore(_BaseStore):
+class _SimpleBaseStore:
     """Simple value store are stores that always handles each item as a whole."""
     def _get(self, key: str) -> FridValue|MissingType:
         """Get the whole data from the store associated to the given `key`."""
@@ -67,9 +69,9 @@ class _SimpleBaseStore(_BaseStore):
             return val
         val = self._decode(val)
         if isinstance(val, Mapping):
-            out = self._dict_select(val, cast(str|Iterable[str], sel))
+            out = utils.dict_select(val, cast(str|Iterable[str], sel))
         elif isinstance(val, Sequence):
-            out = self._list_select(val, cast(int|slice|tuple[int,int], sel))
+            out = utils.list_select(val, cast(int|slice|tuple[int,int], sel))
         else:
             raise ValueError(f"Selector is not None for data type {type(val)}")
         if out is MISSING:
@@ -103,11 +105,11 @@ class _SimpleBaseStore(_BaseStore):
         if isinstance(val, Mapping):
             if not isinstance(val, dict):
                 val = dict(val)
-            cnt = self._dict_delete(val, cast(str|Iterable[str], sel))
+            cnt = utils._dict_delete(val, cast(str|Iterable[str], sel))
         elif is_frid_array(val):
             if not isinstance(val, list):
                 val = list(val)
-            cnt = self._list_delete(val, cast(int|slice|tuple[int,int], sel))
+            cnt = utils._list_delete(val, cast(int|slice|tuple[int,int], sel))
         else:
             raise ValueError(f"Data type {type(val)} does not support partial removal")
         if cnt == 0:

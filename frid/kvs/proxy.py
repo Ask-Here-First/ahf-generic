@@ -5,8 +5,8 @@ from contextlib import AbstractAsyncContextManager
 from typing import Concatenate, ParamSpec, TypeVar
 
 from ..typing import MISSING, BlobTypes, FridBeing, FridSeqVT, FridTypeSize, FridValue
-from .store import AsyncStore, VSDictSel, VSListSel, VSPutFlag, VStoreKey, BulkInput, VStoreSel
-from .store import ValueStore
+from .store import AsyncStore, ValueStore
+from .utils import VSDictSel, VSListSel, VSPutFlag, VStoreKey, VStoreSel, BulkInput
 
 
 _T = TypeVar('_T')

@@ -1,31 +1,20 @@
 """The Frid Value Store."""
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Sequence, Mapping
+from collections.abc import Iterable, Mapping
 from contextlib import AbstractContextManager, AbstractAsyncContextManager
-from enum import Flag
-from typing import Any, TypeGuard, TypeVar, overload
+from typing import TypeVar, overload
+
 
 from ..typing import MISSING, BlobTypes, FridTypeSize
-from ..typing import FridArray, FridBeing, FridSeqVT, FridValue, MissingType, StrKeyMap
-from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap, is_list_like
+from ..typing import FridArray, FridSeqVT, FridValue, MissingType, StrKeyMap
+from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap
+from . import utils
+from .utils import VSPutFlag, VSListSel, VSDictSel, VStoreKey, VStoreSel, BulkInput
 
-VStoreKey = str|tuple[str|int,...]
-VSListSel = int|slice|tuple[int,int]|None
-VSDictSel = str|Iterable[str]|None
-VStoreSel = VSListSel|VSDictSel
-BulkInput = Mapping[VStoreKey,FridValue]|Sequence[tuple[VStoreKey,FridValue]]|Iterable
 
 _T = TypeVar('_T')
 _Self = TypeVar('_Self', bound='_BaseStore')  # TODO: remove this in 3.11
-
-class VSPutFlag(Flag):
-    UNCHECKED = 0       # Special value to skip all the checks
-    ATOMICITY = 0x80    # Only for bulk writes: the write has to be all successful to no change
-    NO_CREATE = 0x40    # Do not create a new entry if the key is missing
-    NO_CHANGE = 0x20    # Do not change existing entry; skip all following if set
-    KEEP_BOTH = 0x10    # Keep both existing data and new data, using frid_merge()
-    # TODO additional flags to pass to for frid_merge()
 
 class _BaseStore(ABC):
     @abstractmethod
@@ -115,113 +104,6 @@ class _BaseStore(ABC):
         """
         raise NotImplementedError  # pragma: no cover
 
-    # The following are the helper methods
-    @staticmethod
-    def _check_flags(flags: VSPutFlag, total_count: int, exist_count: int) -> bool:
-        """Checking if keys exists to decide if the atomic put_bulk operation can succeed."""
-        if flags & VSPutFlag.ATOMICITY and flags & (VSPutFlag.NO_CREATE | VSPutFlag.NO_CHANGE):
-            if flags & VSPutFlag.NO_CREATE:
-                return exist_count >= total_count
-            if flags & VSPutFlag.NO_CHANGE:
-                return exist_count <= 0
-            # TODO: what to do for other flags: no need to check if result is not affected
-        return True
-    @staticmethod
-    def _is_list_sel(sel) -> TypeGuard[VSListSel]:
-        return isinstance(sel, int|slice) or (
-            isinstance(sel, tuple) and len(sel) == 2
-            and isinstance(sel[0], int) and isinstance(sel[1], int)
-        )
-    @staticmethod
-    def _is_dict_sel(sel) -> TypeGuard[VSDictSel]:
-        return isinstance(sel, str) or is_list_like(sel, str)
-    @staticmethod
-    def _consecutive(sel: VSListSel) -> bool:
-        """Returns true if the selection is the consecutive indexes."""
-        return not isinstance(sel, slice) or sel.step is None or sel.step == 1
-    @staticmethod
-    def _list_bounds(sel: VSListSel) -> tuple[int,int]:
-        """Returns the index (may be negative) of the first and the last element."""
-        if isinstance(sel, int):
-            return (sel, sel)
-        if isinstance(sel, tuple):
-            (index, until) = sel
-            return (index, until - 1)
-        if isinstance(sel, slice):
-            if sel.step and sel.step < 0:
-                return ((sel.stop or 0) + 1, sel.start)
-            return (sel.start or 0, (sel.stop or 0) - 1)
-        raise ValueError(f"Invalid list selector type {type(sel)}: {sel}")
-    @staticmethod
-    def _fix_indexes(sel: tuple[int,int], val_len: int):
-        """Fixes the pair of indexes to handle negative indexes.
-        - `val_len`: the length of the value, needed for negative indexes.
-        """
-        (index, until) = sel
-        if not len(sel) == 2 or not isinstance(index, int) or not isinstance(until, int):
-            raise ValueError(f"Invalid selector: {sel}")
-        if index < 0:
-            index += val_len
-            if index < 0:
-                index = 0
-        if until <= 0:
-            until += val_len
-            if until < 0:
-                until = 0
-        return (index, until)
-    @staticmethod
-    def _list_select(
-        val: Sequence[_T], sel: int|slice|tuple[int,int]
-    ) -> Sequence[_T]|_T|MissingType:
-        """Gets the selected elements in a sequence."""
-        if isinstance(sel, int):
-            return val[sel] if 0 <= sel < len(val) else MISSING
-        if isinstance(sel, slice):
-            return val[sel]
-        if isinstance(sel, tuple) and len(sel) == 2:
-            (index, until) = __class__._fix_indexes(sel, len(val))
-            return val[index:until]
-        raise ValueError(f"Invalid selector type {type(sel)}")
-    @staticmethod
-    def _dict_select(
-            val: Mapping[str,_T], sel: str|Iterable[str]
-    ) -> Mapping[str,_T]|_T|MissingType:
-        """Gets the selected elements in a mapping."""
-        if sel is None:
-            return val
-        if isinstance(sel, str):
-            return val.get(sel, MISSING)
-        if isinstance(sel, Iterable):
-            return {k: v for k in val if not isinstance((v := val.get(k, MISSING)), FridBeing)}
-        raise ValueError(f"Invalid selector type {type(sel)}")
-    @staticmethod
-    def _list_delete(val: list, sel: int|slice|tuple[int,int]) -> int:
-        """Deletes the selected items in the list.
-        - Returns the number of items deleted.
-        """
-        if isinstance(sel, int):
-            if 0 <= sel < len(val):
-                del val[sel]
-                return 1
-            return 0
-        old_len = len(val)
-        if isinstance(sel, slice):
-            del val[sel]
-            return len(val) - old_len
-        if isinstance(sel, tuple):
-            (index, until) = __class__._fix_indexes(sel, len(val))
-            del val[index:until]
-            return len(val) - old_len
-        raise ValueError(f"Invalid sequence selector type {type(sel)}")
-    @staticmethod
-    def _dict_delete(val: dict[str,Any], sel: str|Iterable[str]) -> int:
-        """Deletes the selected items in the dict.
-        - Returns the number of items deleted.
-        """
-        if isinstance(sel, str):
-            return 0 if val.pop(sel, MISSING) is MISSING else 1
-        return sum(bool(val.pop(k, MISSING) is not MISSING) for k in sel)
-
 class ValueStore(_BaseStore):
     def finalize(self):
         pass
@@ -246,7 +128,7 @@ class ValueStore(_BaseStore):
         pairs = as_kv_pairs(data)
         with self.get_lock():
             meta = self.get_meta(k for k, _ in pairs)
-            if not self._check_flags(flags, len(pairs), len(meta)):
+            if not utils.check_flags(flags, len(pairs), len(meta)):
                 return 0
             # If Atomicity for bulk is set and any other flags are set, we need to check
             return sum(int(self.put_frid(k, v, flags)) for k, v in pairs)
@@ -309,7 +191,7 @@ class AsyncStore(_BaseStore):
         pairs = as_kv_pairs(data)
         async with self.get_lock():
             meta = await self.get_meta(k for k, _ in pairs)
-            if not self._check_flags(flags, len(pairs), len(meta)):
+            if not utils.check_flags(flags, len(pairs), len(meta)):
                 return 0
             count = 0
             for k, v in pairs:

@@ -14,8 +14,9 @@ from ..strops import escape_control_chars
 from ..helper import frid_merge, frid_type_size
 from ..dumper import dump_into_str
 from ..loader import load_from_str
-from .store import AsyncStore, VSDictSel, VSListSel, VStoreSel
-from .store import ValueStore, BulkInput, VSPutFlag, VStoreKey
+from . import utils
+from .store import ValueStore, AsyncStore
+from .utils import VSDictSel, VSListSel, VStoreSel, BulkInput, VSPutFlag, VStoreKey
 
 _T = TypeVar('_T')
 _Self = TypeVar('_Self', bound='_RedisBaseStore')  # TODO: remove this in 3.11
@@ -153,7 +154,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
             return self._decode_list(self._redis.lrange(redis_name, 0, -1))
         if isinstance(sel, int):
             return self._decode_frid(self._redis.lindex(redis_name, sel), alt)
-        (first, last) = self._list_bounds(sel)
+        (first, last) = utils.list_bounds(sel)
         data = self._redis.lrange(redis_name, first, last)
         assert isinstance(data, Sequence)
         if isinstance(sel, slice) and sel.step is not None and sel.step != 1:
@@ -176,9 +177,9 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")  # pragma: no cover
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
         if sel is not None:
-            if self._is_list_sel(sel):
+            if utils.is_list_sel(sel):
                 return self.get_list(key, cast(VSListSel, sel))
-            if self._is_dict_sel(sel):
+            if utils.is_dict_sel(sel):
                 return self.get_dict(key, sel)
             raise ValueError(f"Invalid selector type {type(sel)}: {sel}")  # pragma: no cover
         redis_name = self._key_name(key)
@@ -247,8 +248,8 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         redis_name = self._key_name(key)
         if sel is None:
             return bool(self._check_type(self._redis.delete(redis_name), int, 0))
-        (first, last) = self._list_bounds(sel)
-        if self._consecutive(sel):
+        (first, last) = utils.list_bounds(sel)
+        if utils.is_straight(sel):
             if last == -1:
                 return self._check_bool(self._redis.ltrim(redis_name, 0, first - 1))
             if first == 0:
@@ -258,7 +259,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
             if not data:
                 return False
             assert isinstance(data, list)
-            if self._list_delete(data, sel):
+            if utils._list_delete(data, sel):
                 self._redis.delete(redis_name)
                 self._redis.rpush(redis_name, *data)
                 return True
@@ -280,9 +281,9 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         redis_name = self._key_name(key)
         if sel is not None:
-            if self._is_list_sel(sel):
+            if utils.is_list_sel(sel):
                 return self.del_list(key, sel)
-            if self._is_dict_sel(sel):
+            if utils.is_dict_sel(sel):
                 return self.del_dict(key, sel)
             raise ValueError(f"Invalid selector type {type(sel)}: {sel}")  # pragma: no cover
         return bool(self._check_type(self._redis.delete(redis_name), int, 0))
@@ -316,8 +317,8 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         else:
             super().__init__(**kwargs)
             assert host is not None
-            self._aredis = async_redis.StrictRedis(host=host, port=port,
-                                                   username=username, password=password)
+            self._aredis = async_redis.Redis(host=host, port=port,
+                                             username=username, password=password)
     async def awipe_all(self) -> int:
         """This is mainly for testing."""
         keys = await self._aredis.keys(self._name_prefix + "*")
@@ -361,7 +362,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         if isinstance(sel, int):
             result = await self._aredis.lindex(redis_name, sel)  # type: ignore
             return self._decode_frid(result, alt)
-        (first, last) = self._list_bounds(sel)
+        (first, last) = utils.list_bounds(sel)
         result = await self._aredis.lrange(redis_name, first, last) # type: ignore
         assert isinstance(result, Sequence)
         if isinstance(sel, slice) and sel.step is not None and sel.step != 1:
@@ -387,9 +388,9 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")  # pragma: no cover
     async def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
         if sel is not None:
-            if self._is_list_sel(sel):
+            if utils.is_list_sel(sel):
                 return await self.get_list(key, cast(VSListSel, sel))
-            if self._is_dict_sel(sel):
+            if utils.is_dict_sel(sel):
                 return await self.get_dict(key, sel)
             raise ValueError(f"Invalid selector type {type(sel)}: {sel}")  # pragma: no cover
         redis_name = self._key_name(key)
@@ -462,8 +463,8 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         redis_name = self._key_name(key)
         if sel is None:
             return bool(self._check_type(await self._aredis.delete(redis_name), int, 0))
-        (first, last) = self._list_bounds(sel)
-        if self._consecutive(sel):
+        (first, last) = utils.list_bounds(sel)
+        if utils.is_straight(sel):
             if last == -1:
                 result = await self._aredis.ltrim(redis_name, 0, first - 1) # type: ignore
                 return self._check_bool(result)
@@ -475,7 +476,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             if not result:
                 return False
             assert isinstance(result, list)
-            if self._list_delete(result, sel):
+            if utils._list_delete(result, sel):
                 await self._aredis.delete(redis_name)
                 await self._aredis.rpush(redis_name, *result) # type: ignore
                 return True
@@ -497,9 +498,9 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
     async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         redis_name = self._key_name(key)
         if sel is not None:
-            if self._is_list_sel(sel):
+            if utils.is_list_sel(sel):
                 return await self.adel_list(key, sel)
-            if self._is_dict_sel(sel):
+            if utils.is_dict_sel(sel):
                 return await self.adel_dict(key, sel)
             raise ValueError(f"Invalid selector type {type(sel)}: {sel}")  # pragma: no cover
         return bool(self._check_type(await self._aredis.delete(redis_name), int, 0))
