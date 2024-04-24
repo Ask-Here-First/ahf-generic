@@ -328,9 +328,9 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             return 0
         return self._check_type(await self._aredis.delete(*keys), int, -1)
 
-    def aget_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
+    def get_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
         return self._aredis.lock((name or "*GLOBAL*") + "\v*LOCK*")
-    async def afinalize(self):
+    async def finalize(self):
         await self._aredis.aclose()
     async def _aget_name_meta(self, name: str) -> FridTypeSize|None:
         t = self._check_text(await self._aredis.type(name))
@@ -344,7 +344,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         if data is MISSING:
             return None  # pragma: no cover -- this should not happen
         return frid_type_size(data)
-    async def aget_meta(self, keys: Iterable[VStoreKey]) -> Mapping[VStoreKey,FridTypeSize]:
+    async def get_meta(self, keys: Iterable[VStoreKey]) -> Mapping[VStoreKey,FridTypeSize]:
         results = await self._aredis.keys()
         if not isinstance(results, Iterable):  # pragma: no cover
             error(f"Redis.keys() returns a type {type(results)}")
@@ -352,7 +352,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         results = set(b.decode('utf-8') for b in results)
         return {k: v for k in keys if (name := self._key_name(k)) in results
                                       and (v := await self._aget_name_meta(name)) is not None}
-    async def aget_list(self, key: VStoreKey, sel: VSListSel=None,
+    async def get_list(self, key: VStoreKey, sel: VSListSel=None,
                         /, alt: _T=MISSING) -> FridValue|_T:
         redis_name = self._key_name(key)
         if sel is None:
@@ -368,7 +368,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             result = result[::sel.step]
         return self._decode_list(result)
         raise ValueError(f"Invalid list selector type {type(sel)}: {sel}")  # pragma: no cover
-    async def aget_dict(self, key: VStoreKey, sel: VSDictSel=None,
+    async def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
                         /, alt: _T=MISSING) -> FridValue|_T:
         redis_name = self._key_name(key)
         if sel is None:
@@ -385,19 +385,19 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             return {k: self._decode_frid(v) for i, k in enumerate(sel)
                     if (v := data[i]) is not None}
         raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")  # pragma: no cover
-    async def aget_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
+    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
         if sel is not None:
             if self._is_list_sel(sel):
-                return await self.aget_list(key, cast(VSListSel, sel))
+                return await self.get_list(key, cast(VSListSel, sel))
             if self._is_dict_sel(sel):
-                return await self.aget_dict(key, sel)
+                return await self.get_dict(key, sel)
             raise ValueError(f"Invalid selector type {type(sel)}: {sel}")  # pragma: no cover
         redis_name = self._key_name(key)
         t = self._check_text(await self._aredis.type(redis_name)) # Just opportunisitic; no lock
         if t == 'list':
-            return await self.aget_list(key, cast(VSListSel, sel))
+            return await self.get_list(key, cast(VSListSel, sel))
         if t == 'hash':
-            return await self.aget_dict(key, sel)
+            return await self.get_dict(key, sel)
         return self._decode_frid(await self._aredis.get(redis_name))
     async def aput_list(self, key: VStoreKey, val: FridArray,
                         /, flags=VSPutFlag.UNCHECKED) -> bool:
@@ -409,7 +409,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             else:
                 result = await self._aredis.rpush(redis_name, *encoded_val) # type: ignore
         else:
-            async with self.aget_lock(redis_name):
+            async with self.get_lock(redis_name):
                 if await self._aredis.exists(redis_name):
                     if flags & VSPutFlag.NO_CHANGE:
                         return False
@@ -430,7 +430,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         ):
             result = await self._aredis.hset(redis_name, mapping=val) # type: ignore
         else:
-            async with self.aget_lock(redis_name):
+            async with self.get_lock(redis_name):
                 if await self._aredis.exists(redis_name):
                     if flags & VSPutFlag.NO_CHANGE:
                         return False
@@ -440,7 +440,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
                         return False
                 result = await self._aredis.hset(redis_name, mapping=val) # type: ignore
         return bool(self._check_type(result, int, 0))
-    async def aput_frid(self, key: VStoreKey, val: FridValue,
+    async def put_frid(self, key: VStoreKey, val: FridValue,
                         /, flags=VSPutFlag.UNCHECKED) -> bool:
         if is_frid_array(val):
             return await self.aput_list(key, val, flags)
@@ -450,7 +450,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         nx = bool(flags & VSPutFlag.NO_CHANGE)
         xx = bool(flags & VSPutFlag.NO_CREATE)
         if flags & VSPutFlag.KEEP_BOTH:
-           async with self.aget_lock():
+           async with self.get_lock():
                data = await self._aredis.get(redis_name)
                return self._check_bool(await self._aredis.set(redis_name, self._encode_frid(
                    frid_merge(self._decode_frid(data), val)
@@ -470,7 +470,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             if first == 0:
                 result = await self._aredis.ltrim(redis_name, last + 1, -1) # type: ignore
                 return self._check_bool(result)
-        async with self.aget_lock(redis_name):
+        async with self.get_lock(redis_name):
             result = await self._aredis.lrange(redis_name, 0, -1) # type: ignore
             if not result:
                 return False
@@ -494,7 +494,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         else:   # pragma: no cover
             raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")
         return bool(self._check_type(result, int, 0))
-    async def adel_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
+    async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         redis_name = self._key_name(key)
         if sel is not None:
             if self._is_list_sel(sel):
@@ -503,14 +503,14 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
                 return await self.adel_dict(key, sel)
             raise ValueError(f"Invalid selector type {type(sel)}: {sel}")  # pragma: no cover
         return bool(self._check_type(await self._aredis.delete(redis_name), int, 0))
-    async def aget_bulk(self, keys: Iterable[VStoreKey],
+    async def get_bulk(self, keys: Iterable[VStoreKey],
                         /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
         redis_keys = self._key_list(keys)
         data = await self._aredis.mget(redis_keys)
         if not isinstance(data, Iterable):
             return [alt] * len(redis_keys)
         return [self._decode_frid(x, alt) for x in data]
-    async def aput_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
+    async def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
         pairs = as_kv_pairs(data)
         req = {self._key_name(k): self._encode_frid(v) for k, v in pairs}
         if flags == VSPutFlag.UNCHECKED:
@@ -518,8 +518,8 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         elif flags & VSPutFlag.NO_CHANGE and flags & VSPutFlag.ATOMICITY:
             return len(pairs) if self._check_bool(await self._aredis.msetnx(req)) else 0
         else:
-            return await super().aput_bulk(data, flags)
-    async def adel_bulk(self, keys: Iterable[VStoreKey]) -> int:
+            return await super().put_bulk(data, flags)
+    async def del_bulk(self, keys: Iterable[VStoreKey]) -> int:
         # No need to lock, assuming redis delete is atomic
         return self._check_type(await self._aredis.delete(
             *(self._key_name(k) for k in keys)

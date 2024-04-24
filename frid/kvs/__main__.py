@@ -207,7 +207,7 @@ class VStoreTest(unittest.TestCase):
             loop.run_until_complete(store.awipe_all())
             self.do_test_store(AsyncProxyValueStore(store), no_proxy=True)
             loop.run_until_complete(store.awipe_all())
-            store.finalize()
+            loop.run_until_complete(store.finalize())
         finally:
             loop.run_until_complete(loop.shutdown_default_executor())
             loop.close()

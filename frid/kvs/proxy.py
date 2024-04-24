@@ -52,35 +52,35 @@ class AsyncProxyStore(AsyncStore):
     def substore(self, name: str, *args: str):
         return self.__class__(self._store.substore(name, *args))
 
-    def aget_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
-        return self._store.aget_lock(name)
-    async def afinalize(self):
-        return await self._store.afinalize()
-    async def aget_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
-        return await self._store.aget_meta(keys)
-    async def aget_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
-        return await self._store.aget_frid(key, sel)
-    async def aput_frid(self, key: VStoreKey, val: FridValue,
+    def get_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
+        return self._store.get_lock(name)
+    async def finalize(self):
+        return await self._store.finalize()
+    async def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
+        return await self._store.get_meta(keys)
+    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
+        return await self._store.get_frid(key, sel)
+    async def put_frid(self, key: VStoreKey, val: FridValue,
                         /, flags=VSPutFlag.UNCHECKED) -> int|bool:
-        return await self._store.aput_frid(key, val, flags)
-    async def adel_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
-        return await self._store.adel_frid(key, sel)
-    async def aget_bulk(self, keys: Iterable[VStoreKey],
+        return await self._store.put_frid(key, val, flags)
+    async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
+        return await self._store.del_frid(key, sel)
+    async def get_bulk(self, keys: Iterable[VStoreKey],
                         /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
-        return await self._store.aget_bulk(keys, alt)
-    async def aput_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
-        return await self._store.aput_bulk(data, flags)
-    async def adel_bulk(self, keys: Iterable[VStoreKey], /) -> int:
-        return await self._store.adel_bulk(keys)
-    async def aget_text(self, key: VStoreKey, alt: _T=None) -> str|_T:
-        return await self._store.aget_text(key, alt)
-    async def aget_blob(self, key: VStoreKey, alt: _T=None) -> BlobTypes|_T:
-        return await self._store.aget_blob(key, alt)
-    async def aget_list(self, key: VStoreKey, sel: VSListSel, /, alt: _T=None) -> FridValue|_T:
-        return await self._store.aget_list(key, sel, alt)
-    async def aget_dict(self, key: VStoreKey, sel: VSDictSel=None,
+        return await self._store.get_bulk(keys, alt)
+    async def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
+        return await self._store.put_bulk(data, flags)
+    async def del_bulk(self, keys: Iterable[VStoreKey], /) -> int:
+        return await self._store.del_bulk(keys)
+    async def get_text(self, key: VStoreKey, alt: _T=None) -> str|_T:
+        return await self._store.get_text(key, alt)
+    async def get_blob(self, key: VStoreKey, alt: _T=None) -> BlobTypes|_T:
+        return await self._store.get_blob(key, alt)
+    async def get_list(self, key: VStoreKey, sel: VSListSel, /, alt: _T=None) -> FridValue|_T:
+        return await self._store.get_list(key, sel, alt)
+    async def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
                         /, alt: _T=None) -> FridValue|_T:
-        return await self._store.aget_dict(key, sel, alt)
+        return await self._store.get_dict(key, sel, alt)
 
 AsyncRunType = Callable[Concatenate[Callable[...,_T],_P],Awaitable[_T]]
 class ValueProxyAsyncStore(AsyncStore):
@@ -109,33 +109,33 @@ class ValueProxyAsyncStore(AsyncStore):
         return func(*args)
     async def _loop_run(self, call: Callable[...,_T], *args) -> _T:
         return await asyncio.get_running_loop().run_in_executor(self._executor, call, *args)
-    def aget_lock(self, name: str|None=None):
+    def get_lock(self, name: str|None=None):
         return self._store.get_lock(name)
-    async def afinalize(self):
+    async def finalize(self):
         return await self._asyncrun(self._store.finalize)
-    async def aget_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
+    async def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
         return await self._asyncrun(self._store.get_meta, keys)
-    async def aget_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
+    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
         return await self._asyncrun(self._store.get_frid, key, sel)
-    async def aput_frid(self, key: VStoreKey, val: FridValue,
+    async def put_frid(self, key: VStoreKey, val: FridValue,
                         /, flags=VSPutFlag.UNCHECKED) -> int|bool:
         return await self._asyncrun(self._store.put_frid, key, val, flags)
-    async def adel_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
+    async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
         return await self._asyncrun(self._store.del_frid, key, sel)
-    async def aget_bulk(self, keys: Iterable[VStoreKey],
+    async def get_bulk(self, keys: Iterable[VStoreKey],
                         /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
         return await self._asyncrun(self._store.get_bulk, keys, alt)
-    async def aput_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
+    async def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
         return await self._asyncrun(self._store.put_bulk, data, flags)
-    async def adel_bulk(self, keys: Iterable[VStoreKey], /) -> int:
+    async def del_bulk(self, keys: Iterable[VStoreKey], /) -> int:
         return await self._asyncrun(self._store.del_bulk, keys)
-    async def aget_text(self, key: VStoreKey, alt: _T=None) -> str|_T:
+    async def get_text(self, key: VStoreKey, alt: _T=None) -> str|_T:
         return await self._asyncrun(self._store.get_text, key, alt)
-    async def aget_blob(self, key: VStoreKey, alt: _T=None) -> BlobTypes|_T:
+    async def get_blob(self, key: VStoreKey, alt: _T=None) -> BlobTypes|_T:
         return await self._asyncrun(self._store.get_blob, key, alt)
-    async def aget_list(self, key: VStoreKey, sel: VSListSel, /, alt: _T=None) -> FridValue|_T:
+    async def get_list(self, key: VStoreKey, sel: VSListSel, /, alt: _T=None) -> FridValue|_T:
         return await self._asyncrun(self._store.get_list, key, sel, alt)
-    async def aget_dict(self, key: VStoreKey, sel: VSDictSel=None,
+    async def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
                         /, alt: _T=None) -> FridValue|_T:
         return await self._asyncrun(self._store.get_dict, key, sel, alt)
 
@@ -164,29 +164,29 @@ class AsyncProxyValueStore(ValueStore):
     def get_lock(self, name: str|None=None):
         raise NotImplementedError  # pragma: no cover --- not going to be used
     def finalize(self):
-        result = self._loop.run_until_complete(self._store.afinalize())
+        result = self._loop.run_until_complete(self._store.finalize())
         self._del_loop()
         return result
     def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
-        return self._loop.run_until_complete(self._store.aget_meta(keys))
+        return self._loop.run_until_complete(self._store.get_meta(keys))
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
-        return self._loop.run_until_complete(self._store.aget_frid(key, sel))
+        return self._loop.run_until_complete(self._store.get_frid(key, sel))
     def put_frid(self, key: VStoreKey, val: FridValue,
                  /, flags=VSPutFlag.UNCHECKED) -> int|bool:
-        return self._loop.run_until_complete(self._store.aput_frid(key, val, flags))
+        return self._loop.run_until_complete(self._store.put_frid(key, val, flags))
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
-        return self._loop.run_until_complete(self._store.adel_frid(key, sel))
+        return self._loop.run_until_complete(self._store.del_frid(key, sel))
     def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
-        return self._loop.run_until_complete(self._store.aget_bulk(keys, alt))
+        return self._loop.run_until_complete(self._store.get_bulk(keys, alt))
     def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
-        return self._loop.run_until_complete(self._store.aput_bulk(data, flags))
+        return self._loop.run_until_complete(self._store.put_bulk(data, flags))
     def del_bulk(self, keys: Iterable[VStoreKey], /) -> int:
-        return self._loop.run_until_complete(self._store.adel_bulk(keys))
+        return self._loop.run_until_complete(self._store.del_bulk(keys))
     def get_text(self, key: VStoreKey, /, alt: _T=None) -> str|_T:
-        return self._loop.run_until_complete(self._store.aget_text(key, alt))
+        return self._loop.run_until_complete(self._store.get_text(key, alt))
     def get_blob(self, key: VStoreKey, /, alt: _T=None) -> BlobTypes|_T:
-        return self._loop.run_until_complete(self._store.aget_blob(key, alt))
+        return self._loop.run_until_complete(self._store.get_blob(key, alt))
     def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=None) -> FridValue|_T:
-        return self._loop.run_until_complete(self._store.aget_list(key, sel, alt))
+        return self._loop.run_until_complete(self._store.get_list(key, sel, alt))
     def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt: _T=None) -> FridValue|_T:
-        return self._loop.run_until_complete(self._store.aget_dict(key, sel, alt))
+        return self._loop.run_until_complete(self._store.get_dict(key, sel, alt))

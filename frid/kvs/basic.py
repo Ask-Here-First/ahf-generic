@@ -19,15 +19,12 @@ _T = TypeVar('_T')
 
 class _SimpleBaseStore(_BaseStore):
     """Simple value store are stores that always handles each item as a whole."""
-    @abstractmethod
     def _get(self, key: str) -> FridValue|MissingType:
         """Get the whole data from the store associated to the given `key`."""
         raise NotImplementedError  # pragma: no cover
-    @abstractmethod
     def _put(self, key: str, val: FridValue) -> bool:
         """Write the whole data into the store associated to the given `key`."""
         raise NotImplementedError  # pragma: no cover
-    @abstractmethod
     def _rmw(self, key: str, mod: Callable[...,tuple[FridValue|FridBeing,_T]],
              *args, **kwargs) -> _T:
         """The read-modify-write process for the value of the `key` in the store.
@@ -42,7 +39,6 @@ class _SimpleBaseStore(_BaseStore):
         - This method returns the second return value of `mod()` as is.
         """
         raise NotImplementedError  # pragma: no cover
-    @abstractmethod
     def _del(self, key: str) -> bool:
         """Delete the data in the store associated to the given `key`.
         - Returns boolean to indicate if the key is deleted (or if the store is changed).
@@ -119,6 +115,20 @@ class _SimpleBaseStore(_BaseStore):
         return (self._encode(val), cnt)
 
 class SimpleValueStore(_SimpleBaseStore, ValueStore):
+    @abstractmethod
+    def _get(self, key: str) -> FridValue|MissingType:
+        raise NotImplementedError  # pragma: no cover
+    @abstractmethod
+    def _put(self, key: str, val: FridValue) -> bool:
+        raise NotImplementedError  # pragma: no cover
+    @abstractmethod
+    def _rmw(self, key: str, mod: Callable[...,tuple[FridValue|FridBeing,_T]],
+             *args, **kwargs) -> _T:
+        raise NotImplementedError  # pragma: no cover
+    @abstractmethod
+    def _del(self, key: str) -> bool:
+        raise NotImplementedError  # pragma: no cover
+
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
         key = self._key(key)
         with self.get_lock(key):
@@ -142,39 +152,39 @@ class SimpleValueStore(_SimpleBaseStore, ValueStore):
 
 class SimpleAsyncStore(_SimpleBaseStore, AsyncStore):
     @abstractmethod
-    async def _aget(self, key: str) -> FridValue|MissingType:
+    async def _get(self, key: str) -> FridValue|MissingType:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    async def _aput(self, key: str, val: FridValue) -> bool:
+    async def _put(self, key: str, val: FridValue) -> bool:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    async def _armw(self, key: str, mod: Callable[...,tuple[FridValue|FridBeing,_T]],
+    async def _rmw(self, key: str, mod: Callable[...,tuple[FridValue|FridBeing,_T]],
                     *args, **kwargs) -> _T:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    async def _adel(self, key: str) -> bool:
+    async def _del(self, key: str) -> bool:
         raise NotImplementedError  # pragma: no cover
 
-    async def aget_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
+    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
         key = self._key(key)
-        async with self.aget_lock(key):
-            data = await self._aget(key)
+        async with self.get_lock(key):
+            data = await self._get(key)
             if data is MISSING:
                 return MISSING
             return self._get_sel(data, sel)
-    async def aput_frid(self, key: VStoreKey, val: FridValue,
+    async def put_frid(self, key: VStoreKey, val: FridValue,
                         /, flags=VSPutFlag.UNCHECKED) -> bool:
         key = self._key(key)
-        async with self.aget_lock(key):
+        async with self.get_lock(key):
             if flags == VSPutFlag.UNCHECKED:
-                return await self._aput(key, self._encode(val))
-            return await self._armw(key, self._add, val, flags)
-    async def adel_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
+                return await self._put(key, self._encode(val))
+            return await self._rmw(key, self._add, val, flags)
+    async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         key = self._key(key)
-        async with self.aget_lock(key):
+        async with self.get_lock(key):
             if sel is None:
-                return await self._adel(key)
-            return bool(await self._armw(key, self._del_sel, sel))
+                return await self._del(key)
+            return bool(await self._rmw(key, self._del_sel, sel))
 
 class MemoryValueStore(SimpleValueStore):
     @dataclass

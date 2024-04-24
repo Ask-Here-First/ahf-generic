@@ -223,15 +223,22 @@ class _BaseStore(ABC):
         return sum(bool(val.pop(k, MISSING) is not MISSING) for k in sel)
 
 class ValueStore(_BaseStore):
+    def finalize(self):
+        pass
     @abstractmethod
     def get_lock(self, name: str|None=None) -> AbstractContextManager:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
     def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
         raise NotImplementedError  # pragma: no cover
-
-    def finalize(self):
-        pass
+    @abstractmethod
+    def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
+        # Make the getter abstract
+        raise NotImplementedError  # pragma: no cover
+    def put_frid(self, key: VStoreKey, val: FridValue, /, flags=VSPutFlag.UNCHECKED) -> bool:
+        raise NotImplementedError  # pragma: no cover
+    def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
+        raise NotImplementedError  # pragma: no cover
     def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
         with self.get_lock():
             return [v if (v := self.get_frid(k)) is not MISSING else alt for k in keys]
@@ -278,76 +285,76 @@ class ValueStore(_BaseStore):
 
 class AsyncStore(_BaseStore):
     # Override all methods if signature is different
-    async def afinalize(self):
+    async def finalize(self):
         pass
-
     @abstractmethod
-    def aget_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
+    def get_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    async def aget_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
+    async def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
         raise NotImplementedError  # pragma: no cover
-    async def aget_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|MissingType:
+    @abstractmethod
+    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|MissingType:
         raise NotImplementedError  # pragma: no cover
-    async def aput_frid(self, key: VStoreKey, val: FridValue,
-                        /, flags=VSPutFlag.UNCHECKED) -> bool:
+    async def put_frid(self, key: VStoreKey, val: FridValue,
+                       /, flags=VSPutFlag.UNCHECKED) -> bool:
         raise NotImplementedError  # pragma: no cover
-    async def adel_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
+    async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         raise NotImplementedError  # pragma: no cover
-    async def aget_bulk(self, keys: Iterable[VStoreKey],
-                        /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
-        async with self.aget_lock():
-            return [v if (v := await self.aget_frid(k)) is not MISSING else alt for k in keys]
-    async def aput_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
+    async def get_bulk(self, keys: Iterable[VStoreKey],
+                       /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+        async with self.get_lock():
+            return [v if (v := await self.get_frid(k)) is not MISSING else alt for k in keys]
+    async def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
         pairs = as_kv_pairs(data)
-        async with self.aget_lock():
-            meta = await self.aget_meta(k for k, _ in pairs)
+        async with self.get_lock():
+            meta = await self.get_meta(k for k, _ in pairs)
             if not self._check_flags(flags, len(pairs), len(meta)):
                 return 0
             count = 0
             for k, v in pairs:
-                if await self.aput_frid(k, v, flags):
+                if await self.put_frid(k, v, flags):
                     count += 1
             return count
-    async def adel_bulk(self, keys: Iterable[VStoreKey], /) -> int:
-        async with self.aget_lock():
+    async def del_bulk(self, keys: Iterable[VStoreKey], /) -> int:
+        async with self.get_lock():
             count = 0
             for k in keys:
-                if await self.adel_frid(k):
+                if await self.del_frid(k):
                     count += 1
             return count
-    async def aget_text(self, key: VStoreKey, alt: _T=None) -> str|_T:
-        data = await self.aget_frid(key)
+    async def get_text(self, key: VStoreKey, alt: _T=None) -> str|_T:
+        data = await self.get_frid(key)
         if data is MISSING:
             return alt
         assert isinstance(data, str), type(data)
         return data
-    async def aget_blob(self, key: VStoreKey, alt: _T=None) -> BlobTypes|_T:
-        data = await self.aget_frid(key)
+    async def get_blob(self, key: VStoreKey, alt: _T=None) -> BlobTypes|_T:
+        data = await self.get_frid(key)
         if data is MISSING:
             return alt
         assert isinstance(data, BlobTypes), type(data)
         return data
     @overload
-    async def aget_list(self, key: VStoreKey, sel: int, /, alt: _T=None) -> FridValue|_T: ...
+    async def get_list(self, key: VStoreKey, sel: int, /, alt: _T=None) -> FridValue|_T: ...
     @overload
-    async def aget_list(self, key: VStoreKey, sel: slice|tuple[int,int]|None,
+    async def get_list(self, key: VStoreKey, sel: slice|tuple[int,int]|None,
                         /, alt: _T=None) -> FridArray|_T: ...
-    async def aget_list(self, key: VStoreKey, sel: VSListSel, /, alt: _T=None) -> FridValue|_T:
-        data = await self.aget_frid(key, sel)
+    async def get_list(self, key: VStoreKey, sel: VSListSel, /, alt: _T=None) -> FridValue|_T:
+        data = await self.get_frid(key, sel)
         if data is MISSING:
             return alt
         if not isinstance(sel, int):
             assert is_frid_array(data), type(data)
         return data
     @overload
-    async def aget_dict(self, key: VStoreKey, sel: str, /, alt: _T=None) -> FridValue|_T: ...
+    async def get_dict(self, key: VStoreKey, sel: str, /, alt: _T=None) -> FridValue|_T: ...
     @overload
-    async def aget_dict(self, key: VStoreKey, sel: Iterable[str]|None=None,
+    async def get_dict(self, key: VStoreKey, sel: Iterable[str]|None=None,
                         /, alt: _T=None) -> StrKeyMap|_T: ...
-    async def aget_dict(self, key: VStoreKey, sel: VSDictSel=None,
+    async def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
                         /, alt: _T=None) -> FridValue|_T:
-        data = await self.aget_frid(key, sel)
+        data = await self.get_frid(key, sel)
         if data is MISSING:
             return alt
         if not isinstance(sel, str):
