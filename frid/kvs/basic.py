@@ -5,7 +5,7 @@ import asyncio, threading
 from dataclasses import dataclass, field
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import TypeVar, cast
+from typing import Concatenate, Generic, ParamSpec, TypeVar, cast
 
 from ..typing import MISSING, PRESENT, FridBeing, MissingType
 from ..typing import FridTypeSize, FridValue
@@ -18,17 +18,27 @@ from .store import AsyncStore, ValueStore
 from .utils import VSPutFlag, VStoreKey, VStoreSel
 
 _T = TypeVar('_T')
+_E = TypeVar('_E')   # The encoding type
+_P = ParamSpec('_P')
 
-class _SimpleBaseStore:
+class _SimpleBaseStore(Generic[_E]):
     """Simple value store are stores that always handles each item as a whole."""
-    def _get(self, key: str) -> FridValue|MissingType:
+    @abstractmethod
+    def _encode(self, val: FridValue, /) -> _E:
+        raise NotImplementedError
+    @abstractmethod
+    def _decode(self, val: _E, /) -> FridValue:
+        raise NotImplementedError
+
+    def _get(self, key: str, /) -> _E|MissingType:
         """Get the whole data from the store associated to the given `key`."""
         raise NotImplementedError  # pragma: no cover
-    def _put(self, key: str, val: FridValue) -> bool:
+    def _put(self, key: str, val: _E, /) -> bool:
         """Write the whole data into the store associated to the given `key`."""
         raise NotImplementedError  # pragma: no cover
-    def _rmw(self, key: str, mod: Callable[...,tuple[FridValue|FridBeing,_T]],
-             *args, **kwargs) -> _T:
+    def _rmw(self, key: str,
+             mod: Callable[Concatenate[_E|FridBeing,_P],tuple[_E|FridBeing,_T]],
+             /, *args: _P.args, **kwargs: _P.kwargs) -> _T:
         """The read-modify-write process for the value of the `key` in the store.
         - `mod`: the callback function to be called with:
             + The current value as the first argument (or MISSING);
@@ -41,18 +51,13 @@ class _SimpleBaseStore:
         - This method returns the second return value of `mod()` as is.
         """
         raise NotImplementedError  # pragma: no cover
-    def _del(self, key: str) -> bool:
+    def _del(self, key: str, /) -> bool:
         """Delete the data in the store associated to the given `key`.
         - Returns boolean to indicate if the key is deleted (or if the store is changed).
         """
         raise NotImplementedError  # pragma: no cover
 
-    def _encode(self, val: FridValue) -> FridValue:
-        return val
-    def _decode(self, val: FridValue) -> FridValue:
-        return val
-
-    def _key(self, key: VStoreKey) -> str:
+    def _key(self, key: VStoreKey, /) -> str:
         """Generate string based key depending if the key is tuple or named tuple.
         For tuple or named tuple, the generated key is just joined with a TAB.
         """
@@ -63,68 +68,71 @@ class _SimpleBaseStore:
             return '\t'.join(escape_control_chars(str(k), '\x7f') for k in key)
         raise ValueError(f"Invalid key type {type(key)}")
 
-    def _get_sel(self, val: FridValue, sel: VStoreSel) -> FridValue|MissingType:
+    def _get_sel(self, val: _E, sel: VStoreSel, /) -> FridValue|MissingType:
         """Gets selection for an general value."""
+        data = self._decode(val)
         if sel is None:
-            return val
-        val = self._decode(val)
-        if isinstance(val, Mapping):
-            out = utils.dict_select(val, cast(str|Iterable[str], sel))
-        elif isinstance(val, Sequence):
-            out = utils.list_select(val, cast(int|slice|tuple[int,int], sel))
+            return data
+        if isinstance(data, Mapping):
+            out = utils.dict_select(data, cast(str|Iterable[str], sel))
+        elif isinstance(data, Sequence):
+            out = utils.list_select(data, cast(int|slice|tuple[int,int], sel))
         else:
             raise ValueError(f"Selector is not None for data type {type(val)}")
         if out is MISSING:
             return MISSING
         assert not isinstance(out, FridBeing)
-        return self._encode(out)
-    def _add(self, old: FridValue|MissingType, new: FridValue,
-             flags: VSPutFlag) -> tuple[FridValue|FridBeing,bool]:
-        """Adds or replaces the `new` value into the `old` values depending on the `flags.
+        return out
+    def _combine(self, old: _E|FridBeing, new: FridValue,
+                 /, flags: VSPutFlag) -> tuple[_E|FridBeing,bool]:
+        """Combines the `new` value into the `old` values depending on the `flags`.
         - Returns a pair: the updated value (with PRESENT for no change and MISSING for delete),
           and a boolean value for whether or not the store will be changed.
         """
+        assert old is not PRESENT
         if old is MISSING:
-            return (MISSING, False) if flags & VSPutFlag.NO_CREATE else (new, True)
+            if flags & VSPutFlag.NO_CREATE:
+                return (MISSING, False)
+            return (self._encode(new), True)
         if flags & VSPutFlag.NO_CHANGE:
             return (PRESENT, False)
         if flags & VSPutFlag.KEEP_BOTH:
             # TODO: frid_merge() to accept more flags
             return (self._encode(frid_merge(self._decode(old), new)), True)
         return (self._encode(new), True)
-    def _del_sel(
-            self, val: FridValue|MissingType, sel: VStoreSel
-    ) -> tuple[FridValue|FridBeing,int]:
+    def _del_sel(self, val: _E|FridBeing, sel: VStoreSel) -> tuple[_E|FridBeing,int]:
         """Deletes the selected items in general. Note it will try to delete in place.
         - Returns a pair: the updated value and the number of items deleted.
         """
+        assert val is not PRESENT
         assert sel is not None
         if val is MISSING:
             return (MISSING, 0)
-        val = self._decode(val)
-        if isinstance(val, Mapping):
-            if not isinstance(val, dict):
-                val = dict(val)
-            cnt = utils.dict_delete(val, cast(str|Iterable[str], sel))
-        elif is_frid_array(val):
-            if not isinstance(val, list):
-                val = list(val)
-            cnt = utils.list_delete(val, cast(int|slice|tuple[int,int], sel))
+        data = self._decode(val)
+        if isinstance(data, Mapping):
+            if not isinstance(data, dict):
+                data = dict(data)
+            cnt = utils.dict_delete(data, cast(str|Iterable[str], sel))
+        elif is_frid_array(data):
+            if not isinstance(data, list):
+                data = list(data)
+            cnt = utils.list_delete(data, cast(int|slice|tuple[int,int], sel))
         else:
-            raise ValueError(f"Data type {type(val)} does not support partial removal")
+            raise ValueError(f"Data type {type(data)} does not support partial removal")
         if cnt == 0:
             return (PRESENT, 0)
-        return (self._encode(val), cnt)
+        return (self._encode(data), cnt)
 
-class SimpleValueStore(_SimpleBaseStore, ValueStore):
+class SimpleValueStore(_SimpleBaseStore[_E], ValueStore):
     @abstractmethod
-    def _get(self, key: str) -> FridValue|MissingType:
+    def _get(self, key: str) -> _E|MissingType:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    def _put(self, key: str, val: FridValue) -> bool:
+    def _put(self, key: str, val: _E) -> bool:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    def _rmw(self, key: str, mod: Callable[...,tuple[FridValue|FridBeing,_T]],
+    def _rmw(self, key: str,
+             mod: Callable[Concatenate[_E|FridBeing,_P],tuple[_E|FridBeing,_T]],
              *args, **kwargs) -> _T:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
@@ -144,7 +152,7 @@ class SimpleValueStore(_SimpleBaseStore, ValueStore):
         with self.get_lock(key):
             if flags == VSPutFlag.UNCHECKED:
                 return self._put(key, self._encode(val))
-            return self._rmw(key, self._add, val, flags)
+            return self._rmw(key, self._combine, val, flags)
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         key = self._key(key)
         with self.get_lock(key):
@@ -152,16 +160,17 @@ class SimpleValueStore(_SimpleBaseStore, ValueStore):
                 return self._del(key)
             return bool(self._rmw(key, self._del_sel, sel))
 
-class SimpleAsyncStore(_SimpleBaseStore, AsyncStore):
+class SimpleAsyncStore(_SimpleBaseStore[_E], AsyncStore):
     @abstractmethod
-    async def _get(self, key: str) -> FridValue|MissingType:
+    async def _get(self, key: str) -> _E|MissingType:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    async def _put(self, key: str, val: FridValue) -> bool:
+    async def _put(self, key: str, val: _E) -> bool:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    async def _rmw(self, key: str, mod: Callable[...,tuple[FridValue|FridBeing,_T]],
-                    *args, **kwargs) -> _T:
+    async def _rmw(self, key: str,
+                   mod: Callable[Concatenate[_E|FridBeing,_P],tuple[_E|FridBeing,_T]],
+                   *args, **kwargs) -> _T:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
     async def _del(self, key: str) -> bool:
@@ -170,17 +179,17 @@ class SimpleAsyncStore(_SimpleBaseStore, AsyncStore):
     async def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
         key = self._key(key)
         async with self.get_lock(key):
-            data = await self._get(key)
-            if data is MISSING:
+            val = await self._get(key)
+            if val is MISSING:
                 return MISSING
-            return self._get_sel(data, sel)
+            return self._get_sel(val, sel)
     async def put_frid(self, key: VStoreKey, val: FridValue,
                         /, flags=VSPutFlag.UNCHECKED) -> bool:
         key = self._key(key)
         async with self.get_lock(key):
             if flags == VSPutFlag.UNCHECKED:
                 return await self._put(key, self._encode(val))
-            return await self._rmw(key, self._add, val, flags)
+            return await self._rmw(key, self._combine, val, flags)
     async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         key = self._key(key)
         async with self.get_lock(key):
@@ -188,7 +197,7 @@ class SimpleAsyncStore(_SimpleBaseStore, AsyncStore):
                 return await self._del(key)
             return bool(await self._rmw(key, self._del_sel, sel))
 
-class MemoryValueStore(SimpleValueStore):
+class MemoryValueStore(SimpleValueStore[FridValue]):
     @dataclass
     class StoreMeta:
         store: dict[str,FridValue] = field(default_factory=dict)
@@ -206,6 +215,11 @@ class MemoryValueStore(SimpleValueStore):
 
     def substore(self, name: str, *args: str) -> 'MemoryValueStore':
         return __class__(self._storage, (name, *args))
+
+    def _encode(self, val: FridValue) -> FridValue:
+        return val
+    def _decode(self, val: FridValue) -> FridValue:
+        return val
 
     def get_lock(self, name: str|None=None):
         return self._meta.tlock
