@@ -15,7 +15,7 @@ from ..helper import frid_merge, frid_type_size
 from ..dumper import dump_into_str
 from ..loader import load_from_str
 from .store import AsyncStore, VSDictSel, VSListSel, VStoreSel
-from .store import ValueStore, VStorePutBulkData, VSPutFlag, VStoreKey
+from .store import ValueStore, BulkInput, VSPutFlag, VStoreKey
 
 _T = TypeVar('_T')
 _Self = TypeVar('_Self', bound='_RedisBaseStore')  # TODO: remove this in 3.11
@@ -292,7 +292,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         if not isinstance(data, Iterable):
             return [alt] * len(redis_keys)
         return [self._decode_frid(x, alt) for x in data]
-    def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
+    def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         pairs = as_kv_pairs(data)
         req = {self._key_name(k): self._encode_frid(v) for k, v in pairs}
         if flags == VSPutFlag.UNCHECKED:
@@ -510,7 +510,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         if not isinstance(data, Iterable):
             return [alt] * len(redis_keys)
         return [self._decode_frid(x, alt) for x in data]
-    async def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
+    async def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         pairs = as_kv_pairs(data)
         req = {self._key_name(k): self._encode_frid(v) for k, v in pairs}
         if flags == VSPutFlag.UNCHECKED:

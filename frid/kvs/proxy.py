@@ -5,7 +5,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Concatenate, ParamSpec, TypeVar
 
 from ..typing import MISSING, BlobTypes, FridBeing, FridSeqVT, FridTypeSize, FridValue
-from .store import AsyncStore, VSDictSel, VSListSel, VSPutFlag, VStoreKey, VStorePutBulkData, VStoreSel
+from .store import AsyncStore, VSDictSel, VSListSel, VSPutFlag, VStoreKey, BulkInput, VStoreSel
 from .store import ValueStore
 
 
@@ -33,7 +33,7 @@ class ValueProxyStore(ValueStore):
     def get_bulk(self, keys: Iterable[VStoreKey],
                         /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
         return self._store.get_bulk(keys, alt)
-    def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
+    def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         return self._store.put_bulk(data, flags)
     def del_bulk(self, keys: Iterable[VStoreKey], /) -> int:
         return self._store.del_bulk(keys)
@@ -68,7 +68,7 @@ class AsyncProxyStore(AsyncStore):
     async def get_bulk(self, keys: Iterable[VStoreKey],
                         /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
         return await self._store.get_bulk(keys, alt)
-    async def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
+    async def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         return await self._store.put_bulk(data, flags)
     async def del_bulk(self, keys: Iterable[VStoreKey], /) -> int:
         return await self._store.del_bulk(keys)
@@ -125,7 +125,7 @@ class ValueProxyAsyncStore(AsyncStore):
     async def get_bulk(self, keys: Iterable[VStoreKey],
                         /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
         return await self._asyncrun(self._store.get_bulk, keys, alt)
-    async def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
+    async def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         return await self._asyncrun(self._store.put_bulk, data, flags)
     async def del_bulk(self, keys: Iterable[VStoreKey], /) -> int:
         return await self._asyncrun(self._store.del_bulk, keys)
@@ -178,7 +178,7 @@ class AsyncProxyValueStore(ValueStore):
         return self._loop.run_until_complete(self._store.del_frid(key, sel))
     def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
         return self._loop.run_until_complete(self._store.get_bulk(keys, alt))
-    def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
+    def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         return self._loop.run_until_complete(self._store.put_bulk(data, flags))
     def del_bulk(self, keys: Iterable[VStoreKey], /) -> int:
         return self._loop.run_until_complete(self._store.del_bulk(keys))

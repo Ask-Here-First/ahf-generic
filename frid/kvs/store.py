@@ -14,7 +14,7 @@ VStoreKey = str|tuple[str|int,...]
 VSListSel = int|slice|tuple[int,int]|None
 VSDictSel = str|Iterable[str]|None
 VStoreSel = VSListSel|VSDictSel
-VStorePutBulkData = Mapping[VStoreKey,FridValue]|Sequence[tuple[VStoreKey,FridValue]]|Iterable
+BulkInput = Mapping[VStoreKey,FridValue]|Sequence[tuple[VStoreKey,FridValue]]|Iterable
 
 _T = TypeVar('_T')
 _Self = TypeVar('_Self', bound='_BaseStore')  # TODO: remove this in 3.11
@@ -67,7 +67,7 @@ class _BaseStore(ABC):
     def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
         """Returns the data associated with a list of keys in the store."""
         raise NotImplementedError  # pragma: no cover
-    def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
+    def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         """Puts the data in the into the store.
         - `data`: either a key/value pairs or a list of tuple of key/value pairs
         """
@@ -242,7 +242,7 @@ class ValueStore(_BaseStore):
     def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
         with self.get_lock():
             return [v if (v := self.get_frid(k)) is not MISSING else alt for k in keys]
-    def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
+    def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         pairs = as_kv_pairs(data)
         with self.get_lock():
             meta = self.get_meta(k for k, _ in pairs)
@@ -305,7 +305,7 @@ class AsyncStore(_BaseStore):
                        /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
         async with self.get_lock():
             return [v if (v := await self.get_frid(k)) is not MISSING else alt for k in keys]
-    async def put_bulk(self, data: VStorePutBulkData, /, flags=VSPutFlag.UNCHECKED) -> int:
+    async def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         pairs = as_kv_pairs(data)
         async with self.get_lock():
             meta = await self.get_meta(k for k, _ in pairs)
