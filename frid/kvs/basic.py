@@ -247,6 +247,30 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
         return self._data.pop(key, MISSING) is not MISSING
 
 class BinaryStoreMixin:
+    """This mixin help encodes data of various types into binary stream.
+
+    The constructor accept a number of optional arguments to allow users
+    to configure what prefixes should be used for different kind of types:
+    - `frid_prefix`: the prefix use for generic frid representation as
+      the default.
+    - `text_prefix`: if this prefix is set, text string is encoded in
+      UTF-8 with this prefix (i.e., without quotes).
+    - `blob_prefix`: if this prefix is set, binary string is encoded as is
+      after the prefix.
+    - `list_prefix`: if this prefix is set, by default lists are encoded as
+      lines (i.e., they are separated by `\n`), where each element is a single
+      line frid representation that does not contain and control characters.
+    - `dict_prefix`: if this prefix is set, by defeault dicts are encoded as
+      lines of key value pair, where the pair is separated by `\t`, and key
+      has all below 0x20 control characters escaped, and values is a single
+      line frid representation that does not contain and control characters.
+    Note that if set, only one of these prefix can be empty string.
+
+    One can also override individual _encode_xxxx() and _decode_xxxx() methods
+    to change how data is encoded for these five cases.
+    Also _insert_prefix() and _remove_prefix() can be overridden to handle
+    prefix matching add/or to extra information after the prefix.
+    """
     def __init__(self, *, frid_prefix: bytes=b'',
                  text_prefix: bytes|None=None, blob_prefix: bytes|None=None,
                  list_prefix: bytes|None=None, dict_prefix: bytes|None=None, **kwargs):
@@ -268,63 +292,100 @@ class BinaryStoreMixin:
         if dict_prefix is not None:
             decoders.append((dict_prefix, self._decode_dict))
         decoders.sort(reverse=True, key=lambda x: len(x[0]))
-        self._decoders = decoders
+        self._decoders = dict(decoders)
+        if len(self._decoders) < len(decoders):
+            prefix_str = ", ".join(f"'{k}'" for k, _ in decoders)
+            raise ValueError(f"Duplicated prefixes {prefix_str}")
 
-    def _collide_with_prefix(self, b: bytes) -> bool:
-        for prefix, _ in self._decoders:
-            if not prefix:
-                return False
-            if b.startswith(prefix):
-                return True
-        return False
+    def _remove_prefix(self, val: bytes, prefix: bytes) -> bytes|None:
+        """Removes the `prefix` from the beginning `val` if any.
+        - Returns the value striped of the prefix.
+        - If the prefix does not match, return None.
+        - This method can be overridden to use a different method to
+          match and strip the prefix.
+        """
+        if val.startswith(prefix):
+            return val[len(prefix):]
+        return None
+
+    def _insert_prefix(self, val: bytes, prefix: bytes) -> bytes|None:
+        """Inserts the `prefix` to the beginning `val`.
+        - Returns the combined bytes.
+        - If can return None if encoding is invalid; in the default
+          implementation, it happens only if prefix is empty string
+          but the `val` is conflict with other prefixes.
+        - This method can be overridden to use a different method to
+          insert the prefix and/or extra information.
+        """
+        if prefix:
+            return prefix + val
+        # If prefix is empty string, we have to check if it collides with other prefix
+        for prefix in self._decoders.keys():
+            if prefix and val.startswith(prefix):
+                return None
+        return val
 
     def _encode(self, data: FridValue, append=False, /) -> bytes:
+        """Encodes the data into binary to be written to storage."""
         if isinstance(data, str):
             if self._text_prefix is not None:
                 b = data.encode('utf-8')
                 if append:
                     return b
-                if self._text_prefix:
-                    return self._text_prefix + b
-                if not self._collide_with_prefix(b):
-                    return b
+                if (out := self._insert_prefix(b, self._text_prefix)):
+                    return out
         elif isinstance(data, BlobTypes):
             if self._blob_prefix is not None:
                 if append:
                     return data
                 if self._blob_prefix:
                     return self._blob_prefix + self._encode_blob(data)
-                if not self._collide_with_prefix(data):
-                    return data
+                if (out := self._insert_prefix(data, self._blob_prefix)):
+                    return out
         elif is_frid_array(data):
             if self._list_prefix is not None:
                 b = self._encode_list(data)
                 if append:
                     return b
-                return self._list_prefix + b
+                if (out := self._insert_prefix(b, self._list_prefix)):
+                    return out
         elif is_frid_skmap(data):
             if self._dict_prefix is not None:
                 b = self._encode_dict(data)
                 if append:
                     return b
-                return self._dict_prefix + b
+                if (out := self._insert_prefix(b, self._dict_prefix)):
+                    return out
         if self._frid_prefix is None:
             raise ValueError(f"Do not know how to encode type {type(data)}")
         b = self._encode_frid(data)
         if append:
             return b
-        return self._frid_prefix + b
+        if (out := self._insert_prefix(b, self._frid_prefix)):
+            return out
+        raise ValueError(f"Failed to encode string for type {type(data)}")
     def _encode_frid(self, data: FridValue, /) -> bytes:
+        """Encodes general frid-supported data.
+        - This method is used no specific encoding is specified.
+        """
         return dump_into_str(data).encode('utf-8')
     def _encode_blob(self, data: BlobTypes, /) -> bytes:
+        """Encodes blob (binary data)."""
         return bytes(data)
     def _encode_text(self, data: str, /) -> bytes:
+        """Encodes a text string."""
         return data.encode('utf-8')
     def _encode_list(self, data: FridArray, /) -> bytes:
+        """Encodes a list as lines."""
         out: list[bytes] = [dump_into_str(item).encode('utf-8') for item in data]
         out.append(b'')
         return b'\n'.join(out)
     def _encode_dict(self, data: StrKeyMap, /) -> bytes:
+        """Encodes a dict as lines of key/value pairs.
+        - The key/value pairs are separated by the tab.
+        - Note that all unprintable ASCII less than 0x20 are escaped for keys,
+          and should not appear in values.
+        """
         out: list[bytes] = []
         for k, v in data.items():
             line = escape_control_chars(k, '\x7f')
@@ -334,23 +395,29 @@ class BinaryStoreMixin:
         return b'\n'.join(out)
 
     def _decode(self, val: bytes, /) -> FridValue:
+        """Decodes the value from the encoded byte string."""
         if not isinstance(val, BlobTypes): # pragma: no cover -- should not happen
             raise ValueError(f"Incorrect encoded type {type(val)}; expect binary")
         if isinstance(val, memoryview|bytearray):  # pragma: no cover -- should not happen
             val = bytes(val)
-        for prefix, decode in self._decoders:
+        for prefix, decode in self._decoders.items():
             if val.startswith(prefix):
                 return decode(val[len(prefix):])
         raise ValueError(f"Invalid byte encoding of {len(val)} bytes")
     def _decode_frid(self, val: bytes, /) -> FridValue:
+        """Decode the value as the generic frid representation."""
         return load_from_str(val.decode('utf-8'))
     def _decode_text(self, val: bytes, /) -> str:
+        """Decode the value as the string representation."""
         return val.decode('utf-8')
     def _decode_blob(self, val: bytes, /) -> bytes:
+        """Decode the value as the binary representation."""
         return val
     def _decode_list(self, val: bytes, /) -> FridArray:
+        """Decode the value as the representation for a list."""
         return [load_from_str(line.decode()) for line in val.splitlines()]
     def _decode_dict(self, val: bytes, /) -> StrKeyMap:
+        """Decode the value as the representation for a dict."""
         out = {}
         for line in val.splitlines():
             (key_str, tab_str, val_str) = line.decode('utf-8').partition('\t')
@@ -362,7 +429,7 @@ class BinaryStoreMixin:
                 elif being:
                     out[key] = PRESENT
                 else:
-                    out.pop(key, MISSING)
+                    out.pop(key, MISSING)  # MISSING is handled as "delete"
             else:
                 out[key] = PRESENT
         return out
