@@ -12,7 +12,7 @@ from ..typing import FridTypeSize, FridValue
 from ..autils import AsyncReentrantLock
 from ..guards import is_frid_array, is_frid_skmap
 from ..helper import frid_merge, frid_type_size
-from ..strops import escape_control_chars
+from ..strops import escape_control_chars, revive_control_chars
 from ..dumper import dump_into_str
 from ..loader import load_from_str
 from . import utils
@@ -354,7 +354,7 @@ class BinaryStoreMixin:
         out = {}
         for line in val.splitlines():
             (key_str, tab_str, val_str) = line.decode('utf-8').partition('\t')
-            key = escape_control_chars(key_str, '\x7f')
+            key = revive_control_chars(key_str, '\x7f')
             if tab_str:
                 being = FridBeing.parse(val_str)
                 if being is None:
