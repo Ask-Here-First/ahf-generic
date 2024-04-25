@@ -23,6 +23,17 @@ class FridBeing(Enum):
     MISSING = False
     def __bool__(self):
         return self.value
+    def strfr(self):
+        return ".+" if self.value else ".-"
+    @classmethod
+    def parse(cls, s: str) -> 'FridBeing|None':
+        match s:
+            case '.+':
+                return PRESENT
+            case '.-':
+                return MISSING
+            case _:
+                return None
 
 PresentType = Literal[FridBeing.PRESENT]
 MissingType = Literal[FridBeing.MISSING]

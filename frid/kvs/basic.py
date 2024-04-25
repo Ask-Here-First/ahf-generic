@@ -7,7 +7,7 @@ from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Concatenate, Generic, ParamSpec, TypeVar, cast
 
-from ..typing import MISSING, PRESENT, BlobTypes, FridBeing, MissingType
+from ..typing import MISSING, PRESENT, BlobTypes, FridArray, FridBeing, MissingType, StrKeyMap
 from ..typing import FridTypeSize, FridValue
 from ..autils import AsyncReentrantLock
 from ..guards import is_frid_array, is_frid_skmap
@@ -247,28 +247,90 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
         return self._data.pop(key, MISSING) is not MISSING
 
 class BinaryStoreMixin:
-    def __init__(self, *, frid_prefix: bytes=b'#!', blob_prefix: bytes=b'#=',
-                 text_prefix: bytes=b'', **kwargs):
+    def __init__(self, *, frid_prefix: bytes=b'',
+                 text_prefix: bytes|None=None, blob_prefix: bytes|None=None,
+                 list_prefix: bytes|None=None, dict_prefix: bytes|None=None, **kwargs):
         super().__init__(**kwargs)
         self._frid_prefix = frid_prefix
-        self._blob_prefix = blob_prefix
         self._text_prefix = text_prefix
-        self._decoders = [
-            (frid_prefix, lambda b: load_from_str(b.decode('utf-8'))),
-            (blob_prefix, lambda b: b),
-            (text_prefix, lambda b: b.decode('utf-8')),
-        ]
-        self._decoders.sort(reverse=True, key=lambda x: len(x[0]))
+        self._blob_prefix = blob_prefix
+        self._list_prefix = list_prefix
+        self._dict_prefix = dict_prefix
+        decoders: list[tuple[bytes,Callable[[bytes],FridValue]]] = []
+        if frid_prefix is not None:
+            decoders.append((frid_prefix, self._decode_frid))
+        if text_prefix is not None:
+            decoders.append((text_prefix, self._decode_text))
+        if blob_prefix is not None:
+            decoders.append((blob_prefix, self._decode_blob))
+        if list_prefix is not None:
+            decoders.append((list_prefix, self._decode_list))
+        if dict_prefix is not None:
+            decoders.append((dict_prefix, self._decode_dict))
+        decoders.sort(reverse=True, key=lambda x: len(x[0]))
+        self._decoders = decoders
+
+    def _collide_with_prefix(self, b: bytes) -> bool:
+        for prefix, _ in self._decoders:
+            if not prefix:
+                return False
+            if b.startswith(prefix):
+                return True
+        return False
+
     def _encode(self, data: FridValue, append=False, /) -> bytes:
-        if isinstance(data, BlobTypes):
-            return self._blob_prefix + data
         if isinstance(data, str):
-            b = data.encode('utf-8')
-            if self._text_prefix:
-                return self._text_prefix + b
-            if not b.startswith(self._blob_prefix) and not b.startswith(self._frid_prefix):
-               return self._text_prefix + b
-        return self._frid_prefix + dump_into_str(data).encode('utf-8')
+            if self._text_prefix is not None:
+                b = data.encode('utf-8')
+                if append:
+                    return b
+                if self._text_prefix:
+                    return self._text_prefix + b
+                if not self._collide_with_prefix(b):
+                    return b
+        elif isinstance(data, BlobTypes):
+            if self._blob_prefix is not None:
+                if append:
+                    return data
+                if self._blob_prefix:
+                    return self._blob_prefix + self._encode_blob(data)
+                if not self._collide_with_prefix(data):
+                    return data
+        elif is_frid_array(data):
+            if self._list_prefix is not None:
+                b = self._encode_list(data)
+                if append:
+                    return b
+                return self._list_prefix + b
+        elif is_frid_skmap(data):
+            if self._dict_prefix is not None:
+                b = self._encode_dict(data)
+                if append:
+                    return b
+                return self._dict_prefix + b
+        b = self._encode_frid(data)
+        if append:
+            return b
+        return self._frid_prefix + b
+    def _encode_frid(self, data: FridValue, /) -> bytes:
+        return dump_into_str(data).encode('utf-8')
+    def _encode_blob(self, data: BlobTypes, /) -> bytes:
+        return bytes(data)
+    def _encode_text(self, data: str, /) -> bytes:
+        return data.encode('utf-8')
+    def _encode_list(self, data: FridArray, /) -> bytes:
+        out: list[bytes] = [dump_into_str(item).encode('utf-8') for item in data]
+        out.append(b'')
+        return b'\n'.join(out)
+    def _encode_dict(self, data: StrKeyMap, /) -> bytes:
+        out: list[bytes] = []
+        for k, v in data.items():
+            line = escape_control_chars(k, '\x7f')
+            line += "\t" + (v.strfr() if isinstance(v, FridBeing) else dump_into_str(v))
+            out.append(line.encode('utf-8'))
+        out.append(b"")
+        return b'\n'.join(out)
+
     def _decode(self, val: bytes, /) -> FridValue:
         if not isinstance(val, BlobTypes): # pragma: no cover -- should not happen
             raise ValueError(f"Incorrect encoded type {type(val)}; expect binary")
@@ -278,3 +340,27 @@ class BinaryStoreMixin:
             if val.startswith(prefix):
                 return decode(val[len(prefix):])
         raise ValueError(f"Invalid byte encoding of {len(val)} bytes")
+    def _decode_frid(self, val: bytes, /) -> FridValue:
+        return load_from_str(val.decode('utf-8'))
+    def _decode_text(self, val: bytes, /) -> str:
+        return val.decode('utf-8')
+    def _decode_blob(self, val: bytes, /) -> bytes:
+        return val
+    def _decode_list(self, val: bytes, /) -> FridArray:
+        return [load_from_str(line.decode()) for line in val.splitlines()]
+    def _decode_dict(self, val: bytes, /) -> StrKeyMap:
+        out = {}
+        for line in val.splitlines():
+            (key_str, tab_str, val_str) = line.decode('utf-8').partition('\t')
+            key = escape_control_chars(key_str, '\x7f')
+            if tab_str:
+                being = FridBeing.parse(val_str)
+                if being is None:
+                    out[key] = load_from_str(val_str)
+                elif being:
+                    out[key] = PRESENT
+                else:
+                    out.pop(key, MISSING)
+            else:
+                out[key] = PRESENT
+        return out

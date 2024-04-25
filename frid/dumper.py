@@ -2,7 +2,8 @@ import math, base64
 from collections.abc import Callable, Iterable, Mapping, Sequence, Set
 from typing import Any, Literal, TextIO, overload
 
-from .typing import MISSING, PRESENT, BlobTypes, FridArray, FridBeing, FridMixin, FridPrime, FridValue, StrKeyMap
+from .typing import MISSING, PRESENT, FridBeing, BlobTypes
+from .typing import FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
 from .chrono import DateTypes, strfr_datetime, timeonly, datetime, dateonly
 from .guards import is_frid_identifier, is_frid_quote_free, is_list_like
 from .pretty import PPToTextIOMixin, PrettyPrint, PPTokenType, PPToStringMixin
