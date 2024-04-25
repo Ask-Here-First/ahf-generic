@@ -22,9 +22,10 @@ _Self = TypeVar('_Self', bound='_RedisBaseStore')  # TODO: remove this in 3.11
 
 class _RedisBaseStore(BinaryStoreMixin):
     NAMESPACE_SEP = '\t'
-    def __init__(self, *, parent: '_RedisBaseStore|None'=None,
-                 name_prefix: str='', frid_prefix: bytes=b'#!', blob_prefix: bytes=b'#='):
-        super().__init__()
+    def __init__(self, *, name_prefix: str='',
+                 frid_prefix: bytes=b'#!', blob_prefix: bytes|None=b'#=',
+                 **kwargs):
+        super().__init__(frid_prefix=frid_prefix, blob_prefix=blob_prefix, **kwargs)
         self._name_prefix = name_prefix
 
     def substore(self: _Self, name: str, *args: str) -> _Self:

@@ -308,6 +308,8 @@ class BinaryStoreMixin:
                 if append:
                     return b
                 return self._dict_prefix + b
+        if self._frid_prefix is None:
+            raise ValueError(f"Do not know how to encode type {type(data)}")
         b = self._encode_frid(data)
         if append:
             return b
