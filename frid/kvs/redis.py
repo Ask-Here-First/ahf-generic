@@ -65,7 +65,7 @@ class _RedisBaseStore(BinaryStoreMixin):
         if isinstance(data, bytes):
             return data.decode()
         if isinstance(data, (memoryview, bytearray)):  # pragma: no cover -- should not happen
-            return bytes(data).decode('utf-8')
+            return bytes(data).decode()
         raise ValueError(f"Incorrect Redis type {type(data)}; expect string") # pragma: no cover
         return None  # pragma: no cover
 
@@ -129,7 +129,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         if not isinstance(results, Iterable):  # pragma: no cover
             error(f"Redis.keys() returns a type {type(results)}")
             return {}
-        results = set(b.decode('utf-8') for b in results)
+        results = set(b.decode() for b in results)
         return {k: v for k in keys if (name := self._key_name(k)) in results
                                       and (v := self._get_name_meta(name)) is not None}
     def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=MISSING) -> FridValue|_T:
@@ -334,7 +334,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         if not isinstance(results, Iterable):  # pragma: no cover
             error(f"Redis.keys() returns a type {type(results)}")
             return {}
-        results = set(b.decode('utf-8') for b in results)
+        results = set(b.decode() for b in results)
         return {k: v for k in keys if (name := self._key_name(k)) in results
                                       and (v := await self._aget_name_meta(name)) is not None}
     async def get_list(self, key: VStoreKey, sel: VSListSel=None,

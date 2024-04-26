@@ -342,7 +342,7 @@ class BinaryStoreMixin:
         """
         if isinstance(data, str):
             if self._text_prefix is not None:
-                b = data.encode('utf-8')
+                b = data.encode()
                 if without_header:
                     return b
                 if (out := self._insert_header(b, self._text_prefix)):
@@ -381,16 +381,16 @@ class BinaryStoreMixin:
         """Encodes general frid-supported data.
         - This method is used no specific encoding is specified.
         """
-        return dump_into_str(data).encode('utf-8')
+        return dump_into_str(data).encode()
     def _encode_blob(self, data: BlobTypes, /) -> bytes:
         """Encodes blob (binary data)."""
         return bytes(data)
     def _encode_text(self, data: str, /) -> bytes:
         """Encodes a text string."""
-        return data.encode('utf-8')
+        return data.encode()
     def _encode_list(self, data: FridArray, /) -> bytes:
         """Encodes a list as lines."""
-        out: list[bytes] = [dump_into_str(item).encode('utf-8') for item in data]
+        out: list[bytes] = [dump_into_str(item).encode() for item in data]
         out.append(b'')
         return b'\n'.join(out)
     def _encode_dict(self, data: StrKeyMap, /) -> bytes:
@@ -403,7 +403,7 @@ class BinaryStoreMixin:
         for k, v in data.items():
             line = escape_control_chars(k, '\x7f')
             line += "\t" + (v.strfr() if isinstance(v, FridBeing) else dump_into_str(v))
-            out.append(line.encode('utf-8'))
+            out.append(line.encode())
         out.append(b'')
         return b'\n'.join(out)
     def _remove_dict(self, sel: VStoreSel, /) -> bytes:
@@ -429,10 +429,10 @@ class BinaryStoreMixin:
         raise ValueError(f"Invalid byte encoding of {len(val)} bytes")
     def _decode_frid(self, val: bytes, /) -> FridValue:
         """Decode the value as the generic frid representation."""
-        return load_from_str(val.decode('utf-8'))
+        return load_from_str(val.decode())
     def _decode_text(self, val: bytes, /) -> str:
         """Decode the value as the string representation."""
-        return val.decode('utf-8')
+        return val.decode()
     def _decode_blob(self, val: bytes, /) -> bytes:
         """Decode the value as the binary representation."""
         return val
@@ -443,7 +443,7 @@ class BinaryStoreMixin:
         """Decode the value as the representation for a dict."""
         out = {}
         for line in val.splitlines():
-            (key_str, tab_str, val_str) = line.decode('utf-8').partition('\t')
+            (key_str, tab_str, val_str) = line.decode().partition('\t')
             key = revive_control_chars(key_str, '\x7f')
             if tab_str:
                 being = FridBeing.parse(val_str)
@@ -480,11 +480,11 @@ class StreamStoreMixin(BinaryStoreMixin, _SimpleBaseStore[bytes]):
         """Insert the header with the given prefix plus extra data before `val`."""
         now_str = strfr_datetime(datetime.now(timezone.utc), precision=3)
         assert now_str is not None
-        tim = now_str.encode('utf-8')
+        tim = now_str.encode()
         assert len(tim) == 22
         if prefix == self._header_head:
             (typ, _) = frid_type_size(val)
-            typ = typ.encode('utf-8')
+            typ = typ.encode()
             assert len(typ) == 4
             result = prefix + typ + self._header_link + tim + self._header_tail + val
         else:
