@@ -5,11 +5,12 @@ import asyncio, threading
 from dataclasses import dataclass, field
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import Concatenate, Generic, ParamSpec, TypeVar, cast
+from typing import Any, Concatenate, Generic, ParamSpec, TypeVar, cast
 
 from ..typing import MISSING, PRESENT, BlobTypes, FridArray, FridBeing, MissingType, StrKeyMap
 from ..typing import FridTypeSize, FridValue
 from ..autils import AsyncReentrantLock
+from ..chrono import parse_datetime, strfr_datetime, datetime, timezone
 from ..guards import is_frid_array, is_frid_skmap
 from ..helper import frid_merge, frid_type_size
 from ..strops import escape_control_chars, revive_control_chars
@@ -23,13 +24,17 @@ _T = TypeVar('_T')
 _E = TypeVar('_E')   # The encoding type
 _P = ParamSpec('_P')
 
+ModFunc = Callable[Concatenate[_E|MissingType,_P],_E|tuple[_E,Any]|FridBeing]
+
 class _SimpleBaseStore(Generic[_E]):
     """Simple value store are stores that always handles each item as a whole."""
     @abstractmethod
-    def _encode(self, val: FridValue, /) -> _E:
+    def _encode(self, data: FridValue, /) -> _E:
+        """Encodes the data into a generic encoding type (bytes, string, etc)."""
         raise NotImplementedError
     @abstractmethod
     def _decode(self, val: _E, /) -> FridValue:
+        """Decodes the data from a generic encoded `val` (bytes, string, etc)."""
         raise NotImplementedError
 
     def _get(self, key: str, /) -> _E|MissingType:
@@ -38,19 +43,18 @@ class _SimpleBaseStore(Generic[_E]):
     def _put(self, key: str, val: _E, /) -> bool:
         """Write the whole data into the store associated to the given `key`."""
         raise NotImplementedError  # pragma: no cover
-    def _rmw(self, key: str,
-             mod: Callable[Concatenate[_E|FridBeing,_P],tuple[_E|FridBeing,_T]],
-             /, *args: _P.args, **kwargs: _P.kwargs) -> _T:
+    def _rmw(self, key: str, mod: ModFunc[_E,_P],
+             /, flags: VSPutFlag, *args: _P.args, **kwargs: _P.kwargs) -> bool:
         """The read-modify-write process for the value of the `key` in the store.
         - `mod`: the callback function to be called with:
             + The current value as the first argument (or MISSING);
             + The values of `*args` and `**kwargs` are passed as the rest of the arguments;
-            + It returns a tuple of updated value and the return value to pass on.
-            + The updated value will be written to to the store with the given `key`,
-              except if the updated value is of FridBeing type:
-                + If it is PRESENT, keep the original;
-                + If it is MISSING, delete the key.
-        - This method returns the second return value of `mod()` as is.
+            + It returns either of the following:
+                + The updated value to be written to the storage;
+                + A pair of the updated value and some auxillary data;
+                + PRESENT to keep the original;
+                + MISSING to delete the key.
+        - This method returns True iff the storage is changed.
         """
         raise NotImplementedError  # pragma: no cover
     def _del(self, key: str, /) -> bool:
@@ -85,31 +89,22 @@ class _SimpleBaseStore(Generic[_E]):
             return MISSING
         assert not isinstance(out, FridBeing)
         return out
-    def _combine(self, old: _E|FridBeing, new: FridValue,
-                 /, flags: VSPutFlag) -> tuple[_E|FridBeing,bool]:
-        """Combines the `new` value into the `old` values depending on the `flags`.
-        - Returns a pair: the updated value (with PRESENT for no change and MISSING for delete),
-          and a boolean value for whether or not the store will be changed.
+    def _add_new(self, old: _E|MissingType, new: FridValue) -> _E|FridBeing:
+        """Adds the `new` value into the `old` values (which can be MISSING).
+        - Return he updated value (with PRESENT for no change and MISSING to delete entry).
         """
-        assert old is not PRESENT
-        if old is MISSING:
-            if flags & VSPutFlag.NO_CREATE:
-                return (MISSING, False)
-            return (self._encode(new), True)
-        if flags & VSPutFlag.NO_CHANGE:
-            return (PRESENT, False)
-        if flags & VSPutFlag.KEEP_BOTH:
-            # TODO: frid_merge() to accept more flags
-            return (self._encode(frid_merge(self._decode(old), new)), True)
-        return (self._encode(new), True)
-    def _del_sel(self, val: _E|FridBeing, sel: VStoreSel) -> tuple[_E|FridBeing,int]:
-        """Deletes the selected items in general. Note it will try to delete in place.
-        - Returns a pair: the updated value and the number of items deleted.
+        old_data = old if isinstance(old, FridBeing) else self._decode(old)
+        assert old_data is not PRESENT
+        # TODO: frid_merge() to accept more merge flags
+        return self._encode(frid_merge(old_data, new))
+    def _del_sel(self, val: _E|MissingType, sel: VStoreSel) -> _E|FridBeing:
+        """Deletes the selected items in general.
+        - Return he updated value (with PRESENT for no change and MISSING to delete entry).
         """
         assert val is not PRESENT
         assert sel is not None
         if val is MISSING:
-            return (MISSING, 0)
+            return MISSING
         data = self._decode(val)
         if is_frid_skmap(data):
             if not isinstance(data, dict):
@@ -122,10 +117,11 @@ class _SimpleBaseStore(Generic[_E]):
         else:
             raise ValueError(f"Data type {type(data)} does not support partial removal")
         if cnt == 0:
-            return (PRESENT, 0)
-        return (self._encode(data), cnt)
+            return PRESENT
+        return self._encode(data)
 
 class SimpleValueStore(_SimpleBaseStore[_E], ValueStore):
+    """This is the base class of simple value store that loads and saves records in full."""
     @abstractmethod
     def _get(self, key: str) -> _E|MissingType:
         raise NotImplementedError  # pragma: no cover
@@ -133,9 +129,8 @@ class SimpleValueStore(_SimpleBaseStore[_E], ValueStore):
     def _put(self, key: str, val: _E) -> bool:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    def _rmw(self, key: str,
-             mod: Callable[Concatenate[_E|FridBeing,_P],tuple[_E|FridBeing,_T]],
-             *args, **kwargs) -> _T:
+    def _rmw(self, key: str, mod: ModFunc[_E,_P],
+             /, flags: VSPutFlag, *args: _P.args, **kwargs: _P.kwargs) -> bool:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
     def _del(self, key: str) -> bool:
@@ -154,15 +149,18 @@ class SimpleValueStore(_SimpleBaseStore[_E], ValueStore):
         with self.get_lock(key):
             if flags == VSPutFlag.UNCHECKED:
                 return self._put(key, self._encode(val))
-            return self._rmw(key, self._combine, val, flags)
+            return self._rmw(key, self._add_new, flags, val)
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         key = self._key(key)
         with self.get_lock(key):
             if sel is None:
                 return self._del(key)
-            return bool(self._rmw(key, self._del_sel, sel))
+            return self._rmw(
+                key, self._del_sel, VSPutFlag.NO_CREATE | VSPutFlag.KEEP_BOTH, sel
+            )
 
 class SimpleAsyncStore(_SimpleBaseStore[_E], AsyncStore):
+    """This is the base class of simple async store that loads and saves records in full."""
     @abstractmethod
     async def _get(self, key: str) -> _E|MissingType:
         raise NotImplementedError  # pragma: no cover
@@ -170,9 +168,8 @@ class SimpleAsyncStore(_SimpleBaseStore[_E], AsyncStore):
     async def _put(self, key: str, val: _E) -> bool:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    async def _rmw(self, key: str,
-                   mod: Callable[Concatenate[_E|FridBeing,_P],tuple[_E|FridBeing,_T]],
-                   *args, **kwargs) -> _T:
+    async def _rmw(self, key: str, mod: ModFunc[_E,_P],
+                   /, flags: VSPutFlag, *args: _P.args, **kwargs: _P.kwargs) -> bool:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
     async def _del(self, key: str) -> bool:
@@ -191,15 +188,18 @@ class SimpleAsyncStore(_SimpleBaseStore[_E], AsyncStore):
         async with self.get_lock(key):
             if flags == VSPutFlag.UNCHECKED:
                 return await self._put(key, self._encode(val))
-            return await self._rmw(key, self._combine, val, flags)
+            return await self._rmw(key, self._add_new, flags, val)
     async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         key = self._key(key)
         async with self.get_lock(key):
             if sel is None:
                 return await self._del(key)
-            return bool(await self._rmw(key, self._del_sel, sel))
+            return await self._rmw(
+                key, self._del_sel, VSPutFlag.NO_CREATE | VSPutFlag.KEEP_BOTH, sel,
+            )
 
 class MemoryValueStore(SimpleValueStore[FridValue]):
+    """Simplest memory based value store with thread locking."""
     @dataclass
     class StoreMeta:
         store: dict[str,FridValue] = field(default_factory=dict)
@@ -231,18 +231,29 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
 
     def _get(self, key: str, /) -> FridValue|MissingType:
         return self._data.get(key, MISSING)
-    def _rmw(self, key: str, mod: Callable[...,tuple[FridValue|FridBeing,_T]],
-             *args, **kwargs) -> _T:
-        old_data = self._data.get(key, MISSING)
-        (data, out) = mod(old_data, *args, **kwargs)
-        if not isinstance(data, FridBeing):
-            self._data[key] = data
-        elif data is MISSING and old_data is not MISSING:
-            del self._data[key]
-        return out
     def _put(self, key: str, data: FridValue) -> bool:
         self._data[key] = data
         return True
+    def _rmw(self, key: str, mod: ModFunc[_E,_P],
+             /, flags: VSPutFlag, *args: _P.args, **kwargs: _P.kwargs) -> bool:
+        old_data = self._data.get(key, MISSING)
+        if flags & VSPutFlag.NO_CREATE:
+            if old_data is MISSING:
+                return False
+        elif flags & VSPutFlag.NO_CHANGE:
+            if old_data is not MISSING:
+                return False
+        if not (flags & VSPutFlag.KEEP_BOTH):
+            old_data = MISSING
+        data = mod(old_data, *args, **kwargs)
+        assert not isinstance(data, tuple)
+        if not isinstance(data, FridBeing):
+            self._data[key] = data
+            return True
+        if data is MISSING and old_data is not MISSING:
+            del self._data[key]
+            return True
+        return False
     def _del(self, key: str) -> bool:
         return self._data.pop(key, MISSING) is not MISSING
 
@@ -297,7 +308,7 @@ class BinaryStoreMixin:
             prefix_str = ", ".join(f"'{k}'" for k, _ in decoders)
             raise ValueError(f"Duplicated prefixes {prefix_str}")
 
-    def _remove_prefix(self, val: bytes, prefix: bytes) -> bytes|None:
+    def _remove_header(self, val: bytes, prefix: bytes) -> bytes|None:
         """Removes the `prefix` from the beginning `val` if any.
         - Returns the value striped of the prefix.
         - If the prefix does not match, return None.
@@ -308,7 +319,7 @@ class BinaryStoreMixin:
             return val[len(prefix):]
         return None
 
-    def _insert_prefix(self, val: bytes, prefix: bytes) -> bytes|None:
+    def _insert_header(self, val: bytes, prefix: bytes) -> bytes|None:
         """Inserts the `prefix` to the beginning `val`.
         - Returns the combined bytes.
         - If can return None if encoding is invalid; in the default
@@ -325,43 +336,45 @@ class BinaryStoreMixin:
                 return None
         return val
 
-    def _encode(self, data: FridValue, append=False, /) -> bytes:
-        """Encodes the data into binary to be written to storage."""
+    def _encode(self, data: FridValue, without_header=False, /) -> bytes:
+        """Encodes the data into binary to be written to storage.
+        - By default a header is generated unless `without_header` is set.
+        """
         if isinstance(data, str):
             if self._text_prefix is not None:
                 b = data.encode('utf-8')
-                if append:
+                if without_header:
                     return b
-                if (out := self._insert_prefix(b, self._text_prefix)):
+                if (out := self._insert_header(b, self._text_prefix)):
                     return out
         elif isinstance(data, BlobTypes):
             if self._blob_prefix is not None:
-                if append:
+                if without_header:
                     return data
                 if self._blob_prefix:
                     return self._blob_prefix + self._encode_blob(data)
-                if (out := self._insert_prefix(data, self._blob_prefix)):
+                if (out := self._insert_header(data, self._blob_prefix)):
                     return out
         elif is_frid_array(data):
             if self._list_prefix is not None:
                 b = self._encode_list(data)
-                if append:
+                if without_header:
                     return b
-                if (out := self._insert_prefix(b, self._list_prefix)):
+                if (out := self._insert_header(b, self._list_prefix)):
                     return out
         elif is_frid_skmap(data):
             if self._dict_prefix is not None:
                 b = self._encode_dict(data)
-                if append:
+                if without_header:
                     return b
-                if (out := self._insert_prefix(b, self._dict_prefix)):
+                if (out := self._insert_header(b, self._dict_prefix)):
                     return out
         if self._frid_prefix is None:
             raise ValueError(f"Do not know how to encode type {type(data)}")
         b = self._encode_frid(data)
-        if append:
+        if without_header:
             return b
-        if (out := self._insert_prefix(b, self._frid_prefix)):
+        if (out := self._insert_header(b, self._frid_prefix)):
             return out
         raise ValueError(f"Failed to encode string for type {type(data)}")
     def _encode_frid(self, data: FridValue, /) -> bytes:
@@ -391,7 +404,17 @@ class BinaryStoreMixin:
             line = escape_control_chars(k, '\x7f')
             line += "\t" + (v.strfr() if isinstance(v, FridBeing) else dump_into_str(v))
             out.append(line.encode('utf-8'))
-        out.append(b"")
+        out.append(b'')
+        return b'\n'.join(out)
+    def _remove_dict(self, sel: VStoreSel, /) -> bytes:
+        if isinstance(sel, str):
+            return (escape_control_chars(sel, '\x7f') + '\t' + MISSING.strfr()).encode()
+        assert isinstance(sel, Iterable)
+        out: list[bytes] = []
+        for k in sel:
+            assert isinstance(k, str)
+            out.append((escape_control_chars(k, '\x7f') + '\t' + MISSING.strfr()).encode())
+        out.append(b'')
         return b'\n'.join(out)
 
     def _decode(self, val: bytes, /) -> FridValue:
@@ -433,3 +456,102 @@ class BinaryStoreMixin:
             else:
                 out[key] = PRESENT
         return out
+
+class StreamStoreMixin(BinaryStoreMixin, _SimpleBaseStore[bytes]):
+    """This is a binary store where some data can be appended if possible.
+
+    Appendable data types includes text, blob, list, and dict.
+    """
+    def __init__(self, *, header_head=b"#!", header_link=b"@[", header_tail=b"]\f", **kwargs):
+        super().__init__(
+            frid_prefix=header_head,
+            text_prefix=(header_head + b'text' + header_link),
+            blob_prefix=(header_head + b'blob' + header_link),
+            list_prefix=(header_head + b'list' + header_link),
+            dict_prefix=(header_head + b'dict' + header_link),
+        )
+        self._header_head = header_head
+        self._header_link = header_link
+        self._header_tail = header_tail
+        # The total length of header should be 32 bytes by default
+        self._header_size = len(header_head) + len(header_link) + len(header_tail) + 26
+
+    def _insert_header(self, val: bytes, prefix: bytes) -> bytes|None:
+        """Insert the header with the given prefix plus extra data before `val`."""
+        now_str = strfr_datetime(datetime.now(timezone.utc), precision=3)
+        assert now_str is not None
+        tim = now_str.encode('utf-8')
+        assert len(tim) == 22
+        if prefix == self._header_head:
+            (typ, _) = frid_type_size(val)
+            typ = typ.encode('utf-8')
+            assert len(typ) == 4
+            result = prefix + typ + self._header_link + tim + self._header_tail + val
+        else:
+            result = prefix + tim + self._header_tail + val
+        assert len(result) == self._header_size + len(val)
+        return result
+
+    ModReturnType = tuple[bytes,bool|None]|FridBeing
+    def _add_new(self, old: bytes|MissingType, new: FridValue) -> ModReturnType:
+        """Combines the `new` value into the `old` values depending on the `flags`.
+        - Returns either of the following:
+            + PRESENT: use the existing value without change.
+            + a tuple of output bytes and a boolean/none flag about how to use it:
+                + If set to True, the output bytes are appended to the original content;
+                + If set to False, the output bytes replace the original ccontent;
+                + If set to None, the input bytes is not complete; call the API again
+                  with complete data.
+        """
+        if old is not MISSING:
+            result = self._can_be_appended(self._get_header_type(old), new)
+            if result:
+                return (self._encode(new, True), True)
+            if len(old) <= self._header_size:
+                return (b'', None)
+        new_val = super()._add_new(old, new)
+        if isinstance(new_val, FridBeing):
+            return new_val
+        return (new_val, False)
+    def _del_sel(self, val: bytes|MissingType, sel: VStoreSel, /) -> ModReturnType:
+        if val is not MISSING:
+            if isinstance(val, Mapping) and self._get_header_type(val) == 'dict':
+                return (self._remove_dict(sel), True)
+            if len(val) <= self._header_size:
+                return (b'', None)
+        new_val = super()._del_sel(val, sel)
+        if isinstance(new_val, FridBeing):
+            return new_val
+        return (new_val, False)
+
+    def _get_header_type(self, old_val: bytes) -> str:
+        """Extract the header type (four bytes) fro the header.
+        This method check if all parts of the header is correct.
+        """
+        if len(old_val) < self._header_size:
+            raise ValueError(f"Header has only {len(old_val)} bytes, need {self._header_size}")
+        n = len(self._header_head)
+        if not old_val.startswith(self._header_head):
+            raise ValueError(f"Header does not start with '{self._header_head}'")
+        if not old_val.startswith(self._header_link, n + 4):
+            raise ValueError(f"header does not contain '{self._header_link}' after type")
+        m = self._header_size - len(self._header_tail)
+        if not old_val.startswith(self._header_tail, m):
+            raise ValueError(f"Header does not end with '{self._header_tail}'")
+        typ = old_val[n:(n + 4)].decode()
+        n += 4 + len(self._header_link)
+        if parse_datetime(old_val[n:m].decode()) is None:
+            raise ValueError(f"Incorrect timestamp in header '{old_val[n:m]}'")
+        return typ
+
+    def _can_be_appended(self, old_type: str, data: FridValue) -> bool:
+        """Returns true if the data can be appended to old data of the type `old_type`."""
+        if isinstance(data, str):
+            return old_type == 'text'
+        if isinstance(data, BlobTypes):
+            return old_type == 'blob'
+        if is_frid_array(data):
+            return old_type == 'list'
+        if is_frid_skmap(data):
+            return old_type == 'dict'
+        return False

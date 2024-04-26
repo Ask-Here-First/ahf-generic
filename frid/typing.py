@@ -23,7 +23,7 @@ class FridBeing(Enum):
     MISSING = False
     def __bool__(self):
         return self.value
-    def strfr(self):
+    def strfr(self) -> str:
         return ".+" if self.value else ".-"
     @classmethod
     def parse(cls, s: str) -> 'FridBeing|None':
