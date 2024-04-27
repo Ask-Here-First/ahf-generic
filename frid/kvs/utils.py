@@ -75,6 +75,15 @@ def fix_indexes(sel: tuple[int,int], val_len: int):
             until = 0
     return (index, until)
 
+def list_concat(list1: Iterable[_T]|None=None, list2: Iterable[_T]|None=None) -> Iterable[_T]:
+    if list2 is None:
+        return [] if list1 is None else list1
+    if list1 is None:
+        return list2
+    list0 = list(list1)
+    list0.extend(list2)
+    return list0
+
 def list_select(
     val: Sequence[_T], sel: int|slice|tuple[int,int]
 ) -> Sequence[_T]|_T|MissingType:

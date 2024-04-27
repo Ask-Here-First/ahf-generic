@@ -225,8 +225,9 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
 
     def get_lock(self, name: str|None=None):
         return self._meta.tlock
-    def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
-        return {k: frid_type_size(v) for k in keys
+    def get_meta(self, *args: VStoreKey,
+                 keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
+        return {k: frid_type_size(v) for k in utils.list_concat(args, keys)
                 if (v := self._get(self._key(k))) is not MISSING}
 
     def _get(self, key: str, /) -> FridValue|MissingType:

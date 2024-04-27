@@ -124,14 +124,10 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         if data is MISSING:
             return None  # pragma: no cover -- this should not happen
         return frid_type_size(data)
-    def get_meta(self, keys: Iterable[VStoreKey]) -> Mapping[VStoreKey,FridTypeSize]:
-        results = self._redis.keys()
-        if not isinstance(results, Iterable):  # pragma: no cover
-            error(f"Redis.keys() returns a type {type(results)}")
-            return {}
-        results = set(b.decode() for b in results)
-        return {k: v for k in keys if (name := self._key_name(k)) in results
-                                      and (v := self._get_name_meta(name)) is not None}
+    def get_meta(self, *args: VStoreKey,
+                 keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
+        return {k: v for k in utils.list_concat(args, keys)
+                if (v := self._get_name_meta(self._key_name(k))) is not None}
     def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=MISSING) -> FridValue|_T:
         redis_name = self._key_name(key)
         if sel is None:
@@ -318,7 +314,10 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
     async def finalize(self):
         await self._aredis.aclose()
     async def _aget_name_meta(self, name: str) -> FridTypeSize|None:
-        t = self._check_text(await self._aredis.type(name))
+        t = await self._aredis.type(name)
+        if t is None:
+            return None
+        t = self._check_text(t)
         if t == 'list':
             result = await self._aredis.llen(name) # type: ignore
             return ('list', self._check_type(result, int, 0))
@@ -329,14 +328,10 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         if data is MISSING:
             return None  # pragma: no cover -- this should not happen
         return frid_type_size(data)
-    async def get_meta(self, keys: Iterable[VStoreKey]) -> Mapping[VStoreKey,FridTypeSize]:
-        results = await self._aredis.keys()
-        if not isinstance(results, Iterable):  # pragma: no cover
-            error(f"Redis.keys() returns a type {type(results)}")
-            return {}
-        results = set(b.decode() for b in results)
-        return {k: v for k in keys if (name := self._key_name(k)) in results
-                                      and (v := await self._aget_name_meta(name)) is not None}
+    async def get_meta(self, *args: VStoreKey,
+                       keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
+        return {k: v for k in utils.list_concat(args, keys)
+                if (v := await self._aget_name_meta(self._key_name(k))) is not None}
     async def get_list(self, key: VStoreKey, sel: VSListSel=None,
                         /, alt: _T=MISSING) -> FridValue|_T:
         redis_name = self._key_name(key)

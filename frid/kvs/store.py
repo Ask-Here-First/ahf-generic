@@ -28,7 +28,8 @@ class _BaseStore(ABC):
     def finalize(self):
         """Calling to finalize this store before drop the reference."""
         raise NotImplementedError  # pragma: no cover
-    def get_meta(self, keys: Iterable[VStoreKey]) -> Mapping[VStoreKey,FridTypeSize]:
+    def get_meta(self, *args: VStoreKey,
+                 keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         """Gets the meta data of a list of `keys` and returns a map for existing keys.
         Notes: There is no atomicity guarantee for this method.
         """
@@ -111,7 +112,7 @@ class ValueStore(_BaseStore):
     def get_lock(self, name: str|None=None) -> AbstractContextManager:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
+    def get_meta(self, *args: VStoreKey, keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
@@ -127,7 +128,7 @@ class ValueStore(_BaseStore):
     def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         pairs = as_kv_pairs(data)
         with self.get_lock():
-            meta = self.get_meta(k for k, _ in pairs)
+            meta = self.get_meta(keys=(k for k, _ in pairs))
             if not utils.check_flags(flags, len(pairs), len(meta)):
                 return 0
             # If Atomicity for bulk is set and any other flags are set, we need to check
@@ -173,7 +174,8 @@ class AsyncStore(_BaseStore):
     def get_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    async def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
+    async def get_meta(self, *args: VStoreKey,
+                       keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
     async def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|MissingType:
@@ -190,7 +192,7 @@ class AsyncStore(_BaseStore):
     async def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         pairs = as_kv_pairs(data)
         async with self.get_lock():
-            meta = await self.get_meta(k for k, _ in pairs)
+            meta = await self.get_meta(keys=(k for k, _ in pairs))
             if not utils.check_flags(flags, len(pairs), len(meta)):
                 return 0
             count = 0

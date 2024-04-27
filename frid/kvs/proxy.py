@@ -5,6 +5,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Concatenate, ParamSpec, TypeVar
 
 from ..typing import MISSING, BlobTypes, FridBeing, FridSeqVT, FridTypeSize, FridValue
+from . import utils
 from .store import AsyncStore, ValueStore
 from .utils import VSDictSel, VSListSel, VSPutFlag, VStoreKey, VStoreSel, BulkInput
 
@@ -21,8 +22,9 @@ class ValueProxyStore(ValueStore):
         return self._store.get_lock(name)
     def finalize(self):
         return self._store.finalize()
-    def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
-        return self._store.get_meta(keys)
+    def get_meta(self, *args: VStoreKey,
+                 keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
+        return self._store.get_meta(*args, keys=keys)
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
         return self._store.get_frid(key, sel)
     def put_frid(self, key: VStoreKey, val: FridValue,
@@ -56,8 +58,9 @@ class AsyncProxyStore(AsyncStore):
         return self._store.get_lock(name)
     async def finalize(self):
         return await self._store.finalize()
-    async def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
-        return await self._store.get_meta(keys)
+    async def get_meta(self, *args: VStoreKey,
+                       keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
+        return await self._store.get_meta(*args, keys=keys)
     async def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
         return await self._store.get_frid(key, sel)
     async def put_frid(self, key: VStoreKey, val: FridValue,
@@ -113,8 +116,9 @@ class ValueProxyAsyncStore(AsyncStore):
         return self._store.get_lock(name)
     async def finalize(self):
         return await self._asyncrun(self._store.finalize)
-    async def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
-        return await self._asyncrun(self._store.get_meta, keys)
+    async def get_meta(self, *args: VStoreKey,
+                       keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
+        return await self._asyncrun(self._store.get_meta, *utils.list_concat(args, keys))
     async def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
         return await self._asyncrun(self._store.get_frid, key, sel)
     async def put_frid(self, key: VStoreKey, val: FridValue,
@@ -167,8 +171,9 @@ class AsyncProxyValueStore(ValueStore):
         result = self._loop.run_until_complete(self._store.finalize())
         self._del_loop()
         return result
-    def get_meta(self, keys: Iterable[VStoreKey], /) -> Mapping[VStoreKey,FridTypeSize]:
-        return self._loop.run_until_complete(self._store.get_meta(keys))
+    def get_meta(self, *args: VStoreKey,
+                 keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
+        return self._loop.run_until_complete(self._store.get_meta(*args, keys=keys))
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
         return self._loop.run_until_complete(self._store.get_frid(key, sel))
     def put_frid(self, key: VStoreKey, val: FridValue,
