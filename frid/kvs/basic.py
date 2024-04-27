@@ -63,7 +63,7 @@ class _SimpleBaseStore(Generic[_E]):
         """
         raise NotImplementedError  # pragma: no cover
 
-    def _key(self, key: VStoreKey, /) -> str:
+    def _key_str(self, key: VStoreKey, /) -> str:
         """Generate string based key depending if the key is tuple or named tuple.
         For tuple or named tuple, the generated key is just joined with a TAB.
         """
@@ -137,7 +137,7 @@ class SimpleValueStore(_SimpleBaseStore[_E], ValueStore):
         raise NotImplementedError  # pragma: no cover
 
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
-        key = self._key(key)
+        key = self._key_str(key)
         with self.get_lock(key):
             data = self._get(key)
             if data is MISSING:
@@ -145,13 +145,13 @@ class SimpleValueStore(_SimpleBaseStore[_E], ValueStore):
             return self._get_sel(data, sel)
     def put_frid(self, key: VStoreKey, val: FridValue,
                  /, flags=VSPutFlag.UNCHECKED) -> bool:
-        key = self._key(key)
+        key = self._key_str(key)
         with self.get_lock(key):
             if flags == VSPutFlag.UNCHECKED:
                 return self._put(key, self._encode(val))
             return self._rmw(key, self._add_new, flags, val)
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
-        key = self._key(key)
+        key = self._key_str(key)
         with self.get_lock(key):
             if sel is None:
                 return self._del(key)
@@ -176,7 +176,7 @@ class SimpleAsyncStore(_SimpleBaseStore[_E], AsyncStore):
         raise NotImplementedError  # pragma: no cover
 
     async def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
-        key = self._key(key)
+        key = self._key_str(key)
         async with self.get_lock(key):
             val = await self._get(key)
             if val is MISSING:
@@ -184,13 +184,13 @@ class SimpleAsyncStore(_SimpleBaseStore[_E], AsyncStore):
             return self._get_sel(val, sel)
     async def put_frid(self, key: VStoreKey, val: FridValue,
                         /, flags=VSPutFlag.UNCHECKED) -> bool:
-        key = self._key(key)
+        key = self._key_str(key)
         async with self.get_lock(key):
             if flags == VSPutFlag.UNCHECKED:
                 return await self._put(key, self._encode(val))
             return await self._rmw(key, self._add_new, flags, val)
     async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
-        key = self._key(key)
+        key = self._key_str(key)
         async with self.get_lock(key):
             if sel is None:
                 return await self._del(key)
@@ -228,7 +228,7 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return {k: frid_type_size(v) for k in utils.list_concat(args, keys)
-                if (v := self._get(self._key(k))) is not MISSING}
+                if (v := self._get(self._key_str(k))) is not MISSING}
 
     def _get(self, key: str, /) -> FridValue|MissingType:
         return self._data.get(key, MISSING)
