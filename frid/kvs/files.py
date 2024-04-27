@@ -1,17 +1,16 @@
+import os, time
 from collections.abc import Iterable, Mapping
-import os
 from abc import ABC, abstractmethod
 from enum import Flag
 from logging import error
-import time
 from typing import BinaryIO, ParamSpec, TypeVar
+from urllib.parse import quote
 
 
 from ..typing import MISSING, PRESENT, BlobTypes, FridBeing, FridTypeSize, MissingType
 from ..helper import frid_type_size
 from .utils import VSPutFlag, VStoreKey, list_concat
-from .store import ValueStore
-from .basic import ModFunc, StreamStoreMixin
+from .basic import ModFunc, SimpleValueStore, StreamStoreMixin
 
 _T = TypeVar('_T')
 _P = ParamSpec('_P')
@@ -46,7 +45,7 @@ class AbstractStreamAgent(ABC):
         """
         raise NotImplementedError
 
-class StreamValueStore(StreamStoreMixin, ValueStore):
+class StreamValueStore(StreamStoreMixin, SimpleValueStore):
     """This is a data store that opens file streams."""
     @abstractmethod
     def _open(self, key: str, mode: OpenMode) -> AbstractStreamAgent:
@@ -155,6 +154,18 @@ class FileIOAgent(AbstractStreamAgent):
         self.io_state = PRESENT
         return False
 
+
+class FileDeleter:
+    def __init__(self, path: str):
+        self._path = path
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            os.unlink(self._path)
+        except OSError:
+            error(f"Failed to delete {self._path}", exc_info=True)
+
 class FileIOValueStore(StreamValueStore):
     def __init__(self, root: os.PathLike|str, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -162,8 +173,8 @@ class FileIOValueStore(StreamValueStore):
         if not os.path.isdir(self._root):
             os.makedirs(self._root, exist_ok=True)
     def substore(self, name: str, *args: str):
-        root = os.path.join(self._root, self._encode_name(name),
-                            *(self._encode_name(x) for x in args))
+        root = os.path.join(self._root, self._encode_name(name) + ".dir",
+                            *(self._encode_name(x) + ".dir" for x in args))
         return self.__class__(root=root)
 
     def get_meta(self, *args: VStoreKey,
@@ -174,9 +185,19 @@ class FileIOValueStore(StreamValueStore):
             if v is not MISSING:
                 out[k] = frid_type_size(v)
         return out
+    def get_lock(self, name: str|None=None):
+        path = os.path.join(self._root, (name or '') + ".lck")
+        while True:
+            try:
+                with open(path, "x+b") as f:
+                    f.write(self._create_header('lock'))
+                return FileDeleter(path)
+            except FileExistsError:
+                time.sleep(0.1)
 
     def _encode_name(self, key: str):
-        return key  # TODO: need to escape most of non-alnum characters
+        """Encode string to file system compatible."""
+        return quote(key, safe='+')
 
     def _key_str(self, key: VStoreKey) -> str:
         if isinstance(key, str):
