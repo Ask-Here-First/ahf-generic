@@ -476,6 +476,15 @@ class StreamStoreMixin(BinaryStoreMixin, _SimpleBaseStore[bytes]):
         # The total length of header should be 32 bytes by default
         self._header_size = len(header_head) + len(header_link) + len(header_tail) + 26
 
+    def _create_header(self, typ: str|bytes) -> bytes:
+        typ_bytes = typ.encode() if isinstance(typ, str) else typ
+        assert len(typ_bytes) == 4
+        now_str = strfr_datetime(datetime.now(timezone.utc), precision=3)
+        assert now_str is not None
+        tim_bytes = now_str.encode()
+        assert len(tim_bytes) == 22
+        return self._header_head + typ_bytes + self._header_link + tim_bytes + self._header_tail
+
     def _insert_header(self, val: bytes, prefix: bytes) -> bytes|None:
         """Insert the header with the given prefix plus extra data before `val`."""
         now_str = strfr_datetime(datetime.now(timezone.utc), precision=3)
@@ -484,11 +493,11 @@ class StreamStoreMixin(BinaryStoreMixin, _SimpleBaseStore[bytes]):
         assert len(tim) == 22
         if prefix == self._header_head:
             (typ, _) = frid_type_size(val)
-            typ = typ.encode()
-            assert len(typ) == 4
-            result = prefix + typ + self._header_link + tim + self._header_tail + val
         else:
-            result = prefix + tim + self._header_tail + val
+            n = len(self._header_head)
+            assert len(prefix) == n + 4 + len(self._header_link)
+            typ = prefix[n:(n + 4)]
+        result = self._create_header(typ)
         assert len(result) == self._header_size + len(val)
         return result
 
