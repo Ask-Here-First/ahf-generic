@@ -380,8 +380,8 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         if t == 'hash':
             return await self.get_dict(key, sel)
         return self._decode(await self._aredis.get(redis_name))
-    async def aput_list(self, key: VStoreKey, val: FridArray,
-                        /, flags=VSPutFlag.UNCHECKED) -> bool:
+    async def put_list(self, key: VStoreKey, val: FridArray,
+                       /, flags=VSPutFlag.UNCHECKED) -> bool:
         redis_name = self._key_name(key)
         encoded_val = [self._encode(x) for x in val]
         if flags & VSPutFlag.KEEP_BOTH and not (flags & VSPutFlag.NO_CHANGE):
@@ -400,16 +400,16 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
                         return False
                 result = await self._aredis.rpush(redis_name, *encoded_val) # type: ignore
         return bool(self._check_type(result, int, 0))
-    async def aput_dict(
+    async def put_dict(
             self, key: VStoreKey, val: StrKeyMap, /, flags=VSPutFlag.UNCHECKED
     ) -> bool:
         redis_name = self._key_name(key)
-        if not isinstance(val, dict):
-            val = dict(val)
+        encoded_val = {k: v.strfr() if isinstance(v, FridBeing) else self._encode(v)
+                       for k, v in val.items() if v is not MISSING}
         if flags & VSPutFlag.KEEP_BOTH and not (
             flags & (VSPutFlag.NO_CHANGE | VSPutFlag.NO_CREATE)
         ):
-            result = await self._aredis.hset(redis_name, mapping=val) # type: ignore
+            result = await self._aredis.hset(redis_name, mapping=encoded_val)  # type: ignore
         else:
             async with self.get_lock(redis_name):
                 if await self._aredis.exists(redis_name):
@@ -419,14 +419,14 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
                 else:
                     if flags & VSPutFlag.NO_CREATE:
                         return False
-                result = await self._aredis.hset(redis_name, mapping=val) # type: ignore
+                result = await self._aredis.hset(redis_name, mapping=encoded_val) # type: ignore
         return bool(self._check_type(result, int, 0))
     async def put_frid(self, key: VStoreKey, val: FridValue,
                         /, flags=VSPutFlag.UNCHECKED) -> bool:
         if is_frid_array(val):
-            return await self.aput_list(key, val, flags)
+            return await self.put_list(key, val, flags)
         if is_frid_skmap(val):
-            return await self.aput_dict(key, val, flags)
+            return await self.put_dict(key, val, flags)
         redis_name = self._key_name(key)
         nx = bool(flags & VSPutFlag.NO_CHANGE)
         xx = bool(flags & VSPutFlag.NO_CREATE)
