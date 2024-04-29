@@ -7,7 +7,7 @@ from logging import error
 import redis
 from redis import asyncio as async_redis
 
-from ..typing import MISSING, MissingType
+from ..typing import MISSING, FridBeing, MissingType
 from ..typing import FridArray, FridSeqVT, FridTypeSize, FridValue, StrKeyMap
 from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap, is_list_like
 from ..strops import escape_control_chars
@@ -22,10 +22,11 @@ _Self = TypeVar('_Self', bound='_RedisBaseStore')  # TODO: remove this in 3.11
 
 class _RedisBaseStore(BinaryStoreMixin):
     NAMESPACE_SEP = '\t'
-    def __init__(self, *, name_prefix: str='',
-                 frid_prefix: bytes=b'#!', blob_prefix: bytes|None=b'#=',
+    def __init__(self, *, name_prefix: str='', frid_prefix: bytes=b'#!',
+                 text_prefix: bytes|None=b'', blob_prefix: bytes|None=b'#=',
                  **kwargs):
-        super().__init__(frid_prefix=frid_prefix, blob_prefix=blob_prefix, **kwargs)
+        super().__init__(frid_prefix=frid_prefix, text_prefix=text_prefix,
+                         blob_prefix=blob_prefix,  **kwargs)
         self._name_prefix = name_prefix
 
     def substore(self: _Self, name: str, *args: str) -> _Self:
@@ -93,7 +94,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
     def __init__(self, host: str|None=None, port: int=0,
                  username: str|None=None, password: str|None=None,
                  *, parent: 'RedisValueStore|None'=None, **kwargs):
-        super().__init__(parent=parent, **kwargs)
+        super().__init__(**kwargs)
         if isinstance(parent, self.__class__):
             self._redis = parent._redis
         else:
@@ -190,12 +191,12 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         return bool(self._check_type(result, int, 0))
     def put_dict(self, key: VStoreKey, val: StrKeyMap, /, flags=VSPutFlag.UNCHECKED) -> bool:
         redis_name = self._key_name(key)
-        if not isinstance(val, dict):
-            val = dict(val)
+        encoded_val = {k: v.strfr() if isinstance(v, FridBeing) else self._encode(v)
+                       for k, v in val.items() if v is not MISSING}
         if flags & VSPutFlag.KEEP_BOTH and not (
             flags & (VSPutFlag.NO_CHANGE | VSPutFlag.NO_CREATE)
         ):
-            result = self._redis.hset(redis_name, mapping=val)
+            result = self._redis.hset(redis_name, mapping=encoded_val)
         else:
             with self.get_lock(redis_name):
                 if self._redis.exists(redis_name):
@@ -205,7 +206,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
                 else:
                     if flags & VSPutFlag.NO_CREATE:
                         return False
-                result = self._redis.hset(redis_name, mapping=val)
+                result = self._redis.hset(redis_name, mapping=encoded_val)
         return bool(self._check_type(result, int, 0))
     def put_frid(self, key: VStoreKey, val: FridValue, /, flags=VSPutFlag.UNCHECKED) -> bool:
         if is_frid_array(val):
@@ -292,10 +293,10 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
     def __init__(self, host: str|None=None, port: int=0,
                  username: str|None=None, password: str|None=None,
                  *, parent: 'RedisAsyncStore|None'=None, **kwargs):
+        super().__init__(**kwargs)
         if isinstance(parent, self.__class__):
             self._aredis = parent._aredis
         else:
-            super().__init__(**kwargs)
             assert host is not None
             self._aredis = async_redis.Redis(host=host, port=port,
                                              username=username, password=password)

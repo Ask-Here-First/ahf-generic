@@ -425,8 +425,10 @@ class BinaryStoreMixin:
             val = bytes(val)
         for prefix, decode in self._decoders.items():
             content = self._remove_header(val, prefix)
+            # print("<>", prefix, decode, val, "=>", content)
             if content is not None:
                 return decode(content)
+        print("!!!", self._decoders)
         raise ValueError(f"Invalid byte encoding of {len(val)} bytes")
     def _decode_frid(self, val: bytes, /) -> FridValue:
         """Decode the value as the generic frid representation."""

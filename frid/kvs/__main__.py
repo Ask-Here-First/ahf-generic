@@ -220,10 +220,9 @@ class VStoreTest(unittest.TestCase):
             store = RedisAsyncStore(
                 host=host, port=int(os.getenv('REDIS_KVS_PORT', 6379)),
                 username=os.getenv('REDIS_KVS_USER'), password=os.getenv('REDIS_KVS_PASS'),
-                loop=loop,
             ).substore("UNITTEST")
             loop.run_until_complete(store.awipe_all())
-            self.do_test_store(AsyncProxyValueStore(store), no_proxy=True)
+            self.do_test_store(AsyncProxyValueStore(store, loop=loop), no_proxy=True)
             loop.run_until_complete(store.awipe_all())
             loop.run_until_complete(store.finalize())
         finally:
