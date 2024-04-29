@@ -1,10 +1,12 @@
 import os, asyncio, unittest
 from concurrent.futures import ThreadPoolExecutor
 
+
 from ..typing import MISSING
 from .store import VSPutFlag, ValueStore
 from .basic import MemoryValueStore
 from .proxy import AsyncProxyValueStore, ValueProxyAsyncStore
+from .files import FileIOValueStore
 
 class VStoreTest(unittest.TestCase):
     def check_text_store(self, store: ValueStore):
@@ -171,6 +173,22 @@ class VStoreTest(unittest.TestCase):
         self.do_test_store(store)
         self.assertFalse(store.all_data())
         store.finalize()
+
+    def test_fileio_store(self):
+        root_dir = "/tmp/VStoreTest"
+        sub_name = "UNITTEST"
+        store = FileIOValueStore(root=root_dir).substore(sub_name)
+        sub_root = os.path.join(root_dir, sub_name + ".dir")
+        self.assertTrue(os.path.isdir(sub_root), f"{root_dir=}")
+        for name in os.listdir(sub_root):
+            path = os.path.join(sub_root, name)
+            if os.path.isfile(path):
+                os.unlink(path)
+        self.assertFalse(os.listdir(sub_root))
+        self.do_test_store(store)
+        self.assertFalse(os.listdir(sub_root))
+        os.rmdir(sub_root)
+        os.rmdir(root_dir)
 
     def test_sync_redis_store(self):
         try:

@@ -343,18 +343,17 @@ class BinaryStoreMixin:
         """
         if isinstance(data, str):
             if self._text_prefix is not None:
-                b = data.encode()
+                b = self._encode_text(data)
                 if without_header:
                     return b
                 if (out := self._insert_header(b, self._text_prefix)):
                     return out
         elif isinstance(data, BlobTypes):
             if self._blob_prefix is not None:
+                b = self._encode_blob(data)
                 if without_header:
-                    return data
-                if self._blob_prefix:
-                    return self._blob_prefix + self._encode_blob(data)
-                if (out := self._insert_header(data, self._blob_prefix)):
+                    return b
+                if (out := self._insert_header(b, self._blob_prefix)):
                     return out
         elif is_frid_array(data):
             if self._list_prefix is not None:
@@ -425,8 +424,9 @@ class BinaryStoreMixin:
         if isinstance(val, memoryview|bytearray):  # pragma: no cover -- should not happen
             val = bytes(val)
         for prefix, decode in self._decoders.items():
-            if val.startswith(prefix):
-                return decode(val[len(prefix):])
+            content = self._remove_header(val, prefix)
+            if content is not None:
+                return decode(content)
         raise ValueError(f"Invalid byte encoding of {len(val)} bytes")
     def _decode_frid(self, val: bytes, /) -> FridValue:
         """Decode the value as the generic frid representation."""
@@ -499,8 +499,15 @@ class StreamStoreMixin(BinaryStoreMixin, _SimpleBaseStore[bytes]):
             assert len(prefix) == n + 4 + len(self._header_link)
             typ = prefix[n:(n + 4)]
         result = self._create_header(typ)
-        assert len(result) == self._header_size + len(val)
-        return result
+        assert len(result) == self._header_size
+        return result + val
+
+    def _remove_header(self, val: bytes, prefix: bytes) -> bytes|None:
+        if not val.startswith(prefix):
+            return None
+        if not self._get_header_type(val):
+            return None
+        return val[self._header_size:]
 
     ModReturnType = tuple[bytes,bool|None]|FridBeing
     def _add_new(self, old: bytes|MissingType, new: FridValue) -> ModReturnType:

@@ -21,27 +21,33 @@ class OpenMode(Flag):
     NO_CREATE = 0x40
     NO_CHANGE = 0x20
 
+    def __bool__(self):
+        return bool(self.value)
+
 class AbstractStreamAgent(ABC):
     def __enter__(self):
         return self
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
     @abstractmethod
-    def get(self, index: int=0, until: int=0, /) -> bytes|MissingType:
+    def get(self, index: int=0, until: int=0, /) -> bytes|None:
         """Gets the binary content, starting from `index`, to the byte up to `until`.
-        - If `until` is zero, read to the end.
-        - Neither `index` nor `until` can be negative.
-        - Returns None if file is missing to get or empty if file exists but no data.
+        - If `until` is zero, read to the end of stream.
+        - If `index` is negative, the offset is starting from the end (only if the stream
+          is seekable).
+        - Returns None if file is missing, or empty if file exists but no data in the range.
         """
         raise NotImplementedError
     @abstractmethod
     def put(self, blob: BlobTypes|FridBeing|None, /) -> bool:
         """Puts the text into the store.
-        It accept following values for `blob`:
+        It accepts following values for `blob`:
         - A binary string: write the binary string to the current writing position.
-        - None: reset the writing position to the beginning (i.e., truncate).
-        - PRESENT: use the present value (i.e., rollback)
-        - MISSING: delete the present value without any new value.
+        - None: erase all data and reset the writing position to the beginning
+          (i.e., truncate to zero), or alternative delete the current stream and
+          create a new stream over it.
+        - PRESENT: use the present stream without (further) changes.
+        - MISSING: delete the present stream without any new value.
         """
         raise NotImplementedError
 
@@ -64,29 +70,34 @@ class StreamValueStore(StreamStoreMixin, SimpleValueStore):
     def _get(self, key: str) -> BlobTypes|MissingType:
         try:
             with self._open(key, OpenMode.READ_ONLY) as h:
-                return h.get()
+                result = h.get()
+                return MISSING if result is None else result
         except FileNotFoundError:
             return MISSING
     def _put(self, key: str, blob: BlobTypes) -> bool:
         try:
             with self._open(key, OpenMode.OVERWRITE) as h:
+                if not h.put(None):
+                    return False
                 return h.put(blob)
         except Exception:
-            error(f"Failed to put to {key}")
+            error(f"Failed to put the value for the key '{key}'")
             return False
     def _rmw(self, key: str, mod: ModFunc[bytes,_P],
              /, flags: VSPutFlag, *args: _P.args, **kwargs: _P.kwargs) -> bool:
         try:
             with self._open(key, self._put_flags_to_open_mode(flags)) as h:
-                b = h.get(0, self._header_size)
-                if not flags & VSPutFlag.KEEP_BOTH:
+                if flags & VSPutFlag.KEEP_BOTH:
+                    header = h.get(0, self._header_size)
+                    b = MISSING if header is None else header
+                else:
                     b = MISSING
                 result = mod(b, *args, **kwargs)
                 if isinstance(result, tuple):
                     (_, op) = result
                     if op is None and b is not MISSING:
                         x = h.get(self._header_size)
-                        assert x is not MISSING
+                        assert x is not None
                         result = mod(b + x, *args, **kwargs)
                 if result is PRESENT:
                     return h.put(PRESENT)
@@ -96,14 +107,19 @@ class StreamValueStore(StreamStoreMixin, SimpleValueStore):
                 (new_val, op) = result
                 if op is None:
                     return h.put(PRESENT)
-                if op and not h.put(None):
+                if op:
+                    return h.put(new_val)  # Append
+                if not h.put(None):
                     return h.put(PRESENT)
                 return h.put(new_val)
+        except (FileExistsError, FileNotFoundError):
+            return False
         except Exception:
             error(f"Failed to write to {key}", exc_info=True)
             return False
 
 class FileIOAgent(AbstractStreamAgent):
+    """The implementation of Stream Agent that uses local files."""
     def __init__(self, file: BinaryIO, kvs_path: str, tmp_path: str|None=None,
                  has_data: bool=False):
         self.file = file
@@ -134,8 +150,7 @@ class FileIOAgent(AbstractStreamAgent):
             until = fsize + index
         if index >= until:
             return b''
-        if index > 0:
-            self.file.seek(index, 0)
+        self.file.seek(max(index, 0), os.SEEK_SET)
         if until < fsize:
             return self.file.read(until - index)
         return self.file.read()
@@ -156,6 +171,7 @@ class FileIOAgent(AbstractStreamAgent):
 
 
 class FileDeleter:
+    """A simple context provider that delete the a file on exit."""
     def __init__(self, path: str):
         self._path = path
     def __enter__(self):
@@ -167,6 +183,7 @@ class FileDeleter:
             error(f"Failed to delete {self._path}", exc_info=True)
 
 class FileIOValueStore(StreamValueStore):
+    """File based value store."""
     def __init__(self, root: os.PathLike|str, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._root = os.path.abspath(root)
@@ -205,6 +222,10 @@ class FileIOValueStore(StreamValueStore):
         return os.path.join(*(self._encode_name(str(k)) for k in key))
 
     def _get_path_pairs(self, key: str) -> tuple[str,str]:
+        """Returns a pair of paths for the given key.
+        - The file used to store the value for this key.
+        - The temporary file for updating.
+        """
         path = os.path.join(self._root, key)
         dir = os.path.dirname(path)
         if not os.path.isdir(dir):
@@ -212,10 +233,10 @@ class FileIOValueStore(StreamValueStore):
         return (path + ".kvs", path + ".tmp")
 
     def _get_read_agent(self, kvs_path, tmp_path):
-        count = 60
+        count = 300
         while True:
             try:
-                return FileIOAgent(open(kvs_path, mode='rb'), kvs_path)
+                return FileIOAgent(open(kvs_path, mode='rb'), kvs_path, has_data=True)
             except FileNotFoundError:
                 if os.path.exists(tmp_path):
                     count -= 1
@@ -236,6 +257,8 @@ class FileIOValueStore(StreamValueStore):
         while True:
             match os.name:
                 case 'posix':
+                    # For posix, since rename always result in replacing silently
+                    # We create the destination file in exclusive mode then rename.
                     try:
                         f = open(new_path, "xb")
                     except FileExistsError:
@@ -252,6 +275,10 @@ class FileIOValueStore(StreamValueStore):
                             f.close()
                             return None
                 case 'nt':
+                    # For Windows, since rename will fail when destination exists,
+                    # We do that first. If the old path is missing we create the
+                    # new path, but chak the existence of the old path again to
+                    # make sure that it is still missing.
                     try:
                         os.rename(old_path, new_path)
                     except FileNotFoundError:
@@ -289,6 +316,7 @@ class FileIOValueStore(StreamValueStore):
                 # The value does not exist
                 if mode & OpenMode.NO_CREATE:
                     file.close()
+                    os.unlink(tmp_path)
                     raise FileNotFoundError(kvs_path)
         if file is not None:
             return FileIOAgent(file, kvs_path, tmp_path, False)

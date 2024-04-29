@@ -20,6 +20,9 @@ class VSPutFlag(Flag):
     KEEP_BOTH = 0x10    # Keep both existing data and new data, using frid_merge()
     # TODO additional flags to pass to for frid_merge()
 
+    def __bool__(self):
+        return bool(self.value)
+
 _T = TypeVar('_T')
 
 def check_flags(flags: VSPutFlag, total_count: int, exist_count: int) -> bool:
