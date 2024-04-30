@@ -70,26 +70,6 @@ class _RedisBaseStore(BinaryStoreMixin):
         raise ValueError(f"Incorrect Redis type {type(data)}; expect string") # pragma: no cover
         return None  # pragma: no cover
 
-    def _decode(self, data, /, alt: _T=MISSING) -> FridValue|_T:
-        # Note: data should be binary but string can also be processed.
-        # However, due to issues with Redis-py typing, we don't specify the type for data
-        if data is None:
-            return alt
-        return super()._decode(data)
-    def _decode_list(self, data) -> list[FridValue]:
-        if not isinstance(data, Iterable):
-            return []   # pragma: no cover -- should not happen
-        # It should not have None is data, so it does not matter what alt is
-        return [self._decode(x, None) for x in data]
-    def _decode_dict(self, data) -> dict[str,FridValue]|None:
-        out = {}
-        for k, v in as_kv_pairs(data):
-            key = self._check_text(k)
-            val = self._decode(v)
-            if key is not None and val is not MISSING:
-                out[key] = val
-        return out
-
 class RedisValueStore(_RedisBaseStore, ValueStore):
     def __init__(self, host: str|None=None, port: int=0,
                  username: str|None=None, password: str|None=None,
@@ -121,10 +101,10 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
             return ('list', self._check_type(self._redis.llen(name), int, 0))
         if t == 'hash':
             return ('dict', self._check_type(self._redis.hlen(name), int, 0))
-        data: FridValue|MissingType = self._decode(self._redis.get(name))
-        if data is MISSING:
-            return None  # pragma: no cover -- this should not happen
-        return frid_type_size(data)
+        data: bytes|None = self._redis.get(name) # type: ignore
+        if data is None:
+            return None
+        return frid_type_size(self._decode(data))
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return {k: v for k in utils.list_concat(args, keys)
@@ -132,29 +112,32 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
     def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=MISSING) -> FridValue|_T:
         redis_name = self._key_name(key)
         if sel is None:
-            return self._decode_list(self._redis.lrange(redis_name, 0, -1))
+            seq: Sequence = self._redis.lrange(redis_name, 0, -1)  # type: ignore
+            return [self._decode_frid(x) for x in seq]
         if isinstance(sel, int):
-            return self._decode(self._redis.lindex(redis_name, sel), alt)
+            val: bytes = self._redis.lindex(redis_name, sel)  # type: ignore
+            return self._decode_frid(val) if val is not None else alt
         (first, last) = utils.list_bounds(sel)
-        data = self._redis.lrange(redis_name, first, last)
-        assert isinstance(data, Sequence)
+        seq = self._redis.lrange(redis_name, first, last)  # type: ignore
+        assert isinstance(seq, Sequence)
         if isinstance(sel, slice) and sel.step is not None and sel.step != 1:
-            data = data[::sel.step]
-        return self._decode_list(data)
-        raise ValueError(f"Invalid list selector type {type(sel)}: {sel}")  # pragma: no cover
+            seq = seq[::sel.step]
+        return [self._decode_frid(x) for x in seq]
     def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt: _T=MISSING) -> FridValue|_T:
         redis_name = self._key_name(key)
         if sel is None:
-            return self._decode_dict(self._redis.hgetall(redis_name))
+            map: Mapping = self._redis.hgetall(redis_name) # type: ignore
+            return {k.decode(): self._decode_frid(v) for k, v in map.items()}
         if isinstance(sel, str):
-            return self._decode(self._redis.hget(redis_name, sel), alt)
+            val: bytes|None = self._redis.hget(redis_name, sel) # type: ignore
+            return self._decode_frid(val) if val is not None else alt
         if isinstance(sel, Sequence):
             if not isinstance(sel, list):
                 sel = list(sel)  # pragma: no cover
-            data = self._redis.hmget(redis_name, sel)
-            assert is_list_like(data)
-            return {k: self._decode(v) for i, k in enumerate(sel)
-                    if (v := data[i]) is not None}
+            seq = self._redis.hmget(redis_name, sel) # type: ignore
+            assert is_list_like(seq)
+            return {k: self._decode_frid(v) for i, k in enumerate(sel)
+                    if (v := seq[i]) is not None}
         raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")  # pragma: no cover
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
         if sel is not None:
@@ -169,10 +152,11 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
             return self.get_list(key, cast(VSListSel, sel))
         if t == 'hash':
             return self.get_dict(key, sel)
-        return self._decode(self._redis.get(redis_name))
+        data: bytes|None = self._redis.get(redis_name) # type: ignore
+        return self._decode(data) if data is not None else MISSING
     def put_list(self, key: VStoreKey, val: FridArray, /, flags=VSPutFlag.UNCHECKED) -> bool:
         redis_name = self._key_name(key)
-        encoded_val = [self._encode(x) for x in val]
+        encoded_val = [self._encode_frid(x) for x in val]
         if flags & VSPutFlag.KEEP_BOTH and not (flags & VSPutFlag.NO_CHANGE):
             if flags & VSPutFlag.NO_CREATE:
                 result = self._redis.rpushx(redis_name, *encoded_val)  # type: ignore
@@ -191,7 +175,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         return bool(self._check_type(result, int, 0))
     def put_dict(self, key: VStoreKey, val: StrKeyMap, /, flags=VSPutFlag.UNCHECKED) -> bool:
         redis_name = self._key_name(key)
-        encoded_val = {k: v.strfr() if isinstance(v, FridBeing) else self._encode(v)
+        encoded_val = {k: v.strfr() if isinstance(v, FridBeing) else self._encode_frid(v)
                        for k, v in val.items() if v is not MISSING}
         if flags & VSPutFlag.KEEP_BOTH and not (
             flags & (VSPutFlag.NO_CHANGE | VSPutFlag.NO_CREATE)
@@ -218,9 +202,9 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         xx = bool(flags & VSPutFlag.NO_CREATE)
         if flags & VSPutFlag.KEEP_BOTH:
            with self.get_lock():
-               data = self._redis.get(redis_name)
+               data: bytes|None = self._redis.get(redis_name) # type: ignore
                return self._check_bool(self._redis.set(redis_name, self._encode(
-                   frid_merge(self._decode(data), val)
+                   frid_merge(self._decode(data), val) if data is not None else val
                ), nx=nx, xx=xx))
         return self._check_bool(self._redis.set(
             redis_name, self._encode(val), nx=nx, xx=xx
@@ -273,7 +257,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         data = self._redis.mget(redis_keys)
         if not isinstance(data, Iterable):
             return [alt] * len(redis_keys)
-        return [self._decode(x, alt) for x in data]
+        return [self._decode(x) if x is not None else alt for x in data]
     def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         pairs = as_kv_pairs(data)
         req = {self._key_name(k): self._encode(v) for k, v in pairs}
@@ -314,7 +298,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         return self._aredis.lock((name or "*GLOBAL*") + "\v*LOCK*")
     async def finalize(self):
         await self._aredis.aclose()
-    async def _aget_name_meta(self, name: str) -> FridTypeSize|None:
+    async def _get_name_meta(self, name: str) -> FridTypeSize|None:
         t = await self._aredis.type(name)
         if t is None:
             return None
@@ -325,46 +309,45 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         if t == 'hash':
             result = await self._aredis.hlen(name)  # type: ignore
             return ('dict', self._check_type(result, int, 0))
-        data: FridValue|MissingType = self._decode(await self._aredis.get(name))
-        if data is MISSING:
-            return None  # pragma: no cover -- this should not happen
-        return frid_type_size(data)
+        data: bytes|None = await self._aredis.get(name)
+        if data is None:
+            return None
+        return frid_type_size(self._decode(data))
     async def get_meta(self, *args: VStoreKey,
                        keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return {k: v for k in utils.list_concat(args, keys)
-                if (v := await self._aget_name_meta(self._key_name(k))) is not None}
+                if (v := await self._get_name_meta(self._key_name(k))) is not None}
     async def get_list(self, key: VStoreKey, sel: VSListSel=None,
                         /, alt: _T=MISSING) -> FridValue|_T:
         redis_name = self._key_name(key)
         if sel is None:
-            result = await self._aredis.lrange(redis_name, 0, -1) # type: ignore
-            return self._decode_list(result)
+            seq: Sequence = await self._aredis.lrange(redis_name, 0, -1) # type: ignore
+            return [self._decode(x) for x in seq]
         if isinstance(sel, int):
-            result = await self._aredis.lindex(redis_name, sel)  # type: ignore
-            return self._decode(result, alt)
+            val: bytes|None = await self._aredis.lindex(redis_name, sel)  # type: ignore
+            return self._decode_frid(val) if val is not None else alt
         (first, last) = utils.list_bounds(sel)
-        result = await self._aredis.lrange(redis_name, first, last) # type: ignore
-        assert isinstance(result, Sequence)
+        seq = await self._aredis.lrange(redis_name, first, last) # type: ignore
+        assert isinstance(seq, Sequence)
         if isinstance(sel, slice) and sel.step is not None and sel.step != 1:
-            result = result[::sel.step]
-        return self._decode_list(result)
-        raise ValueError(f"Invalid list selector type {type(sel)}: {sel}")  # pragma: no cover
+            seq = seq[::sel.step]
+        return [self._decode(x) for x in seq]
     async def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
                         /, alt: _T=MISSING) -> FridValue|_T:
         redis_name = self._key_name(key)
         if sel is None:
-            data = await self._aredis.hgetall(redis_name) # type: ignore
-            return self._decode_dict(data)
+            map = await self._aredis.hgetall(redis_name) # type: ignore
+            return {k.decode(): self._decode_frid(v) for k, v in map.items()}
         if isinstance(sel, str):
-            data = await self._aredis.hget(redis_name, sel) # type: ignore
-            return self._decode(data, alt)
+            val: bytes = await self._aredis.hget(redis_name, sel) # type: ignore
+            return self._decode_frid(val) if val is not None else alt
         if isinstance(sel, Sequence):
             if not isinstance(sel, list):
                 sel = list(sel)  # pragma: no cover
-            data = await self._aredis.hmget(redis_name, sel) # type: ignore
-            assert is_list_like(data)
-            return {k: self._decode(v) for i, k in enumerate(sel)
-                    if (v := data[i]) is not None}
+            seq = await self._aredis.hmget(redis_name, sel) # type: ignore
+            assert is_list_like(seq)
+            return {k: self._decode_frid(v) for i, k in enumerate(sel)
+                    if (v := seq[i]) is not None}
         raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")  # pragma: no cover
     async def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
         if sel is not None:
@@ -379,11 +362,12 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             return await self.get_list(key, cast(VSListSel, sel))
         if t == 'hash':
             return await self.get_dict(key, sel)
-        return self._decode(await self._aredis.get(redis_name))
+        data = await self._aredis.get(redis_name)
+        return self._decode(data) if data is not None else MISSING
     async def put_list(self, key: VStoreKey, val: FridArray,
                        /, flags=VSPutFlag.UNCHECKED) -> bool:
         redis_name = self._key_name(key)
-        encoded_val = [self._encode(x) for x in val]
+        encoded_val = [self._encode_frid(x) for x in val]
         if flags & VSPutFlag.KEEP_BOTH and not (flags & VSPutFlag.NO_CHANGE):
             if flags & VSPutFlag.NO_CREATE:
                 result = await self._aredis.rpushx(redis_name, *encoded_val) # type: ignore
@@ -404,7 +388,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             self, key: VStoreKey, val: StrKeyMap, /, flags=VSPutFlag.UNCHECKED
     ) -> bool:
         redis_name = self._key_name(key)
-        encoded_val = {k: v.strfr() if isinstance(v, FridBeing) else self._encode(v)
+        encoded_val = {k: v.strfr() if isinstance(v, FridBeing) else self._encode_frid(v)
                        for k, v in val.items() if v is not MISSING}
         if flags & VSPutFlag.KEEP_BOTH and not (
             flags & (VSPutFlag.NO_CHANGE | VSPutFlag.NO_CREATE)
@@ -434,12 +418,12 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
            async with self.get_lock():
                data = await self._aredis.get(redis_name)
                return self._check_bool(await self._aredis.set(redis_name, self._encode(
-                   frid_merge(self._decode(data), val)
+                   frid_merge(self._decode(data), val) if data is not None else val
                ), nx=nx, xx=xx))
         return self._check_bool(await self._aredis.set(
             redis_name, self._encode(val), nx=nx, xx=xx
         ))
-    async def adel_list(self, key: VStoreKey, sel: VSListSel=None, /) -> bool:
+    async def del_list(self, key: VStoreKey, sel: VSListSel=None, /) -> bool:
         redis_name = self._key_name(key)
         if sel is None:
             return bool(self._check_type(await self._aredis.delete(redis_name), int, 0))
@@ -461,7 +445,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
                 await self._aredis.rpush(redis_name, *result) # type: ignore
                 return True
             return False
-    async def adel_dict(self, key: VStoreKey, sel: VSDictSel=None, /) -> bool:
+    async def del_dict(self, key: VStoreKey, sel: VSDictSel=None, /) -> bool:
         redis_name = self._key_name(key)
         if sel is None:
             result = await self._aredis.delete(redis_name)
@@ -479,9 +463,9 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         redis_name = self._key_name(key)
         if sel is not None:
             if utils.is_list_sel(sel):
-                return await self.adel_list(key, sel)
+                return await self.del_list(key, sel)
             if utils.is_dict_sel(sel):
-                return await self.adel_dict(key, sel)
+                return await self.del_dict(key, sel)
             raise ValueError(f"Invalid selector type {type(sel)}: {sel}")  # pragma: no cover
         return bool(self._check_type(await self._aredis.delete(redis_name), int, 0))
     async def get_bulk(self, keys: Iterable[VStoreKey],
@@ -490,7 +474,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         data = await self._aredis.mget(redis_keys)
         if not isinstance(data, Iterable):
             return [alt] * len(redis_keys)
-        return [self._decode(x, alt) for x in data]
+        return [self._decode(x) if x is not None else alt for x in data]
     async def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         pairs = as_kv_pairs(data)
         req = {self._key_name(k): self._encode(v) for k, v in pairs}
