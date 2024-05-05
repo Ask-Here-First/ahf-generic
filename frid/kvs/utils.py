@@ -1,9 +1,9 @@
 from collections.abc import Iterable, Mapping, Sequence
 from enum import Flag
-from typing import Any, TypeGuard, TypeVar
+from typing import Any, TypeGuard, TypeVar, cast
 
 from ..typing import MISSING, FridBeing, FridValue, MissingType
-from ..guards import is_list_like
+from ..guards import is_frid_array, is_frid_skmap, is_list_like
 
 
 VStoreKey = str|tuple[str|int,...]
@@ -111,7 +111,22 @@ def dict_select(
     if isinstance(sel, Iterable):
         return {k: v for k in val if not isinstance((v := val.get(k, MISSING)), FridBeing)}
     raise ValueError(f"Invalid selector type {type(sel)}")
-@staticmethod
+
+def frid_select(val: FridValue, sel: VStoreSel) -> FridValue|MissingType:
+    """Returns sublist/subdict of `val` according to the selector `sel`."""
+    if sel is None:
+        return val
+    if isinstance(val, Mapping):
+        out = dict_select(val, cast(str|Iterable[str], sel))
+    elif isinstance(val, Sequence):
+        out = list_select(val, cast(int|slice|tuple[int,int], sel))
+    else:
+        raise ValueError(f"Selector is not None for data type {type(val)}")
+    if out is MISSING:
+        return MISSING
+    assert not isinstance(out, FridBeing)
+    return out
+
 def list_delete(val: list, sel: int|slice|tuple[int,int]) -> int:
     """Deletes the selected items in the list.
     - Returns the number of items deleted.
@@ -139,3 +154,19 @@ def dict_delete(val: dict[str,Any], sel: str|Iterable[str]) -> int:
         return 0 if val.pop(sel, MISSING) is MISSING else 1
     return sum(bool(val.pop(k, MISSING) is not MISSING) for k in sel)
 
+def frid_delete(data: _T, sel: VStoreSel) -> tuple[_T|list|dict[str,Any],int]:
+    """Deletes sublist/subdict of `val` according to the selector `sel`.
+    - Returns a pair of updated data and number of deleted items.
+    This function will change data if the data is a list of a dict.
+    """
+    if sel is None:
+        return (data, 0)
+    if is_frid_skmap(data):
+        new_dict = data if isinstance(data, dict) else  dict(data)
+        cnt = dict_delete(new_dict, cast(str|Iterable[str], sel))
+        return (new_dict, cnt)
+    if is_frid_array(data):
+        new_list = data if isinstance(data, list) else list(data)
+        cnt = list_delete(new_list, cast(int|slice|tuple[int,int], sel))
+        return (new_list, cnt)
+    raise ValueError(f"Data type {type(data)} does not support partial removal")

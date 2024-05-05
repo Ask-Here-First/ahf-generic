@@ -4,8 +4,8 @@ It will derive a memory based store from there
 import asyncio, threading
 from dataclasses import dataclass, field
 from abc import abstractmethod
-from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import Any, Concatenate, Generic, ParamSpec, TypeVar, cast
+from collections.abc import Callable, Iterable, Mapping
+from typing import Any, Concatenate, Generic, ParamSpec, TypeVar
 
 from ..typing import MISSING, PRESENT, BlobTypes, FridArray, FridBeing, MissingType, StrKeyMap
 from ..typing import FridTypeSize, FridValue
@@ -16,9 +16,8 @@ from ..helper import frid_merge, frid_type_size
 from ..strops import escape_control_chars, revive_control_chars
 from ..dumper import dump_into_str
 from ..loader import load_from_str
-from . import utils
 from .store import AsyncStore, ValueStore
-from .utils import VSPutFlag, VStoreKey, VStoreSel
+from .utils import VSPutFlag, VStoreKey, VStoreSel, frid_delete, frid_select, list_concat
 
 _T = TypeVar('_T')
 _E = TypeVar('_E')   # The encoding type
@@ -76,19 +75,7 @@ class _SimpleBaseStore(Generic[_E]):
 
     def _get_sel(self, val: _E, sel: VStoreSel, /) -> FridValue|MissingType:
         """Gets selection for an general value."""
-        data = self._decode(val)
-        if sel is None:
-            return data
-        if isinstance(data, Mapping):
-            out = utils.dict_select(data, cast(str|Iterable[str], sel))
-        elif isinstance(data, Sequence):
-            out = utils.list_select(data, cast(int|slice|tuple[int,int], sel))
-        else:
-            raise ValueError(f"Selector is not None for data type {type(val)}")
-        if out is MISSING:
-            return MISSING
-        assert not isinstance(out, FridBeing)
-        return out
+        return frid_select(self._decode(val), sel)
     def _add_new(self, old: _E|MissingType, new: FridValue) -> _E|FridBeing:
         """Adds the `new` value into the `old` values (which can be MISSING).
         - Return he updated value (with PRESENT for no change and MISSING to delete entry).
@@ -106,16 +93,7 @@ class _SimpleBaseStore(Generic[_E]):
         if val is MISSING:
             return MISSING
         data = self._decode(val)
-        if is_frid_skmap(data):
-            if not isinstance(data, dict):
-                data = dict(data)
-            cnt = utils.dict_delete(data, cast(str|Iterable[str], sel))
-        elif is_frid_array(data):
-            if not isinstance(data, list):
-                data = list(data)
-            cnt = utils.list_delete(data, cast(int|slice|tuple[int,int], sel))
-        else:
-            raise ValueError(f"Data type {type(data)} does not support partial removal")
+        (data, cnt) = frid_delete(data, sel)
         if cnt == 0:
             return PRESENT
         return self._encode(data)
@@ -227,7 +205,7 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
         return self._meta.tlock
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
-        return {k: frid_type_size(v) for k in utils.list_concat(args, keys)
+        return {k: frid_type_size(v) for k in list_concat(args, keys)
                 if (v := self._get(self._key_str(k))) is not MISSING}
 
     def _get(self, key: str, /) -> FridValue|MissingType:
