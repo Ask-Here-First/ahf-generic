@@ -1,6 +1,8 @@
 import os, asyncio, unittest
 from concurrent.futures import ThreadPoolExecutor
 
+from sqlalchemy import null
+
 
 from ..typing import MISSING
 from .store import VSPutFlag, ValueStore
@@ -231,6 +233,38 @@ class VStoreTest(unittest.TestCase):
         finally:
             loop.run_until_complete(loop.shutdown_default_executor())
             loop.close()
+
+    def create_sqlite_table(self, dbfile: str, dburl: str, **kwargs):
+        self.remove_sqlite_dbfile(dbfile)
+        from sqlalchemy import create_engine, MetaData, Table, Column, String
+        engine = create_engine(dburl, **kwargs)
+        metadata = MetaData()
+        table = Table(
+            "test_table", metadata,
+            Column('id', String, primary_key=True),
+            Column('frid', String),
+            Column('key0', String, default=null(), nullable=True),
+        )
+        metadata.create_all(engine)
+        return table
+
+    def remove_sqlite_dbfile(self, dbfile: str):
+        try:
+            os.unlink(dbfile)
+        except Exception:
+            pass
+
+    def test_sync_dbsql_store(self):
+        try:
+            from .dbsql import DbsqlValueStore
+        except Exception:
+            return
+        dbfile = "/tmp/VStoreTest.sdb"
+        dburl = "sqlite+pysqlite:///" + dbfile
+        table = self.create_sqlite_table(dbfile, dburl, echo=False)
+        store = DbsqlValueStore(dburl, table, frid_field=True, echo=False)
+        self.do_test_store(store)
+        self.remove_sqlite_dbfile(dbfile)
 
 if __name__ == '__main__':
     unittest.main()
