@@ -134,9 +134,6 @@ class ValueStore(_BaseStore):
             # If Atomicity for bulk is set and any other flags are set, we need to check
             return sum(int(self.put_frid(k, v, flags)) for k, v in pairs)
     def del_bulk(self, keys: Iterable[VStoreKey]) -> int:
-        """Deletes the keys from the storage and returns the number of keys deleted.
-        - Returns the number of keys deleted from the store.
-        """
         with self.get_lock():
             return sum(int(self.del_frid(k)) for k in keys)
     def get_text(self, key: VStoreKey, /, alt: _T=None) -> str|_T:

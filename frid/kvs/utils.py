@@ -23,6 +23,7 @@ class VSPutFlag(Flag):
     def __bool__(self):
         return bool(self.value)
 
+_K = TypeVar('_K')
 _T = TypeVar('_T')
 
 def check_flags(flags: VSPutFlag, total_count: int, exist_count: int) -> bool:
@@ -78,7 +79,7 @@ def fix_indexes(sel: tuple[int,int], val_len: int):
             until = 0
     return (index, until)
 
-def list_concat(list1: Iterable[_T]|None=None, list2: Iterable[_T]|None=None) -> Iterable[_T]:
+def list_concat(list1: Iterable[_T]|None, list2: Iterable[_T]|None) -> Iterable[_T]:
     if list2 is None:
         return [] if list1 is None else list1
     if list1 is None:
@@ -86,6 +87,16 @@ def list_concat(list1: Iterable[_T]|None=None, list2: Iterable[_T]|None=None) ->
     list0 = list(list1)
     list0.extend(list2)
     return list0
+
+def dict_concat(map1: Mapping[_K,_T]|None, map2: Mapping[_K,_T]|None) -> Mapping[_K,_T]:
+    """Merges the two dictionary into a single one."""
+    if map1 is None:
+        return map2 if map2 is not None else {}
+    if map2 is None:
+        return map1
+    m = dict(map1)
+    m.update(map2)
+    return m
 
 def list_select(
     val: Sequence[_T], sel: int|slice|tuple[int,int]

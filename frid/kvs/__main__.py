@@ -217,10 +217,10 @@ class VStoreTest(unittest.TestCase):
             from .redis import RedisAsyncStore
         except Exception:
             return
-        loop = asyncio.new_event_loop()
         host = os.getenv('REDIS_KVS_HOST')
         if not host:
             return
+        loop = asyncio.new_event_loop()
         try:
             store = RedisAsyncStore(
                 host=host, port=int(os.getenv('REDIS_KVS_PORT', 6379)),

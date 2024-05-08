@@ -20,7 +20,7 @@ from ..dumper import dump_into_str
 from ..loader import load_from_str
 from .store import ValueStore
 from .utils import (
-    BulkInput, VSPutFlag, VStoreKey, VStoreSel, frid_delete, frid_select, list_concat
+    BulkInput, VSPutFlag, VStoreKey, VStoreSel, dict_concat, frid_delete, frid_select, list_concat
 )
 from frid.kvs import utils
 
@@ -40,7 +40,7 @@ class _SqlBaseStore:
     ):
         self._table = table
         self._where_conds: list[ColumnElement[bool]] = self._build_where(table, row_filter)
-        self._insert_data: Mapping[str,SqlTypes] = self._merge_dicts(row_filter, col_values)
+        self._insert_data: Mapping[str,SqlTypes] = dict_concat(row_filter, col_values)
         self._key_columns: list[Column] = self._find_key_columns(table, key_fields, multi_rows)
         if frid_field is True and text_field is True:
             raise ValueError("frid_field and text_field cannot both be true; use column names")
@@ -69,16 +69,6 @@ class _SqlBaseStore:
             return []
         # items = data.items() if isinstance(data, Mapping) else data
         return [table.c[k] == v for k, v in data.items()]
-    @classmethod
-    def _merge_dicts(cls, map1: Mapping[str,SqlTypes]|None, map2: Mapping[str,SqlTypes]|None):
-        """Merges the two dictionary into a single one."""
-        if map1 is None:
-            return map2 if map2 is not None else {}
-        if map2 is None:
-            return map1
-        m = dict(map1)
-        m.update(map2)
-        return m
     @classmethod
     def _find_key_columns(cls, table: Table, names: str|Sequence[str]|None,
                           exclude: str|bool|None) -> list[Column]:
