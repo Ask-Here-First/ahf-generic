@@ -1,7 +1,7 @@
 import os, asyncio, unittest
 from concurrent.futures import ThreadPoolExecutor
 
-from sqlalchemy import null
+from sqlalchemy import LargeBinary, null
 
 
 from ..typing import MISSING
@@ -195,7 +195,7 @@ class VStoreTest(unittest.TestCase):
         os.rmdir(sub_root)
         os.rmdir(root_dir)
 
-    def test_sync_redis_store(self):
+    def test_redis_value_store(self):
         try:
             from .redis import RedisValueStore
         except Exception:
@@ -212,7 +212,7 @@ class VStoreTest(unittest.TestCase):
         store.wipe_all()
         store.finalize()
 
-    def test_async_redis_store(self):
+    def test_redis_async_store(self):
         try:
             from .redis import RedisAsyncStore
         except Exception:
@@ -244,6 +244,7 @@ class VStoreTest(unittest.TestCase):
             Column('id', String, primary_key=True),
             Column('frid', String),
             Column('key0', String, default=null(), nullable=True),
+            Column('key1', LargeBinary, default=null(), nullable=True)
         )
         metadata.create_all(engine)
         return table
@@ -254,7 +255,7 @@ class VStoreTest(unittest.TestCase):
         except Exception:
             pass
 
-    def test_sync_dbsql_store(self):
+    def test_dbsql_value_store(self):
         try:
             from .dbsql import DbsqlValueStore
         except Exception:
