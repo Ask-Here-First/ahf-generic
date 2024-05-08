@@ -25,8 +25,11 @@ class _BaseStore(ABC):
     def get_lock(self, name: str|None=None) -> AbstractContextManager:
         """Returns an reentrant lock for desired concurrency."""
         raise NotImplementedError  # pragma: no cover
-    def finalize(self):
-        """Calling to finalize this store before drop the reference."""
+    def finalize(self, depth=0):
+        """Calling to finalize this store before drop the reference.
+        - `depth`: only effective for proxies: if depth > 0, call
+          `finalize(depth - 1)` of the backend.
+        """
         raise NotImplementedError  # pragma: no cover
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
@@ -106,7 +109,7 @@ class _BaseStore(ABC):
         raise NotImplementedError  # pragma: no cover
 
 class ValueStore(_BaseStore):
-    def finalize(self):
+    def finalize(self, depth=0):
         pass
     @abstractmethod
     def get_lock(self, name: str|None=None) -> AbstractContextManager:
@@ -165,7 +168,7 @@ class ValueStore(_BaseStore):
 
 class AsyncStore(_BaseStore):
     # Override all methods if signature is different
-    async def finalize(self):
+    async def finalize(self, depth=0):
         pass
     @abstractmethod
     def get_lock(self, name: str|None=None) -> AbstractAsyncContextManager:

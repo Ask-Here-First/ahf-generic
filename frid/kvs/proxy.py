@@ -20,8 +20,9 @@ class ValueProxyStore(ValueStore):
         return self.__class__(self._store.substore(name, *args))
     def get_lock(self, name: str|None=None):
         return self._store.get_lock(name)
-    def finalize(self):
-        return self._store.finalize()
+    def finalize(self, depth=0):
+        if depth > 0:
+            return self._store.finalize(depth - 1)
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return self._store.get_meta(*args, keys=keys)
@@ -56,8 +57,9 @@ class AsyncProxyStore(AsyncStore):
 
     def get_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
         return self._store.get_lock(name)
-    async def finalize(self):
-        return await self._store.finalize()
+    async def finalize(self, depth=0):
+        if depth > 0:
+            return await self._store.finalize(depth - 1)
     async def get_meta(self, *args: VStoreKey,
                        keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return await self._store.get_meta(*args, keys=keys)
@@ -114,8 +116,9 @@ class ValueProxyAsyncStore(AsyncStore):
         return await asyncio.get_running_loop().run_in_executor(self._executor, call, *args)
     def get_lock(self, name: str|None=None):
         return self._store.get_lock(name)
-    async def finalize(self):
-        return await self._asyncrun(self._store.finalize)
+    async def finalize(self, depth=0):
+        if depth > 0:
+            return await self._asyncrun(self._store.finalize, depth - 1)
     async def get_meta(self, *args: VStoreKey,
                        keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return await self._asyncrun(self._store.get_meta, *utils.list_concat(args, keys))
@@ -167,8 +170,9 @@ class AsyncProxyValueStore(ValueStore):
 
     def get_lock(self, name: str|None=None):
         raise NotImplementedError  # pragma: no cover --- not going to be used
-    def finalize(self):
-        result = self._loop.run_until_complete(self._store.finalize())
+    def finalize(self, depth=0):
+        if depth > 0:
+            result = self._loop.run_until_complete(self._store.finalize(depth - 1))
         self._del_loop()
         return result
     def get_meta(self, *args: VStoreKey,

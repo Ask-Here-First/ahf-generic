@@ -163,6 +163,7 @@ class VStoreTest(unittest.TestCase):
         self.check_blob_store(proxy)
         self.check_list_store(proxy)
         self.check_dict_store(proxy)
+        proxy.finalize(1)
         with ThreadPoolExecutor() as executor:
             proxy = AsyncProxyValueStore(ValueProxyAsyncStore(store, executor=executor),
                                          loop=loop)
@@ -170,7 +171,7 @@ class VStoreTest(unittest.TestCase):
             self.check_blob_store(proxy)
             self.check_list_store(proxy)
             self.check_dict_store(proxy)
-            proxy.finalize()
+            proxy.finalize(1)
 
     def test_memory_store(self):
         store = MemoryValueStore()

@@ -93,7 +93,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
 
     def get_lock(self, name: str|None=None) -> AbstractContextManager:
         return self._redis.lock((name or "*GLOBAL*") + "\v*LOCK*")
-    def finalize(self):
+    def finalize(self, depth=0):
         self._redis.close()
     def _get_name_meta(self, name: str) -> FridTypeSize|None:
         t = self._check_text(self._redis.type(name))
@@ -296,7 +296,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
 
     def get_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
         return self._aredis.lock((name or "*GLOBAL*") + "\v*LOCK*")
-    async def finalize(self):
+    async def finalize(self, depth=0):
         await self._aredis.aclose()
     async def _get_name_meta(self, name: str) -> FridTypeSize|None:
         t = await self._aredis.type(name)
