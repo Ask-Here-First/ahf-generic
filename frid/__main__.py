@@ -1,7 +1,10 @@
 from functools import partial
-import os, io, sys, math, json, string, base64, unittest, importlib
+import os, io, sys, math, json, base64, unittest, importlib
 from random import Random
 from typing import Literal, cast
+
+from .random import frid_random
+
 try:
     # We have to import in the begining; otherwise static contents are not coveraged
     if __name__ == '__main__':
@@ -408,58 +411,6 @@ class TestLoaderAndDumper(unittest.TestCase):
         self.assertEqual(dump_into_str(-math.nan), "-.")
         self.assertEqual(dump_into_str(math.nan, json_level=5), "NaN")
 
-    CHAR_POOL = string.printable + "\u03b1\u03b2\u03b3\u2020\u2021\u2022" #"\U00010330"
-    def random_string(self, rng: Random, for_key=False):
-        n = rng.randint(0, 20)
-        if for_key and rng.randint(0, 1):
-            # Generate within the
-            return "".join(rng.choices("abcxyz+-._", k=n))
-        return "".join(rng.choices(self.CHAR_POOL, k=n))
-    def random_value(self, rng: Random, depth: int, *, for_json: int=0):
-        r = rng.randint(0, 32 if depth > 0 else 20)
-        match r:
-            case 0:
-                return None
-            case 1:
-                return True
-            case 2:
-                return False
-            case 3:
-                if for_json:
-                    return None
-                return datetime.now().replace(microsecond=0)
-            case 4:
-                if for_json:
-                    return True
-                return dateonly.today()
-            case 5:
-                if for_json:
-                    return False
-                return datetime.now().time().replace(microsecond=0)
-            case 6 | 7 | 8 | 9:
-                return self.random_string(rng)
-            case 10 | 11:
-                if for_json:
-                    return self.random_string(rng)
-                return self.random_string(rng).encode()
-            case 12 | 13 | 14:
-                return rng.randint(-10000, 10000)
-            case 15:
-                # Cannot use NaN as NaN != NaN
-                if for_json == 1:
-                    return rng.choice([1.0, 0.0, -1.0, math.e, math.pi]) # no infinity
-                return rng.choice([math.inf, 1.0, 0.0, -1.0, math.e, math.pi, -math.inf])
-            case 16 | 17 | 18 | 19:
-                return math.ldexp(rng.random() - 0.5, rng.randint(-40, 40))
-            case 20 | 21 | 22 | 23 | 24 | 25:
-                return [self.random_value(rng, depth - 1, for_json=for_json)
-                        for _ in range(rng.randint(0, 8))]
-            case 26 | 27 | 28 | 29 | 30 | 31:
-                return {
-                    self.random_string(rng, True):
-                        self.random_value(rng, depth - 1, for_json=for_json)
-                    for _ in range(rng.randint(0, 8))
-                }
     def test_random(self):
         def_seed = 0
         def_runs = 256
@@ -495,7 +446,7 @@ class TestLoaderAndDumper(unittest.TestCase):
                 'parse_blob': None if r & 4 else lambda s: base64.b16decode(s),
             }
             # Test with only JSON compatible values
-            data = self.random_value(rng, tree, for_json=1)
+            data = frid_random(rng, tree, for_json=1)
             text = json.dumps(data)
             self.assertEqual(data, load_from_str(text, json_level=1), msg="Loading JSON")
             self.assertEqual(data, load_from_str(text, json_level=5), msg="Loading JSON5")
@@ -504,7 +455,7 @@ class TestLoaderAndDumper(unittest.TestCase):
                 self.assertEqual(data, load_from_str(s, json_level=json_level, **load_args),
                                  msg=f"{json_level=} {len(s)=}")
             # Test with only JSON-5 compatible values
-            data = self.random_value(rng, tree, for_json=5)
+            data = frid_random(rng, tree, for_json=5)
             for json_level in (0, 5):
                 s = dump_into_str(data, json_level=json_level, **dump_args)
                 self.assertEqual(data, load_from_str(s, json_level=json_level, **load_args),
@@ -512,7 +463,7 @@ class TestLoaderAndDumper(unittest.TestCase):
             # Test with only all possible frid values
             json_level = rng.choice([0, 1, 5])
             for escape_seq in ('~', "#!"):
-                data = self.random_value(rng, tree, for_json=0)
+                data = frid_random(rng, tree, for_json=0)
                 s = dump_into_str(data, json_level=json_level,
                                   escape_seq=escape_seq, **dump_args)
                 self.assertEqual(data, load_from_str(
