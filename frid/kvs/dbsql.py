@@ -1,10 +1,13 @@
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from logging import error
-from typing import TypeVar
+from typing import TypeGuard, TypeVar
 
 from sqlalchemy import (
-    Column, ColumnElement, CursorResult, Delete, Insert, LargeBinary, Select,
-    String, Table, Update, bindparam, create_engine, delete, insert, null, select, update
+    Table, Column, ColumnElement, CursorResult,
+    Delete, Insert, Select, Update,
+    LargeBinary, String, Date, DateTime, Time, Numeric, Boolean, Null,
+    bindparam, create_engine, null,
+    delete, insert, select, update
 )
 from sqlalchemy import types
 from sqlalchemy.exc import SQLAlchemyError
@@ -15,6 +18,7 @@ from frid.guards import as_kv_pairs
 from ..typing import (
     MISSING, BlobTypes, DateTypes, FridBeing, FridSeqVT, FridTypeSize, FridValue, MissingType
 )
+from ..chrono import datetime, dateonly, timeonly
 from ..helper import frid_merge, frid_type_size
 from ..dumper import dump_into_str
 from ..loader import load_from_str
@@ -24,7 +28,7 @@ from .utils import (
 )
 from frid.kvs import utils
 
-SqlTypes = str|float|int|DateTypes|bytes  # Allowed data types for columns
+SqlTypes = str|float|int|DateTypes|bytes|bool  # Allowed data types for columns
 ParTypes = Mapping[str,FridValue]|Sequence[Mapping[str,FridValue]]|None
 
 _T = TypeVar('_T')
@@ -69,6 +73,23 @@ class _SqlBaseStore:
             return []
         # items = data.items() if isinstance(data, Mapping) else data
         return [table.c[k] == v for k, v in data.items()]
+    @classmethod
+    def _match_dtype(cls, data, column: Column) -> TypeGuard[SqlTypes]:
+        if isinstance(data, str):
+            return isinstance(column.type, String)
+        if isinstance(data, BlobTypes):
+            return isinstance(column.type, LargeBinary)
+        if isinstance(data, datetime):
+            return isinstance(column.type, DateTime)
+        if isinstance(data, dateonly):
+            return isinstance(column.type, Date)
+        if isinstance(data, timeonly):
+            return isinstance(column.type, Time)
+        if isinstance(data, bool):
+            return isinstance(column.type, Boolean)
+        if isinstance(data, int|float):
+            return isinstance(column.type, Numeric)
+        return False
     @classmethod
     def _find_key_columns(cls, table: Table, names: str|Sequence[str]|None,
                           exclude: str|bool|None) -> list[Column]:
@@ -175,7 +196,7 @@ class _SqlBaseStore:
     def _key_to_dict(self, key: VStoreKey) -> dict[str,SqlTypes]:
        """Converts the store key to a dict mapping the column names to values."""
        return {k.name: v for k, v in zip(self._key_columns, self._reorder_key(key))}
-    def _val_to_dict(self, val: FridValue) -> dict[str,SqlTypes]:
+    def _val_to_dict(self, val: FridValue) -> dict[str,SqlTypes|Null]:
         """Converts the value to a dict mapping the column names to fields values.
         - If the `val` is text or blob and the text/blob column is set, put the value
           to that field.
@@ -184,18 +205,18 @@ class _SqlBaseStore:
         Otherwise, if the frid column is set, it will store dumped data of other
         types, or for mapping, whatever remains after some fields are extracted.
         """
-        out: dict[str,SqlTypes] = {}
+        out: dict[str,SqlTypes|Null] = {col.name: null() for col in self._select_cols}
         if isinstance(val, str):
             if self._text_column is not None:
                 return {self._text_column.name: val}
         elif isinstance(val, BlobTypes):
             if self._blob_column is not None:
-                return {self._blob_column.name: val}
+                return {self._blob_column.name: bytes(val)}
         elif isinstance(val, Mapping):
             val = dict(val)
             for col in self._val_columns:
                 item = val.get(col.name, MISSING)
-                if isinstance(item, SqlTypes):
+                if self._match_dtype(item, col):
                     out[col.name] = item
                     val.pop(col.name)
             if not val:

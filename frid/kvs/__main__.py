@@ -260,8 +260,8 @@ class VStoreTest(unittest.TestCase):
             "test_table", metadata,
             Column('id', String, primary_key=True),
             Column('frid', String, nullable=True),
-            Column('key0', String, default=null(), nullable=True),
-            Column('key1', LargeBinary, default=null(), nullable=True),
+            Column('n0', String, default=null(), nullable=True),
+            Column('n1', LargeBinary, default=null(), nullable=True),
             # The following two fields are set to constants if text_field/blob_field are not set
             Column('text', String, default=null(), nullable=True),
             Column('blob', LargeBinary, nullable=True),
