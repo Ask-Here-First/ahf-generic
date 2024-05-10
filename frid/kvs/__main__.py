@@ -1,10 +1,12 @@
-import os, asyncio, unittest
+import os, random, asyncio, unittest
 from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy import LargeBinary, null
 
+
 from ..typing import MISSING
 from ..loader import load_from_str
+from ..random import frid_random
 from .store import VSPutFlag, ValueStore
 from .basic import MemoryValueStore
 from .proxy import AsyncProxyValueStore, ValueProxyAsyncStore
@@ -144,39 +146,52 @@ class VStoreTest(unittest.TestCase):
         self.assertTrue(store.del_frid("key0"))
         self.assertFalse(store.get_dict("key0"))
 
-    def do_test_store(self, store: ValueStore, loop: asyncio.AbstractEventLoop|None=None,
-                      no_proxy: bool=False):
+    def check_random(self, store: ValueStore, *, exact=False):
+        rng = random.Random(0)
+        for _ in range(256):
+            # Note: for some backends, falsy value are the same as empty
+            data = frid_random(rng)
+            if data and exact:
+                self.assertTrue(store.put_frid("key", data))
+                self.assertEqual(store.get_frid("key"), data)
+                self.assertTrue(store.del_frid("key"))
+            else:
+                store.put_frid("key", data)
+                if data:
+                    self.assertEqual(store.get_frid("key"), data)
+                else:
+                    self.assertFalse(store.get_frid("key"))
+                store.del_frid("key")
+
+    def check_store(self, store: ValueStore, *, exact=False):
         self.check_text_store(store)
         self.check_blob_store(store)
         self.check_list_store(store)
         self.check_dict_store(store)
+        self.check_random(store, exact=exact)
+
+    def do_test_store(self, store: ValueStore, loop: asyncio.AbstractEventLoop|None=None,
+                      no_proxy: bool=False, exact=False):
+        self.check_store(store, exact=exact)
         if no_proxy:
             return
         # Note we test using Sync API so we need the following to test async API
         proxy = AsyncProxyValueStore(ValueProxyAsyncStore(store), loop=loop)
-        self.check_text_store(proxy)
-        self.check_blob_store(proxy)
-        self.check_list_store(proxy)
-        self.check_dict_store(proxy)
+        self.check_store(proxy, exact=exact)
+        proxy.finalize(1)
         proxy = AsyncProxyValueStore(ValueProxyAsyncStore(store, executor=True), loop=loop)
-        self.check_text_store(proxy)
-        self.check_blob_store(proxy)
-        self.check_list_store(proxy)
-        self.check_dict_store(proxy)
+        self.check_store(proxy, exact=exact)
         proxy.finalize(1)
         with ThreadPoolExecutor() as executor:
             proxy = AsyncProxyValueStore(ValueProxyAsyncStore(store, executor=executor),
                                          loop=loop)
-            self.check_text_store(proxy)
-            self.check_blob_store(proxy)
-            self.check_list_store(proxy)
-            self.check_dict_store(proxy)
+            self.check_store(proxy, exact=exact)
             proxy.finalize(1)
 
     def test_memory_store(self):
         store = MemoryValueStore()
         self.assertFalse(store.all_data())
-        self.do_test_store(store)
+        self.do_test_store(store, exact=True)
         self.assertFalse(store.all_data())
         store.finalize()
 
@@ -191,7 +206,7 @@ class VStoreTest(unittest.TestCase):
             if os.path.isfile(path):
                 os.unlink(path)
         self.assertFalse(os.listdir(sub_root))
-        self.do_test_store(store)
+        self.do_test_store(store, exact=True)
         self.assertFalse(os.listdir(sub_root))
         os.rmdir(sub_root)
         os.rmdir(root_dir)
@@ -209,7 +224,7 @@ class VStoreTest(unittest.TestCase):
             username=os.getenv('REDIS_KVS_USER'), password=os.getenv('REDIS_KVS_PASS'),
         ).substore("UNITTEST")
         store.wipe_all()
-        self.do_test_store(store)
+        self.do_test_store(store, exact=False)
         store.wipe_all()
         store.finalize()
 
@@ -228,7 +243,8 @@ class VStoreTest(unittest.TestCase):
                 username=os.getenv('REDIS_KVS_USER'), password=os.getenv('REDIS_KVS_PASS'),
             ).substore("UNITTEST")
             loop.run_until_complete(store.awipe_all())
-            self.do_test_store(AsyncProxyValueStore(store, loop=loop), no_proxy=True)
+            self.do_test_store(AsyncProxyValueStore(store, loop=loop),
+                               no_proxy=True, exact=False)
             loop.run_until_complete(store.awipe_all())
             loop.run_until_complete(store.finalize())
         finally:
@@ -274,7 +290,7 @@ class VStoreTest(unittest.TestCase):
         self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
         self.assertTrue(store._text_column is None)
         self.assertTrue(store._blob_column is None)
-        self.do_test_store(store)
+        self.do_test_store(store, exact=True)
         store.finalize()
 
         store = DbsqlValueStore(dburl, table, echo=echo, frid_field=True,
@@ -282,7 +298,7 @@ class VStoreTest(unittest.TestCase):
         self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
         self.assertTrue(store._text_column is not None and store._text_column.name == 'text')
         self.assertTrue(store._blob_column is None)
-        self.do_test_store(store)
+        self.do_test_store(store, exact=True)
         store.finalize()
 
         store = DbsqlValueStore(dburl, table, echo=echo, frid_field=True,

@@ -298,8 +298,8 @@ class BinaryStoreMixin:
             return val[len(prefix):]
         return None
 
-    def _insert_header(self, val: bytes, prefix: bytes) -> bytes|None:
-        """Inserts the `prefix` to the beginning `val`.
+    def _insert_header(self, val: bytes, prefix: bytes, data: FridValue) -> bytes|None:
+        """Inserts the `prefix` to the beginning `val`, for the original `data`.
         - Returns the combined bytes.
         - If can return None if encoding is invalid; in the default
           implementation, it happens only if prefix is empty string
@@ -324,35 +324,35 @@ class BinaryStoreMixin:
                 b = self._encode_text(data)
                 if without_header:
                     return b
-                if (out := self._insert_header(b, self._text_prefix)):
+                if (out := self._insert_header(b, self._text_prefix, data)):
                     return out
         elif isinstance(data, BlobTypes):
             if self._blob_prefix is not None:
                 b = self._encode_blob(data)
                 if without_header:
                     return b
-                if (out := self._insert_header(b, self._blob_prefix)):
+                if (out := self._insert_header(b, self._blob_prefix, data)):
                     return out
         elif is_frid_array(data):
             if self._list_prefix is not None:
                 b = self._encode_list(data)
                 if without_header:
                     return b
-                if (out := self._insert_header(b, self._list_prefix)):
+                if (out := self._insert_header(b, self._list_prefix, data)):
                     return out
         elif is_frid_skmap(data):
             if self._dict_prefix is not None:
                 b = self._encode_dict(data)
                 if without_header:
                     return b
-                if (out := self._insert_header(b, self._dict_prefix)):
+                if (out := self._insert_header(b, self._dict_prefix, data)):
                     return out
         if self._frid_prefix is None:
             raise ValueError(f"Do not know how to encode type {type(data)}")
         b = self._encode_frid(data)
         if without_header:
             return b
-        if (out := self._insert_header(b, self._frid_prefix)):
+        if (out := self._insert_header(b, self._frid_prefix, data)):
             return out
         raise ValueError(f"Failed to encode string for type {type(data)}")
     def _encode_frid(self, data: FridValue, /) -> bytes:
@@ -406,7 +406,6 @@ class BinaryStoreMixin:
             # print("<>", prefix, decode, val, "=>", content)
             if content is not None:
                 return decode(content)
-        print("!!!", self._decoders)
         raise ValueError(f"Invalid byte encoding of {len(val)} bytes")
     def _decode_frid(self, val: bytes, /) -> FridValue:
         """Decode the value as the generic frid representation."""
@@ -466,14 +465,14 @@ class StreamStoreMixin(BinaryStoreMixin, _SimpleBaseStore[bytes]):
         assert len(tim_bytes) == 22
         return self._header_head + typ_bytes + self._header_link + tim_bytes + self._header_tail
 
-    def _insert_header(self, val: bytes, prefix: bytes) -> bytes|None:
+    def _insert_header(self, val: bytes, prefix: bytes, data: FridValue) -> bytes|None:
         """Insert the header with the given prefix plus extra data before `val`."""
         now_str = strfr_datetime(datetime.now(timezone.utc), precision=3)
         assert now_str is not None
         tim = now_str.encode()
         assert len(tim) == 22
         if prefix == self._header_head:
-            (typ, _) = frid_type_size(val)
+            (typ, _) = frid_type_size(data)
         else:
             n = len(self._header_head)
             assert len(prefix) == n + 4 + len(self._header_link)

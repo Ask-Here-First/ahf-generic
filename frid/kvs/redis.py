@@ -158,6 +158,8 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         redis_name = self._key_name(key)
         encoded_val = [self._encode_frid(x) for x in val]
         if flags & VSPutFlag.KEEP_BOTH and not (flags & VSPutFlag.NO_CHANGE):
+            if not encoded_val:  # Do nothing if the data is empty
+                return False
             if flags & VSPutFlag.NO_CREATE:
                 result = self._redis.rpushx(redis_name, *encoded_val)  # type: ignore
             else:
@@ -168,9 +170,13 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
                     if flags & VSPutFlag.NO_CHANGE:
                         return False
                     self._redis.delete(redis_name)
+                    retval = True
                 else:
                     if flags & VSPutFlag.NO_CREATE:
                         return False
+                    retval = False
+                if not encoded_val:
+                    return retval
                 result = self._redis.rpush(redis_name, *encoded_val)
         return bool(self._check_type(result, int, 0))
     def put_dict(self, key: VStoreKey, val: StrKeyMap, /, flags=VSPutFlag.UNCHECKED) -> bool:
@@ -180,6 +186,8 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         if flags & VSPutFlag.KEEP_BOTH and not (
             flags & (VSPutFlag.NO_CHANGE | VSPutFlag.NO_CREATE)
         ):
+            if not encoded_val:
+                return False
             result = self._redis.hset(redis_name, mapping=encoded_val)
         else:
             with self.get_lock(redis_name):
@@ -187,9 +195,13 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
                     if flags & VSPutFlag.NO_CHANGE:
                         return False
                     self._redis.delete(redis_name)
+                    retval = True
                 else:
                     if flags & VSPutFlag.NO_CREATE:
                         return False
+                    retval = False
+                if not encoded_val:
+                    return retval
                 result = self._redis.hset(redis_name, mapping=encoded_val)
         return bool(self._check_type(result, int, 0))
     def put_frid(self, key: VStoreKey, val: FridValue, /, flags=VSPutFlag.UNCHECKED) -> bool:
@@ -226,7 +238,8 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
             assert isinstance(data, list)
             if utils.list_delete(data, sel):
                 self._redis.delete(redis_name)
-                self._redis.rpush(redis_name, *data)
+                if data:
+                    self._redis.rpush(redis_name, *data)
                 return True
             return False
     def del_dict(self, key: VStoreKey, sel: VSDictSel=None, /) -> bool:
@@ -237,6 +250,8 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
             result = self._redis.hdel(redis_name, sel)
         elif isinstance(sel, Sequence):
             assert is_list_like(sel, str)
+            if not sel:
+                return False
             if not isinstance(sel, list):
                 sel = list(sel)
             result = self._redis.hdel(redis_name, *sel)
@@ -322,7 +337,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         redis_name = self._key_name(key)
         if sel is None:
             seq: Sequence = await self._aredis.lrange(redis_name, 0, -1) # type: ignore
-            return [self._decode(x) for x in seq]
+            return [self._decode_frid(x) for x in seq]
         if isinstance(sel, int):
             val: bytes|None = await self._aredis.lindex(redis_name, sel)  # type: ignore
             return self._decode_frid(val) if val is not None else alt
@@ -331,7 +346,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         assert isinstance(seq, Sequence)
         if isinstance(sel, slice) and sel.step is not None and sel.step != 1:
             seq = seq[::sel.step]
-        return [self._decode(x) for x in seq]
+        return [self._decode_frid(x) for x in seq]
     async def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
                         /, alt: _T=MISSING) -> FridValue|_T:
         redis_name = self._key_name(key)
@@ -369,6 +384,8 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         redis_name = self._key_name(key)
         encoded_val = [self._encode_frid(x) for x in val]
         if flags & VSPutFlag.KEEP_BOTH and not (flags & VSPutFlag.NO_CHANGE):
+            if not encoded_val:
+                return False
             if flags & VSPutFlag.NO_CREATE:
                 result = await self._aredis.rpushx(redis_name, *encoded_val) # type: ignore
             else:
@@ -379,9 +396,13 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
                     if flags & VSPutFlag.NO_CHANGE:
                         return False
                     await self._aredis.delete(redis_name)
+                    retval = True
                 else:
                     if flags & VSPutFlag.NO_CREATE:
                         return False
+                    retval = False
+                if not encoded_val:
+                    return retval
                 result = await self._aredis.rpush(redis_name, *encoded_val) # type: ignore
         return bool(self._check_type(result, int, 0))
     async def put_dict(
@@ -393,6 +414,8 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         if flags & VSPutFlag.KEEP_BOTH and not (
             flags & (VSPutFlag.NO_CHANGE | VSPutFlag.NO_CREATE)
         ):
+            if not encoded_val:
+                return False
             result = await self._aredis.hset(redis_name, mapping=encoded_val)  # type: ignore
         else:
             async with self.get_lock(redis_name):
@@ -400,9 +423,13 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
                     if flags & VSPutFlag.NO_CHANGE:
                         return False
                     await self._aredis.delete(redis_name)
+                    retval = True
                 else:
                     if flags & VSPutFlag.NO_CREATE:
                         return False
+                    retval = False
+                if not encoded_val:
+                    return retval
                 result = await self._aredis.hset(redis_name, mapping=encoded_val) # type: ignore
         return bool(self._check_type(result, int, 0))
     async def put_frid(self, key: VStoreKey, val: FridValue,
@@ -442,7 +469,8 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             assert isinstance(result, list)
             if utils.list_delete(result, sel):
                 await self._aredis.delete(redis_name)
-                await self._aredis.rpush(redis_name, *result) # type: ignore
+                if result:
+                    await self._aredis.rpush(redis_name, *result) # type: ignore
                 return True
             return False
     async def del_dict(self, key: VStoreKey, sel: VSDictSel=None, /) -> bool:
@@ -453,6 +481,8 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             result = await self._aredis.hdel(redis_name, sel) # type: ignore
         elif isinstance(sel, Sequence):
             assert is_list_like(sel, str)
+            if not sel:
+                return False
             if not isinstance(sel, list):
                 sel = list(sel)
             result = await self._aredis.hdel(redis_name, *sel) # type: ignore
