@@ -125,9 +125,9 @@ class _SqlBaseStore:
             if not isinstance(col.type, col_type):
                 continue
             if col.default is None:
-                optional.append(col)
-            else:
                 required.append(col)
+            else:
+                optional.append(col)
         if len(required) >= 2:
             raise ValueError(f"Too many non-key columns without default: {required}")
         if required:
@@ -216,14 +216,18 @@ class _SqlBaseStore:
             if self._text_column is not None and col.name == self._text_column.name:
                 if isinstance(val, str):
                     return val
+                error(f"Data in column {col.name} is not string: {type(val)}")
                 continue
             if self._blob_column is not None and col.name == self._blob_column.name:
                 if isinstance(val, BlobTypes):
                     return val
+                error(f"Data in column {col.name} is not binary: {type(val)}")
                 continue
             if self._frid_column is not None and col.name == self._frid_column.name:
                 if val and isinstance(val, str):
                     frid_val = load_from_str(val)
+                else:
+                    error(f"Data in column {col.name} is not string: {type(val)}")
                 continue
             out[col.name] = val
         if frid_val is MISSING:

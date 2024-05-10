@@ -3,8 +3,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy import LargeBinary, null
 
-
 from ..typing import MISSING
+from ..loader import load_from_str
 from .store import VSPutFlag, ValueStore
 from .basic import MemoryValueStore
 from .proxy import AsyncProxyValueStore, ValueProxyAsyncStore
@@ -57,7 +57,7 @@ class VStoreTest(unittest.TestCase):
         self.assertEqual(store.del_bulk(["key0", "key1"]), 2)
         self.assertEqual(store.get_bulk(["key0", "key1"], None), [None, None])
 
-    def check_list_store(self, store: ValueStore, auto_create=False):
+    def check_list_store(self, store: ValueStore):
         self.assertFalse(store.get_list("key0")) # None or [] for Redis
         self.assertIs(store.put_frid("key0", ["value00"]), True)
         self.assertEqual(store.get_list("key0"), ["value00"])
@@ -243,9 +243,12 @@ class VStoreTest(unittest.TestCase):
         table = Table(
             "test_table", metadata,
             Column('id', String, primary_key=True),
-            Column('frid', String),
+            Column('frid', String, nullable=True),
             Column('key0', String, default=null(), nullable=True),
-            Column('key1', LargeBinary, default=null(), nullable=True)
+            Column('key1', LargeBinary, default=null(), nullable=True),
+            # The following two fields are set to constants if text_field/blob_field are not set
+            Column('text', String, default=null(), nullable=True),
+            Column('blob', LargeBinary, nullable=True),
         )
         metadata.create_all(engine)
         return table
@@ -263,9 +266,33 @@ class VStoreTest(unittest.TestCase):
             return
         dbfile = "/tmp/VStoreTest.sdb"
         dburl = "sqlite+pysqlite:///" + dbfile
-        table = self.create_sqlite_table(dbfile, dburl, echo=False)
-        store = DbsqlValueStore(dburl, table, frid_field=True, echo=False)
+        echo = bool(load_from_str(os.getenv("ECHO_SQL", '-')))
+        table = self.create_sqlite_table(dbfile, dburl, echo=echo)
+
+        store = DbsqlValueStore(dburl, table, echo=echo, frid_field=True,
+                                col_values={'text': "(UNUSED)", 'blob': b"(UNUSED)"})
+        self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
+        self.assertTrue(store._text_column is None)
+        self.assertTrue(store._blob_column is None)
         self.do_test_store(store)
+        store.finalize()
+
+        store = DbsqlValueStore(dburl, table, echo=echo, frid_field=True,
+                                text_field='text', col_values={'blob': b"(UNUSED)"})
+        self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
+        self.assertTrue(store._text_column is not None and store._text_column.name == 'text')
+        self.assertTrue(store._blob_column is None)
+        self.do_test_store(store)
+        store.finalize()
+
+        store = DbsqlValueStore(dburl, table, echo=echo, frid_field=True,
+                                blob_field=True, col_values={'text': "(UNUSED)"})
+        self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
+        self.assertTrue(store._text_column is None)
+        self.assertTrue(store._blob_column is not None and store._blob_column.name == 'blob')
+        self.do_test_store(store)
+        store.finalize()
+
         self.remove_sqlite_dbfile(dbfile)
 
 if __name__ == '__main__':
