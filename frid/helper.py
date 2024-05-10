@@ -192,6 +192,8 @@ def frid_merge(old: T|MissingType, new: T) -> T:
     if isinstance(new, int|float):
         return old + new if isinstance(old, int|float) else new
     if isinstance(new, Mapping):
+        if not new:
+            return old
         if isinstance(old, Mapping):
             d = dict(old)
             for k, v in new.items():
@@ -202,14 +204,20 @@ def frid_merge(old: T|MissingType, new: T) -> T:
             return cast(T, d)
         return new
     if isinstance(new, str):
+        if not new:
+            return old
         if isinstance(old, str):
             return old + new
         return new
     if isinstance(new, BlobTypes):
+        if not new:
+            return old
         if isinstance(old, BlobTypes):
             return bytes(old) + new
         return new
     if isinstance(new, Sequence):
+        if not new:
+            return old
         if isinstance(old, Sequence) and not isinstance(old, str|BlobTypes):
             x = list(old)
         else:
