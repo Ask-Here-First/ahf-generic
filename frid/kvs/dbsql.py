@@ -406,6 +406,8 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
         if cmd is not None:
             data = self._get_frid_result(conn.execute(cmd), None)
             val = frid_merge(data, val)
+            if val is data:
+                return False
         (cmd, par) = self._put_frid_update(key, val, flags)
         if cmd is None:
             return False

@@ -97,6 +97,7 @@ class VStoreTest(unittest.TestCase):
         self.assertTrue(store.put_frid("key0", ["value00", "value01"], VSPutFlag.NO_CREATE))
         self.assertEqual(store.get_frid("key0", 0), "value00")
         self.assertTrue(store.put_frid("key0", ["value02", "value03"], VSPutFlag.KEEP_BOTH))
+        self.assertFalse(store.put_frid("key0", [], VSPutFlag.KEEP_BOTH))
         self.assertTrue(store.put_frid("key0", ["value04"],
                                        VSPutFlag.KEEP_BOTH | VSPutFlag.NO_CREATE))
         self.assertEqual(store.get_frid("key0", (3, -2)), [])
@@ -128,6 +129,7 @@ class VStoreTest(unittest.TestCase):
         self.assertEqual(store.get_frid("key0", ["n0"]), {"n0": "value00"})
         self.assertTrue(store.put_frid("key0", {"n1": "value01", "n2": "value02"},
                                        VSPutFlag.KEEP_BOTH))
+        self.assertFalse(store.put_frid("key0", {}, VSPutFlag.KEEP_BOTH))
         self.assertEqual(store.get_meta("key0"), {"key0": ('dict', 3)})
         self.assertTrue(store.del_frid("key0", "n1"))
         self.assertFalse(store.del_frid("key0", "n1"))

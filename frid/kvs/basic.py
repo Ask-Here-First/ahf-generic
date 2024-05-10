@@ -83,7 +83,10 @@ class _SimpleBaseStore(Generic[_E]):
         old_data = old if isinstance(old, FridBeing) else self._decode(old)
         assert old_data is not PRESENT
         # TODO: frid_merge() to accept more merge flags
-        return self._encode(frid_merge(old_data, new))
+        new_data = frid_merge(old_data, new)
+        if new_data is old_data:
+            return PRESENT
+        return self._encode(new_data)
     def _del_sel(self, val: _E|MissingType, sel: VStoreSel) -> _E|FridBeing:
         """Deletes the selected items in general.
         - Return he updated value (with PRESENT for no change and MISSING to delete entry).
@@ -495,13 +498,15 @@ class StreamStoreMixin(BinaryStoreMixin, _SimpleBaseStore[bytes]):
             + PRESENT: use the existing value without change.
             + a tuple of output bytes and a boolean/none flag about how to use it:
                 + If set to True, the output bytes are appended to the original content;
-                + If set to False, the output bytes replace the original ccontent;
+                + If set to False, the output bytes replace the original content;
                 + If set to None, the input bytes is not complete; call the API again
                   with complete data.
         """
         if old is not MISSING:
             result = self._can_be_appended(self._get_header_type(old), new)
             if result:
+                if not new:
+                    return PRESENT
                 return (self._encode(new, True), True)
             if len(old) <= self._header_size:
                 return (b'', None)
