@@ -3,7 +3,7 @@ from logging import error
 from typing import TypeGuard, TypeVar
 
 from sqlalchemy import (
-    Table, Column, ColumnElement, CursorResult,
+    Integer, Table, Column, ColumnElement, CursorResult,
     Delete, Insert, Select, Update,
     LargeBinary, String, Date, DateTime, Time, Numeric, Boolean, Null,
     bindparam, create_engine, null,
@@ -16,7 +16,7 @@ from sqlalchemy.engine import Connection
 from frid.guards import as_kv_pairs
 
 from ..typing import (
-    MISSING, BlobTypes, DateTypes, FridBeing, FridSeqVT, FridTypeSize, FridValue, MissingType
+    MISSING, BlobTypes, DateTypes, FridBeing, FridSeqVT, FridTypeName, FridTypeSize, FridValue, MissingType
 )
 from ..chrono import datetime, dateonly, timeonly
 from ..helper import frid_merge, frid_type_size
@@ -40,12 +40,21 @@ class _SqlBaseStore:
             frid_field: str|bool=False, text_field: str|bool=False, blob_field: str|bool=False,
             row_filter: Mapping[str,SqlTypes]|None=None,
             col_values: Mapping[str,SqlTypes]|None=None,
-            multi_rows: str|bool=False
+            seq_subkey: str|bool=False, map_subkey: str|bool=False,
     ):
         self._table = table
         self._where_conds: list[ColumnElement[bool]] = self._build_where(table, row_filter)
         self._insert_data: Mapping[str,SqlTypes] = dict_concat(row_filter, col_values)
-        self._key_columns: list[Column] = self._find_key_columns(table, key_fields, multi_rows)
+        # For keys
+        self._seq_sub_col: Column|None = self._find_sub_key_col(table, seq_subkey, True)
+        self._map_sub_col: Column|None = self._find_sub_key_col(table, map_subkey, False)
+        exclude: list[str] = []
+        if self._seq_sub_col is not None:
+            exclude.append(self._seq_sub_col.name)
+        if self._map_sub_col is not None:
+            exclude.append(self._map_sub_col.name)
+        self._key_columns: list[Column] = self._find_key_columns(table, key_fields, exclude)
+        # For values
         if frid_field is True and text_field is True:
             raise ValueError("frid_field and text_field cannot both be true; use column names")
         exclude: list[str] = list(col_values.keys()) if col_values else []
@@ -91,8 +100,30 @@ class _SqlBaseStore:
             return isinstance(column.type, Numeric)
         return False
     @classmethod
+    def _find_sub_key_col(cls, table: Table, name: str|bool, int_key=False) -> Column|None:
+        if not name:
+            return None
+        if isinstance(name, str):
+            col = table.c[name]
+            if int_key:
+                if not isinstance(col.type, Integer):
+                    raise ValueError(f"Column type of {name} is not integer: {col.type}")
+            else:
+                if not isinstance(col.type, String):
+                    raise ValueError(f"Column type of {name} is not string: {col.type}")
+            return col
+        # Search from right to left
+        for col in reversed(table.primary_key.columns):
+            if int_key:
+                if isinstance(col.type, Integer):
+                    return col
+            else:
+                if isinstance(col.type, String):
+                    return col
+        raise ValueError(f"Cannot find key with a {'integer' if int_key else 'string'} type")
+    @classmethod
     def _find_key_columns(cls, table: Table, names: str|Sequence[str]|None,
-                          exclude: str|bool|None) -> list[Column]:
+                          exclude: list[str]|None) -> list[Column]:
         """Returns a list of columns used as part of key, according to `names`.
         - If the `names` is not set, using the primary key as the columns,
           but the columnn name as specified by `exclude`, if set, is excluded.
@@ -102,7 +133,7 @@ class _SqlBaseStore:
         if names is not None:
             return [table.c[s] for s in names]
         return [
-            col for col in table.primary_key.columns if col.name != exclude
+            col for col in table.primary_key.columns if not (exclude and col.name in exclude)
         ]
     @classmethod
     def _find_val_columns(cls, table: Table, names: str|Sequence[str]|None,
@@ -268,11 +299,11 @@ class _SqlBaseStore:
             keys = list(keys)
         return {k: frid_type_size(v) for k, v in zip(keys, self._get_bulk_result(result, keys))
                 if not isinstance(v, FridBeing)}
-    def _get_frid_select(self, key: VStoreKey, Sel: VStoreSel, /) -> Select:
+    def _get_frid_select(self, key: VStoreKey, sel: VStoreSel, /) -> Select:
         """Returns the select command for get_frid()."""
         cmd = select(*self._select_cols).where(
             *(k == v for k, v in zip(self._key_columns, self._reorder_key(key))),
-              *self._where_conds
+            *self._where_conds
         )
         return cmd
     def _get_frid_result(self, result: CursorResult, sel: VStoreSel) -> FridValue|MissingType:
@@ -386,7 +417,8 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
         with self._engine.begin() as conn:
             return self._get_meta_result(conn.execute(cmd), merged_keys)
 
-    def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|MissingType:
+    def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
+                 /, dtype: FridTypeName='') -> FridValue|MissingType:
         cmd = self._get_frid_select(key, sel)
         with self._engine.begin() as conn:
             return self._get_frid_result(conn.execute(cmd), sel)

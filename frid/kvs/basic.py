@@ -7,7 +7,7 @@ from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Concatenate, Generic, ParamSpec, TypeVar
 
-from ..typing import MISSING, PRESENT, BlobTypes, FridArray, FridBeing, MissingType, StrKeyMap
+from ..typing import MISSING, PRESENT, BlobTypes, FridArray, FridBeing, FridTypeName, MissingType, StrKeyMap
 from ..typing import FridTypeSize, FridValue
 from ..autils import AsyncReentrantLock
 from ..chrono import parse_datetime, strfr_datetime, datetime, timezone
@@ -117,7 +117,8 @@ class SimpleValueStore(_SimpleBaseStore[_E], ValueStore):
     def _del(self, key: str) -> bool:
         raise NotImplementedError  # pragma: no cover
 
-    def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
+    def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
+                 /, dtype: FridTypeName='') -> FridValue|MissingType:
         key = self._key_str(key)
         with self.get_lock(key):
             data = self._get(key)
@@ -156,7 +157,8 @@ class SimpleAsyncStore(_SimpleBaseStore[_E], AsyncStore):
     async def _del(self, key: str) -> bool:
         raise NotImplementedError  # pragma: no cover
 
-    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
+    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
+                       /, dtype: FridTypeName='') -> FridValue|MissingType:
         key = self._key_str(key)
         async with self.get_lock(key):
             val = await self._get(key)

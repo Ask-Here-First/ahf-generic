@@ -7,7 +7,7 @@ from logging import error
 import redis
 from redis import asyncio as async_redis
 
-from ..typing import MISSING, FridBeing, MissingType
+from ..typing import MISSING, FridBeing, FridTypeName, MissingType
 from ..typing import FridArray, FridSeqVT, FridTypeSize, FridValue, StrKeyMap
 from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap, is_list_like
 from ..strops import escape_control_chars
@@ -139,19 +139,19 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
             return {k: self._decode_frid(v) for i, k in enumerate(sel)
                     if (v := seq[i]) is not None}
         raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")  # pragma: no cover
-    def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
-        if sel is not None:
-            if utils.is_list_sel(sel):
-                return self.get_list(key, cast(VSListSel, sel))
-            if utils.is_dict_sel(sel):
-                return self.get_dict(key, sel)
-            raise ValueError(f"Invalid selector type {type(sel)}: {sel}")  # pragma: no cover
-        redis_name = self._key_name(key)
-        t = self._check_text(self._redis.type(redis_name)) # Just opportunisitic; no lock
-        if t == 'list':
+    def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
+                 /, dtype: FridTypeName='') -> FridValue|MissingType:
+        if dtype == 'list' or (sel is not None and utils.is_list_sel(sel)):
             return self.get_list(key, cast(VSListSel, sel))
-        if t == 'hash':
-            return self.get_dict(key, sel)
+        if dtype == 'dict' or (sel is not None and utils.is_dict_sel(sel)):
+            return self.get_dict(key, cast(VSDictSel, sel))
+        redis_name = self._key_name(key)
+        if not dtype:
+            t = self._check_text(self._redis.type(redis_name)) # Just opportunisitic; no lock
+            if t == 'list':
+                return self.get_list(key, cast(VSListSel, sel))
+            if t == 'hash':
+                return self.get_dict(key, cast(VSDictSel, sel))
         data: bytes|None = self._redis.get(redis_name) # type: ignore
         return self._decode(data) if data is not None else MISSING
     def put_list(self, key: VStoreKey, val: FridArray, /, flags=VSPutFlag.UNCHECKED) -> bool:
@@ -364,19 +364,19 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             return {k: self._decode_frid(v) for i, k in enumerate(sel)
                     if (v := seq[i]) is not None}
         raise ValueError(f"Invalid dict selector type {type(sel)}: {sel}")  # pragma: no cover
-    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
-        if sel is not None:
-            if utils.is_list_sel(sel):
-                return await self.get_list(key, cast(VSListSel, sel))
-            if utils.is_dict_sel(sel):
-                return await self.get_dict(key, sel)
-            raise ValueError(f"Invalid selector type {type(sel)}: {sel}")  # pragma: no cover
-        redis_name = self._key_name(key)
-        t = self._check_text(await self._aredis.type(redis_name)) # Just opportunisitic; no lock
-        if t == 'list':
+    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
+                       /, dtype: FridTypeName='') -> FridValue|MissingType:
+        if dtype == 'list' or (sel is not None and utils.is_list_sel(sel)):
             return await self.get_list(key, cast(VSListSel, sel))
-        if t == 'hash':
-            return await self.get_dict(key, sel)
+        if dtype == 'dict' or (sel is not None and utils.is_dict_sel(sel)):
+            return await self.get_dict(key, cast(VSDictSel, sel))
+        redis_name = self._key_name(key)
+        if not dtype:
+            t = self._check_text(await self._aredis.type(redis_name)) # Just opportunisitic; no lock
+            if t == 'list':
+                return await self.get_list(key, cast(VSListSel, sel))
+            if t == 'hash':
+                return await self.get_dict(key, cast(VSDictSel, sel))
         data = await self._aredis.get(redis_name)
         return self._decode(data) if data is not None else MISSING
     async def put_list(self, key: VStoreKey, val: FridArray,

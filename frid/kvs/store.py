@@ -6,7 +6,7 @@ from contextlib import AbstractContextManager, AbstractAsyncContextManager
 from typing import TypeVar, overload
 
 
-from ..typing import MISSING, BlobTypes, FridTypeSize
+from ..typing import MISSING, BlobTypes, FridTypeName, FridTypeSize
 from ..typing import FridArray, FridSeqVT, FridValue, MissingType, StrKeyMap
 from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap
 from . import utils
@@ -37,9 +37,12 @@ class _BaseStore(ABC):
         Notes: There is no atomicity guarantee for this method.
         """
         raise NotImplementedError  # pragma: no cover
-    def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
+    def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
+                 /, dtype: FridTypeName='') -> FridValue|MissingType:
         """Gets the value of the given `key` in the value store.
         - If `sel` is specified, uses the selection rule to select the partial data to return.
+        - If `dtype` is set, use it as a type hint for the data type
+          (it can return a different type though)
         - If the value of the key is missing, returns MISSING.
         There are a number of type specific get methods (get_{text,blob,list,dict}()).
         By default, those methods will call get_frid() method and then verify
@@ -118,7 +121,8 @@ class ValueStore(_BaseStore):
     def get_meta(self, *args: VStoreKey, keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    def get_frid(self, key: VStoreKey, sel: VStoreSel=None) -> FridValue|MissingType:
+    def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
+                 /, dtype: FridTypeName='') -> FridValue|MissingType:
         # Make the getter abstract
         raise NotImplementedError  # pragma: no cover
     def put_frid(self, key: VStoreKey, val: FridValue, /, flags=VSPutFlag.UNCHECKED) -> bool:
@@ -140,26 +144,26 @@ class ValueStore(_BaseStore):
         with self.get_lock():
             return sum(int(self.del_frid(k)) for k in keys)
     def get_text(self, key: VStoreKey, /, alt: _T=None) -> str|_T:
-        data = self.get_frid(key)
+        data = self.get_frid(key, dtype='text')
         if data is MISSING:
             return alt
         assert isinstance(data, str), type(data)
         return data
     def get_blob(self, key: VStoreKey, /, alt: _T=None) -> BlobTypes|_T:
-        data = self.get_frid(key)
+        data = self.get_frid(key, dtype='blob')
         if data is MISSING:
             return alt
         assert isinstance(data, BlobTypes), type(data)
         return data
     def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=None) -> FridValue|_T:
-        data = self.get_frid(key, sel)
+        data = self.get_frid(key, sel, dtype='list')
         if data is MISSING:
             return alt
         if not isinstance(sel, int):
             assert is_frid_array(data), type(data)
         return data
     def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt: _T=None) -> FridValue|_T:
-        data = self.get_frid(key, sel)
+        data = self.get_frid(key, sel, dtype='dict')
         if data is MISSING:
             return alt
         if not isinstance(sel, str):
@@ -178,7 +182,8 @@ class AsyncStore(_BaseStore):
                        keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|MissingType:
+    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
+                       /, dtype: FridTypeName='') -> FridValue|MissingType:
         raise NotImplementedError  # pragma: no cover
     async def put_frid(self, key: VStoreKey, val: FridValue,
                        /, flags=VSPutFlag.UNCHECKED) -> bool:
@@ -208,13 +213,13 @@ class AsyncStore(_BaseStore):
                     count += 1
             return count
     async def get_text(self, key: VStoreKey, alt: _T=None) -> str|_T:
-        data = await self.get_frid(key)
+        data = await self.get_frid(key, dtype='text')
         if data is MISSING:
             return alt
         assert isinstance(data, str), type(data)
         return data
     async def get_blob(self, key: VStoreKey, alt: _T=None) -> BlobTypes|_T:
-        data = await self.get_frid(key)
+        data = await self.get_frid(key, dtype='blob')
         if data is MISSING:
             return alt
         assert isinstance(data, BlobTypes), type(data)
@@ -225,7 +230,7 @@ class AsyncStore(_BaseStore):
     async def get_list(self, key: VStoreKey, sel: slice|tuple[int,int]|None,
                         /, alt: _T=None) -> FridArray|_T: ...
     async def get_list(self, key: VStoreKey, sel: VSListSel, /, alt: _T=None) -> FridValue|_T:
-        data = await self.get_frid(key, sel)
+        data = await self.get_frid(key, sel, dtype='list')
         if data is MISSING:
             return alt
         if not isinstance(sel, int):
@@ -238,7 +243,7 @@ class AsyncStore(_BaseStore):
                         /, alt: _T=None) -> StrKeyMap|_T: ...
     async def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
                         /, alt: _T=None) -> FridValue|_T:
-        data = await self.get_frid(key, sel)
+        data = await self.get_frid(key, sel, dtype='dict')
         if data is MISSING:
             return alt
         if not isinstance(sel, str):

@@ -4,7 +4,7 @@ from concurrent.futures import Executor
 from contextlib import AbstractAsyncContextManager
 from typing import Concatenate, ParamSpec, TypeVar
 
-from ..typing import MISSING, BlobTypes, FridBeing, FridSeqVT, FridTypeSize, FridValue
+from ..typing import MISSING, BlobTypes, FridBeing, FridSeqVT, FridTypeName, FridTypeSize, FridValue
 from . import utils
 from .store import AsyncStore, ValueStore
 from .utils import VSDictSel, VSListSel, VSPutFlag, VStoreKey, VStoreSel, BulkInput
@@ -26,8 +26,9 @@ class ValueProxyStore(ValueStore):
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return self._store.get_meta(*args, keys=keys)
-    def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
-        return self._store.get_frid(key, sel)
+    def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
+                 /, dtype: FridTypeName='') -> FridValue|FridBeing:
+        return self._store.get_frid(key, sel, dtype)
     def put_frid(self, key: VStoreKey, val: FridValue,
                  /, flags=VSPutFlag.UNCHECKED) -> int|bool:
         return self._store.put_frid(key, val, flags)
@@ -63,8 +64,9 @@ class AsyncProxyStore(AsyncStore):
     async def get_meta(self, *args: VStoreKey,
                        keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return await self._store.get_meta(*args, keys=keys)
-    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
-        return await self._store.get_frid(key, sel)
+    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
+                       /, dtype: FridTypeName='') -> FridValue|FridBeing:
+        return await self._store.get_frid(key, sel, dtype)
     async def put_frid(self, key: VStoreKey, val: FridValue,
                         /, flags=VSPutFlag.UNCHECKED) -> int|bool:
         return await self._store.put_frid(key, val, flags)
@@ -122,8 +124,9 @@ class ValueProxyAsyncStore(AsyncStore):
     async def get_meta(self, *args: VStoreKey,
                        keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return await self._asyncrun(self._store.get_meta, *utils.list_concat(args, keys))
-    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
-        return await self._asyncrun(self._store.get_frid, key, sel)
+    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
+                       /, dtype: FridTypeName='') -> FridValue|FridBeing:
+        return await self._asyncrun(self._store.get_frid, key, sel, dtype)
     async def put_frid(self, key: VStoreKey, val: FridValue,
                         /, flags=VSPutFlag.UNCHECKED) -> int|bool:
         return await self._asyncrun(self._store.put_frid, key, val, flags)
@@ -178,8 +181,9 @@ class AsyncProxyValueStore(ValueStore):
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return self._loop.run_until_complete(self._store.get_meta(*args, keys=keys))
-    def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> FridValue|FridBeing:
-        return self._loop.run_until_complete(self._store.get_frid(key, sel))
+    def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
+                 /, dtype: FridTypeName='') -> FridValue|FridBeing:
+        return self._loop.run_until_complete(self._store.get_frid(key, sel, dtype))
     def put_frid(self, key: VStoreKey, val: FridValue,
                  /, flags=VSPutFlag.UNCHECKED) -> int|bool:
         return self._loop.run_until_complete(self._store.put_frid(key, val, flags))

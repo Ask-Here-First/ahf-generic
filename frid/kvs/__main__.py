@@ -1,4 +1,4 @@
-import os, random, asyncio, unittest
+import os, sys, random, asyncio, unittest
 from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy import LargeBinary, null
@@ -217,9 +217,11 @@ class VStoreTest(unittest.TestCase):
         try:
             from .redis import RedisValueStore
         except Exception:
+            print("Skip Redis sync tests (Is redis-py package installed?)", file=sys.stderr)
             return
         host = os.getenv('REDIS_KVS_HOST')
         if not host:
+            print("Skip Redis sync tests since REDIS_KVS_HOST is not set", file=sys.stderr)
             return
         store = RedisValueStore(
             host=host, port=int(os.getenv('REDIS_KVS_PORT', 6379)),
@@ -234,9 +236,11 @@ class VStoreTest(unittest.TestCase):
         try:
             from .redis import RedisAsyncStore
         except Exception:
+            print("Skip Redis async tests (Is redis-py package installed?)", file=sys.stderr)
             return
         host = os.getenv('REDIS_KVS_HOST')
         if not host:
+            print("Skip Redis async tests since REDIS_KVS_HOST is not set", file=sys.stderr)
             return
         loop = asyncio.new_event_loop()
         try:
@@ -281,6 +285,7 @@ class VStoreTest(unittest.TestCase):
         try:
             from .dbsql import DbsqlValueStore
         except Exception:
+            print("Skip Dbsql tests (Is sqlalchemy package installed?)", file=sys.stderr)
             return
         dbfile = "/tmp/VStoreTest.sdb"
         dburl = "sqlite+pysqlite:///" + dbfile

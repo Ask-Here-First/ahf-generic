@@ -173,7 +173,7 @@ def frid_delete(data: _T, sel: VStoreSel) -> tuple[_T|list|dict[str,Any],int]:
     if sel is None:
         return (data, 0)
     if is_frid_skmap(data):
-        new_dict = data if isinstance(data, dict) else  dict(data)
+        new_dict = data if isinstance(data, dict) else dict(data)
         cnt = dict_delete(new_dict, cast(str|Iterable[str], sel))
         return (new_dict, cnt)
     if is_frid_array(data):
