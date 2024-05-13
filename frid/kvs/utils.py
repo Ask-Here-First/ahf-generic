@@ -107,7 +107,7 @@ def list_select(
     if isinstance(sel, slice):
         return val[sel]
     if isinstance(sel, tuple) and len(sel) == 2:
-        (index, until) =fix_indexes(sel, len(val))
+        (index, until) = fix_indexes(sel, len(val))
         return val[index:until]
     raise ValueError(f"Invalid selector type {type(sel)}")
 

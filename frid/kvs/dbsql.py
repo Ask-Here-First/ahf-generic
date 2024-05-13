@@ -3,7 +3,7 @@ from logging import error
 from typing import TypeGuard, TypeVar
 
 from sqlalchemy import (
-    Integer, Table, Column, ColumnElement, CursorResult,
+    Integer, Row, Table, Column, ColumnElement, CursorResult,
     Delete, Insert, Select, Update,
     LargeBinary, String, Date, DateTime, Time, Numeric, Boolean, Null,
     bindparam, create_engine, null,
@@ -13,10 +13,11 @@ from sqlalchemy import types
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.engine import Connection
 
-from frid.guards import as_kv_pairs
+from frid.guards import as_kv_pairs, is_frid_array, is_text_list_like
 
 from ..typing import (
-    MISSING, BlobTypes, DateTypes, FridBeing, FridSeqVT, FridTypeName, FridTypeSize, FridValue, MissingType
+    MISSING, BlobTypes, DateTypes, FridArray, FridBeing, FridSeqVT,
+    FridTypeName, FridTypeSize, FridValue, MissingType, StrKeyMap
 )
 from ..chrono import datetime, dateonly, timeonly
 from ..helper import frid_merge, frid_type_size
@@ -24,7 +25,7 @@ from ..dumper import dump_into_str
 from ..loader import load_from_str
 from .store import ValueStore
 from .utils import (
-    BulkInput, VSPutFlag, VStoreKey, VStoreSel, dict_concat, frid_delete, frid_select, list_concat
+    BulkInput, VSListSel, VSPutFlag, VStoreKey, VStoreSel, dict_concat, dict_select, frid_delete, frid_select, is_dict_sel, is_list_sel, list_concat, list_select
 )
 from frid.kvs import utils
 
@@ -46,13 +47,13 @@ class _SqlBaseStore:
         self._where_conds: list[ColumnElement[bool]] = self._build_where(table, row_filter)
         self._insert_data: Mapping[str,SqlTypes] = dict_concat(row_filter, col_values)
         # For keys
-        self._seq_sub_col: Column|None = self._find_sub_key_col(table, seq_subkey, True)
-        self._map_sub_col: Column|None = self._find_sub_key_col(table, map_subkey, False)
+        self._seq_key_col: Column|None = self._find_sub_key_col(table, seq_subkey, True)
+        self._map_key_col: Column|None = self._find_sub_key_col(table, map_subkey, False)
         exclude: list[str] = []
-        if self._seq_sub_col is not None:
-            exclude.append(self._seq_sub_col.name)
-        if self._map_sub_col is not None:
-            exclude.append(self._map_sub_col.name)
+        if self._seq_key_col is not None:
+            exclude.append(self._seq_key_col.name)
+        if self._map_key_col is not None:
+            exclude.append(self._map_key_col.name)
         self._key_columns: list[Column] = self._find_key_columns(table, key_fields, exclude)
         # For values
         if frid_field is True and text_field is True:
@@ -192,6 +193,7 @@ class _SqlBaseStore:
     def _select_args(self) -> list[Column]:
         """Returns the list of all value columns."""
         cols: list[Column] = [x for x in (
+            self._seq_key_col, self._map_key_col,
             self._frid_column, self._text_column, self._blob_column
         ) if x is not None]
         cols.extend(self._val_columns)
@@ -256,23 +258,34 @@ class _SqlBaseStore:
             out[self._frid_column.name] = dump_into_str(val)
             return out
         raise ValueError(f"No column to store data of type {type(val)}")
-    def _extract_row_value(self, row: Sequence, sel: VStoreSel) -> FridValue|MissingType:
+    def _extract_row_value(
+            self, row: Sequence, sel: VStoreSel
+    ) -> tuple[int|str|None,FridValue|MissingType]:
         """Extracts data from the row coming from SQL result."""
         assert len(row) == len(self._select_cols)
+        key = None
         out = {}
         frid_val = MISSING
         for idx, col in enumerate(self._select_cols):
             val = row[idx]
             if val is None or val == null():
                 continue
+            if self._seq_key_col is not None and col.name == self._seq_key_col.name:
+                key = val
+                assert isinstance(key, int)
+                continue
+            if self._map_key_col is not None and col.name == self._map_key_col.name:
+                key = val
+                assert isinstance(key, str)
+                continue
             if self._text_column is not None and col.name == self._text_column.name:
                 if isinstance(val, str):
-                    return val
+                    return (key, val)
                 error(f"Data in column {col.name} is not string: {type(val)}")
                 continue
             if self._blob_column is not None and col.name == self._blob_column.name:
                 if isinstance(val, BlobTypes):
-                    return val
+                    return (key, val)
                 error(f"Data in column {col.name} is not binary: {type(val)}")
                 continue
             if self._frid_column is not None and col.name == self._frid_column.name:
@@ -283,12 +296,12 @@ class _SqlBaseStore:
                 continue
             out[col.name] = val
         if frid_val is MISSING:
-            return frid_select(out, sel)
+            return (key, frid_select(out, sel))
         if isinstance(frid_val, Mapping):
             out.update(frid_val)
         else:
             out = frid_val
-        return frid_select(out, sel)
+        return (key, frid_select(out, sel))
 
     def _get_meta_select(self, keys: Iterable[VStoreKey], /) -> Select:
         """Returns the select cmd for _get_meta()."""
@@ -299,70 +312,229 @@ class _SqlBaseStore:
             keys = list(keys)
         return {k: frid_type_size(v) for k, v in zip(keys, self._get_bulk_result(result, keys))
                 if not isinstance(v, FridBeing)}
-    def _get_frid_select(self, key: VStoreKey, sel: VStoreSel, /) -> Select:
+    def _get_frid_select(self, key: VStoreKey, sel: VStoreSel, dtype: FridTypeName) -> Select:
         """Returns the select command for get_frid()."""
+        extra = []
+        if self._map_key_col is not None:
+            # We can only do restricted selection for mapping, not sequence
+            if isinstance(sel, str):
+                extra.append(self._map_key_col == sel)
+            elif is_text_list_like(sel):
+                extra.append(self._map_key_col in sel)
         cmd = select(*self._select_cols).where(
             *(k == v for k, v in zip(self._key_columns, self._reorder_key(key))),
-            *self._where_conds
+            *self._where_conds, *extra
         )
+        if self._seq_key_col is not None:
+            cmd = cmd.order_by(self._seq_key_col)
         return cmd
-    def _get_frid_result(self, result: CursorResult, sel: VStoreSel) -> FridValue|MissingType:
+    def _get_frid_result(self, result: CursorResult, sel: VStoreSel,
+                         dtype: FridTypeName) -> FridValue|MissingType:
         """Processes the results by the select command for get_frid()."""
-        row = result.one_or_none()
-        if row is None:
+        if self._map_key_col is None and self._seq_key_col is None:
+            row = result.one_or_none()
+            if row is None:
+                return MISSING
+            (key, val) = self._extract_row_value(row, sel)
+            assert key is None
+            return val
+        return self._proc_multi_rows(result.all(), sel, dtype)
+    def _proc_multi_rows(self, rowlist: Sequence[Sequence], sel: VStoreSel=None,
+                         dtype: FridTypeName='') -> FridValue|MissingType:
+        seq_val: FridArray = []
+        map_val: StrKeyMap = {}
+        out_val = MISSING
+        for row in rowlist:
+            (key, val) = self._extract_row_value(row, None)
+            if key is None:
+                if out_val is not MISSING:
+                    raise ValueError("Multiple values for a single entry result")
+                out_val = val
+            elif isinstance(key, int):
+                seq_val.append(seq_val)
+            elif isinstance(key, str):
+                map_val[key] = val
+        if dtype == 'list' or (sel is not None and utils.is_list_sel(sel)):
+            if map_val:
+                raise ValueError("There is a mapping data for sequence results")
+            if out_val is MISSING:
+                out_val = seq_val
+            if seq_val:
+                raise ValueError("There is a regular data for sequence results")
+        elif dtype == 'dict' or (sel is not None and utils.is_dict_sel(sel)):
+            if seq_val:
+                raise ValueError("There is a sequence data for mapping results")
+            if out_val is MISSING:
+                out_val = map_val
+            if map_val:
+                raise ValueError("There is a regular data for mapping results")
+        if out_val is MISSING:
             return MISSING
-        return self._extract_row_value(row, sel)
-    def _put_frid_insert(self, key: VStoreKey, val: FridValue,
-                         /, flags: VSPutFlag) -> tuple[Insert|None,ParTypes]:
-        """Returns the insert command for put_frid.
-        - Returns None if insert is prohibitted by flags.
-        - It also returns the parameters for execution because a single put
-          may result in multiple insertions.
-        """
-        if flags & VSPutFlag.NO_CREATE:
-            return (None, None)
-        cmd = insert(self._table).values(
-            **self._key_to_dict(key), **self._val_to_dict(val), **self._insert_data,
-        )
-        return (cmd, None)
-    def _put_frid_select(self, key: VStoreKey, /, flags: VSPutFlag) -> Select|None:
+        return frid_select(out_val, sel)
+    def _put_frid_select(self, key: VStoreKey, val: FridValue,
+                         /, flags: VSPutFlag) -> Select|None:
         """Returns the select command for put_frid for read-modify-write.
         - Returns None if select is not needed by flags.
         """
-        if not (flags & VSPutFlag.KEEP_BOTH):
-            return None
-        return self._get_frid_select(key, None)
-    def _put_frid_update(self, key: VStoreKey, val: FridValue,
-                             /, flags: VSPutFlag) -> tuple[Update|None,ParTypes]:
+        if isinstance(val, Mapping):
+            if self._map_key_col is not None:
+                return select(self._map_key_col).where(
+                    *(k == v for k, v in zip(self._key_columns, self._reorder_key(key))),
+                    *self._where_conds,
+                )
+        elif is_frid_array(val):
+            if self._seq_key_col is not None:
+                return select(self._seq_key_col).where(
+                    *(k == v for k, v in zip(self._key_columns, self._reorder_key(key))),
+                    *self._where_conds,
+                ).order_by(self._seq_key_col)
+        return select(*self._select_cols).where(
+            *(k == v for k, v in zip(self._key_columns, self._reorder_key(key))),
+            *self._where_conds,
+        )
+    def _put_frid_delete(self, key: VStoreKey, val: FridValue,
+                         /, flags: VSPutFlag, datarows: Sequence[Row]|None) -> Delete|None:
+        if isinstance(val, Mapping):
+            to_delete = self._map_key_col is not None and bool(datarows)
+        elif is_frid_array(val):
+            to_delete = self._seq_key_col is not None and bool(datarows)
+        else:
+            to_delete = False
+        if to_delete and not (flags & (VSPutFlag.KEEP_BOTH | VSPutFlag.NO_CHANGE)):
+            return delete(self._table).where(
+                *(k == v for k, v in zip(self._key_columns, self._reorder_key(key))),
+                *self._where_conds,
+            )
+        # Do not call delete for regular single row update
+        return None
+    def _put_frid_update(self, key: VStoreKey, val: FridValue, /, flags: VSPutFlag,
+                         datarows: Sequence[Row]|None) -> tuple[Update|None,ParTypes]:
         """Returns the update command for put_frid.
-        - Returns None if update is prohibitted by flags.
+        - Returns None if update is prohibited by flags.
         - It also returns the parameters for execution because a single put
           may result in multiple row updates.
         """
+        if isinstance(val, Mapping):
+            if not val:
+                return (None, None)
+            if self._map_key_col is not None:
+                raise NotImplementedError
+        elif is_frid_array(val):
+            if not val:
+                return (None, None)
+            if self._seq_key_col is not None:
+                raise NotImplementedError
         if flags & VSPutFlag.NO_CHANGE:
             return (None, None)
+        assert datarows is not None
+        if not datarows:
+            return (None, None)
+        assert len(datarows) == 1
+        if flags & VSPutFlag.KEEP_BOTH:
+            (row_key, data) = self._extract_row_value(datarows[0], None)
+            assert row_key is None
+            val = frid_merge(data, val)
         cmd = update(self._table).where(
             *(k == v for k, v in zip(self._key_columns, self._reorder_key(key))),
             *self._where_conds
         ).values(**self._val_to_dict(val))
         return (cmd, None)
-    def _put_frid_result(self, result: CursorResult) -> bool:
+    def _put_frid_insert(self, key: VStoreKey, val: FridValue, /, flags: VSPutFlag,
+                         datarows: Sequence[Row]|None) -> tuple[Insert|None,ParTypes]:
+        """Returns the insert command for put_frid.
+        - Returns None if insert is prohibitted by flags.
+        - It also returns the parameters for execution because a single put
+          may result in multiple insertions.
+        """
+        if isinstance(val, Mapping):
+            if self._map_key_col is not None:
+                if not val:
+                    return (None, None)
+                raise NotImplementedError
+        elif is_frid_array(val):
+            if self._seq_key_col is not None:
+                if not val:
+                    return (None, None)
+                raise NotImplementedError
+        if flags & VSPutFlag.NO_CREATE:
+            return (None, None)
+        assert datarows is not None
+        if datarows:
+            return (None, None)
+        cmd = insert(self._table).values(
+            **self._key_to_dict(key), **self._val_to_dict(val), **self._insert_data,
+        )
+        return (cmd, None)
+    def _put_frid_result(self, delete: CursorResult|None, update: CursorResult|None,
+                         insert: CursorResult|None) -> bool:
         """Returns the put_frid() return value according to the insert or upate result."""
-        return bool(result.rowcount)
-    def _del_frid_delete(self, key: VStoreKey, sel: VStoreSel=None, /) -> Delete|None:
+        for r in (delete, update, insert):
+            if r is not None and r.rowcount:
+                return True
+        return False
+    def _del_frid_select(self, key: VStoreKey, sel: VStoreSel, /) -> Select|None:
+        if sel is None:
+            return None
+        if self._map_key_col is not None and is_dict_sel(sel):
+            return None
+        return self._get_frid_select(key, None, '')
+    def _del_frid_delete(self, key: VStoreKey, sel: VStoreSel,
+                         datarows: CursorResult|None) -> Delete|None:
         """Returns the update command for del_frid.
         - Returns None if no delete should be performed, according to `key` and `sel`.
         """
-        if sel is not None:
+        if sel is None:
+            assert datarows is None
+            return delete(self._table).where(
+                *(k == v for k, v in zip(self._key_columns, self._reorder_key(key))),
+                *self._where_conds
+            )
+        if self._map_key_col is not None and is_dict_sel(sel):
+            assert datarows is None
+            if isinstance(sel, str):
+                dict_sel_cond = self._map_key_col == sel
+            elif isinstance(sel, Sequence):
+                dict_sel_cond = self._map_key_col.in_(sel)
+            else:
+                raise ValueError(f"Invalid selector type for dict {type(sel)}")
+            return delete(self._table).where(
+                *(k == v for k, v in zip(self._key_columns, self._reorder_key(key))),
+                dict_sel_cond, *self._where_conds
+            )
+        if self._seq_key_col is not None and is_list_sel(sel):
+            assert datarows is not None
+            oids = [k for row in datarows.all()
+                    if isinstance((k := self._extract_row_value(row, None)[0]), int)]
+            assert sel is not None
+            oid_sel = list_select(oids, sel)
+            if oid_sel is MISSING:
+                return None
+            if isinstance(oid_sel, int):
+                list_sel_cond = self._seq_key_col == oid_sel
+            else:
+                list_sel_cond = self._seq_key_col.in_(oid_sel)
+            return delete(self._table).where(
+                *(k == v for k, v in zip(self._key_columns, self._reorder_key(key))),
+                list_sel_cond,  *self._where_conds
+            )
+        return None
+    def _del_frid_update(self, key: VStoreKey, sel: VStoreSel,
+                         datarows: CursorResult|None) -> Update|None:
+        # Not calls if _del_frid_delete() is called; hence basically only for single row
+        if datarows is None:
             return None
-        return delete(self._table).where(
+        data = self._get_frid_result(datarows, None, '')
+        if data is MISSING:
+            return None
+        (data, cnt) = frid_delete(data, sel)
+        if cnt == 0:
+            return None
+        return update(self._table).where(
             *(k == v for k, v in zip(self._key_columns, self._reorder_key(key))),
             *self._where_conds
-        )
-    def _del_frid_result(self, result: CursorResult, /) -> bool:
+        ).values(**self._val_to_dict(data))
+    def _del_frid_result(self, result: CursorResult, is_update: bool, /) -> bool:
         """Returns the del_frid() return value according to the insert or upate result."""
-        if result.rowcount > 1:
-            error(f"Delete command results {result.rowcount} deletions")
         return bool(result.rowcount)
 
     def _get_bulk_select(self, keys: Iterable[VStoreKey], /) -> Select:
@@ -373,17 +545,17 @@ class _SqlBaseStore:
         )
     def _get_bulk_result(self, result: CursorResult, keys: Iterable[VStoreKey],
                          /, alt: _T=MISSING) -> list[FridValue|_T]:
-        res: dict[tuple,Sequence] = {}
+        res: dict[tuple,list[Sequence]] = {}
         for row in result.all():
-            res[tuple(row[:len(self._key_columns)])] = row[len(self._key_columns):]
+            prev = res.setdefault(tuple(row[:len(self._key_columns)]), [])
+            prev.append(row[len(self._key_columns):])
         out = []
         for k in keys:
             v = res.get(self._reorder_key(k))
             if v is None:
                 out.append(alt)
             else:
-                data = self._extract_row_value(v, None)
-                out.append(data if data is not MISSING else alt)
+                out.append(self._proc_multi_rows(v))
         return out
     def _del_bulk_delete(self, keys: Iterable[VStoreKey], /) -> tuple[Delete,ParTypes]:
         """Returns the update command for del_frid.
@@ -419,47 +591,37 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
 
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
                  /, dtype: FridTypeName='') -> FridValue|MissingType:
-        cmd = self._get_frid_select(key, sel)
+        cmd = self._get_frid_select(key, sel, dtype)
         with self._engine.begin() as conn:
-            return self._get_frid_result(conn.execute(cmd), sel)
+            return self._get_frid_result(conn.execute(cmd), sel, dtype)
     def put_frid(self, key: VStoreKey, val: FridValue, /, flags=VSPutFlag.UNCHECKED) -> bool:
         with self._engine.begin() as conn:
             return self._put_frid(conn, key, val, flags)
     def _put_frid(self, conn: Connection, key: VStoreKey, val: FridValue,
                   /, flags=VSPutFlag.UNCHECKED) -> bool:
-        (cmd, par) = self._put_frid_insert(key, val, flags)
-        if cmd is not None:
-            try:
-                return self._put_frid_result(conn.execute(cmd, par))
-            except SQLAlchemyError:
-                # error("Fail to insert", exc_info=True)
-                pass
-        cmd = self._put_frid_select(key, flags)
-        if cmd is not None:
-            data = self._get_frid_result(conn.execute(cmd), None)
-            val = frid_merge(data, val)
-            if val is data:
-                return False
-        (cmd, par) = self._put_frid_update(key, val, flags)
-        if cmd is None:
-            return False
-        return self._put_frid_result(conn.execute(cmd, par))
+        sel_cmd = self._put_frid_select(key, val, flags)
+        sel_out = conn.execute(sel_cmd).all() if sel_cmd is not None else None
+        del_cmd = self._put_frid_delete(key, val, flags, sel_out)
+        del_out = conn.execute(del_cmd) if del_cmd is not None else None
+        (upd_cmd, upd_par) = self._put_frid_update(key, val, flags, sel_out)
+        upd_out = conn.execute(upd_cmd, upd_par) if upd_cmd is not None else None
+        (ins_cmd, ins_par) = self._put_frid_insert(key, val, flags, sel_out)
+        ins_out = conn.execute(ins_cmd, ins_par) if ins_cmd is not None else None
+        return self._put_frid_result(del_out, upd_out, ins_out)
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
-        cmd = self._del_frid_delete(key, sel)
-        if cmd is not None:
-            with self._engine.begin() as conn:
-                return self._del_frid_result(conn.execute(cmd))
-        cmd = self._get_frid_select(key, None)
+        sel_cmd = self._del_frid_select(key, sel)
         with self._engine.begin() as conn:
-            data = self._get_frid_result(conn.execute(cmd), None)
-            if data is MISSING:
-                return False
-            (data, cnt) = frid_delete(data, sel)
-            if cnt == 0:
-                return False
-            (cmd, par) = self._put_frid_update(key, data, VSPutFlag.NO_CREATE)
-            assert cmd is not None
-            return self._put_frid_result(conn.execute(cmd, par))
+            if sel_cmd is not None:
+                results = conn.execute(sel_cmd)
+            else:
+                results = None
+            del_cmd = self._del_frid_delete(key, sel, results)
+            if del_cmd is not None:
+                return self._del_frid_result(conn.execute(del_cmd), False)
+            upd_cmd = self._del_frid_update(key, sel, results)
+            if upd_cmd is not None:
+                return self._del_frid_result(conn.execute(upd_cmd), True)
+        return False
 
     def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
         cmd = self._get_bulk_select(keys)
