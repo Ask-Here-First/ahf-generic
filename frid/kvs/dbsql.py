@@ -10,22 +10,21 @@ from sqlalchemy import (
     delete, insert, select, update
 )
 from sqlalchemy import types
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.engine import Connection
-
-from frid.guards import as_kv_pairs, is_frid_array, is_text_list_like
 
 from ..typing import (
     MISSING, BlobTypes, DateTypes, FridArray, FridBeing, FridSeqVT,
     FridTypeName, FridTypeSize, FridValue, MissingType, StrKeyMap
 )
+from ..guards import as_kv_pairs, is_frid_array, is_text_list_like
 from ..chrono import datetime, dateonly, timeonly
 from ..helper import frid_merge, frid_type_size
 from ..dumper import dump_into_str
 from ..loader import load_from_str
 from .store import ValueStore
 from .utils import (
-    BulkInput, VSListSel, VSPutFlag, VStoreKey, VStoreSel, dict_concat, dict_select, frid_delete, frid_select, is_dict_sel, is_list_sel, list_concat, list_select
+    BulkInput, VSPutFlag, VStoreKey, VStoreSel, is_dict_sel, is_list_sel,
+    dict_concat, list_concat, frid_delete, frid_select, list_select
 )
 from frid.kvs import utils
 
@@ -408,7 +407,7 @@ class _SqlBaseStore:
         # Do not call delete for regular single row update
         return None
     def _put_frid_update(self, key: VStoreKey, val: FridValue, /, flags: VSPutFlag,
-                         datarows: Sequence[Row]|None) -> tuple[Update|None,ParTypes]:
+                         datarows: Sequence[Row]|None) -> list[Update]:
         """Returns the update command for put_frid.
         - Returns None if update is prohibited by flags.
         - It also returns the parameters for execution because a single put
@@ -416,19 +415,19 @@ class _SqlBaseStore:
         """
         if isinstance(val, Mapping):
             if not val:
-                return (None, None)
+                return []
             if self._map_key_col is not None:
                 raise NotImplementedError
         elif is_frid_array(val):
             if not val:
-                return (None, None)
+                return []
             if self._seq_key_col is not None:
                 raise NotImplementedError
         if flags & VSPutFlag.NO_CHANGE:
-            return (None, None)
+            return []
         assert datarows is not None
         if not datarows:
-            return (None, None)
+            return []
         assert len(datarows) == 1
         if flags & VSPutFlag.KEEP_BOTH:
             (row_key, data) = self._extract_row_value(datarows[0], None)
@@ -438,9 +437,9 @@ class _SqlBaseStore:
             *(k == v for k, v in zip(self._key_columns, self._reorder_key(key))),
             *self._where_conds
         ).values(**self._val_to_dict(val))
-        return (cmd, None)
+        return [cmd]
     def _put_frid_insert(self, key: VStoreKey, val: FridValue, /, flags: VSPutFlag,
-                         datarows: Sequence[Row]|None) -> tuple[Insert|None,ParTypes]:
+                         datarows: Sequence[Row]|None) -> list[Insert]:
         """Returns the insert command for put_frid.
         - Returns None if insert is prohibitted by flags.
         - It also returns the parameters for execution because a single put
@@ -449,29 +448,28 @@ class _SqlBaseStore:
         if isinstance(val, Mapping):
             if self._map_key_col is not None:
                 if not val:
-                    return (None, None)
+                    return []
                 raise NotImplementedError
         elif is_frid_array(val):
             if self._seq_key_col is not None:
                 if not val:
-                    return (None, None)
+                    return []
                 raise NotImplementedError
         if flags & VSPutFlag.NO_CREATE:
-            return (None, None)
+            return []
         assert datarows is not None
         if datarows:
-            return (None, None)
+            return []
         cmd = insert(self._table).values(
             **self._key_to_dict(key), **self._val_to_dict(val), **self._insert_data,
         )
-        return (cmd, None)
-    def _put_frid_result(self, delete: CursorResult|None, update: CursorResult|None,
-                         insert: CursorResult|None) -> bool:
+        return [cmd]
+    def _put_frid_result(self, delete: CursorResult|None, update: Sequence[CursorResult],
+                         insert: Sequence[CursorResult]) -> bool:
         """Returns the put_frid() return value according to the insert or upate result."""
-        for r in (delete, update, insert):
-            if r is not None and r.rowcount:
-                return True
-        return False
+        return delete is not None and bool(delete.rowcount) or any(
+            r.rowcount for r in update
+        ) or any(r.rowcount for r in insert)
     def _del_frid_select(self, key: VStoreKey, sel: VStoreSel, /) -> Select|None:
         if sel is None:
             return None
@@ -603,10 +601,10 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
         sel_out = conn.execute(sel_cmd).all() if sel_cmd is not None else None
         del_cmd = self._put_frid_delete(key, val, flags, sel_out)
         del_out = conn.execute(del_cmd) if del_cmd is not None else None
-        (upd_cmd, upd_par) = self._put_frid_update(key, val, flags, sel_out)
-        upd_out = conn.execute(upd_cmd, upd_par) if upd_cmd is not None else None
-        (ins_cmd, ins_par) = self._put_frid_insert(key, val, flags, sel_out)
-        ins_out = conn.execute(ins_cmd, ins_par) if ins_cmd is not None else None
+        upd_cmd = self._put_frid_update(key, val, flags, sel_out)
+        upd_out = [conn.execute(cmd) for cmd in upd_cmd]
+        ins_cmd = self._put_frid_insert(key, val, flags, sel_out)
+        ins_out = [conn.execute(cmd) for cmd in ins_cmd]
         return self._put_frid_result(del_out, upd_out, ins_out)
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         sel_cmd = self._del_frid_select(key, sel)
