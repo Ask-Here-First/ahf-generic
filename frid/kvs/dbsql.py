@@ -397,9 +397,10 @@ class _SqlBaseStore:
                 return select(self._map_key_col).where(*self._make_where_args(key))
         elif is_frid_array(val):
             if self._seq_key_col is not None:
-                return select(self._seq_key_col).where(
-                    *self._make_where_args(key)
-                ).order_by(self._seq_key_col)
+                # return select(self._seq_key_col).where(
+                #     *self._make_where_args(key)
+                # ).order_by(self._seq_key_col)
+                return None  # Do not need past for put for now because insert is not supported
         return self._make_select_cmd(key)
     def _put_frid_delete(self, key: VStoreKey, val: FridValue,
                          /, flags: VSPutFlag, datarows: Sequence[Row]|None) -> Delete|None:
