@@ -1,14 +1,16 @@
+import asyncio
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from logging import error
 from typing import TypeGuard, TypeVar
 
 from sqlalchemy import (
-    Integer, Row, Table, Column, ColumnElement, CursorResult,
+    Engine, Integer, MetaData, Row, Table, Column, ColumnElement, CursorResult,
     Delete, Insert, Select, Update,
     LargeBinary, String, Date, DateTime, Time, Numeric, Boolean, Null,
     bindparam, create_engine, null,
     delete, insert, select, update
 )
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncConnection
 from sqlalchemy import types
 from sqlalchemy.engine import Connection
 
@@ -21,7 +23,7 @@ from ..chrono import datetime, dateonly, timeonly
 from ..helper import frid_merge, frid_type_size
 from ..dumper import dump_into_str
 from ..loader import load_from_str
-from .store import ValueStore
+from .store import AsyncStore, ValueStore
 from .utils import (
     BulkInput, VSPutFlag, VStoreKey, VStoreSel, is_dict_sel, is_list_sel,
     dict_concat, list_concat, frid_delete, frid_select, list_remove_all, list_select
@@ -180,16 +182,16 @@ class _SqlBaseStore:
                 continue
             if not isinstance(col.type, col_type):
                 continue
-            if col.default is None:
-                required.append(col)
-            else:
+            if col.nullable:
                 optional.append(col)
+            else:
+                required.append(col)
         if len(required) >= 2:
-            raise ValueError(f"Too many non-key columns without default: {required}")
+            raise ValueError(f"Too many non-key non-nullable columns: {required}")
         if required:
             return required[0]
         if len(optional) >= 2:
-            raise ValueError(f"Too many non-key columns: {optional}")
+            raise ValueError(f"Too many non-key nullable columns: {optional}")
         if optional:
             return optional[0]
         raise ValueError(f"No field of type {type} found")
@@ -241,18 +243,33 @@ class _SqlBaseStore:
         Otherwise, if the frid column is set, it will store dumped data of other
         types, or for mapping, whatever remains after some fields are extracted.
         """
-        out: dict[str,SqlTypes|Null] = {
-            col.name: null() for col in self._select_cols
-            if col is not self._seq_key_col and col is not self._map_key_col
-        }
+        # out: dict[str,SqlTypes|Null] = {
+        #     col.name: null() for col in self._select_cols
+        #     if col is not self._seq_key_col and col is not self._map_key_col
+        # }
+        frid_key = None
+        if self._frid_column is not None:
+            # Set a default value is this column does not have a default
+            c = self._frid_column
+            if not c.nullable and c.server_default is None and c.default is None:
+                frid_key = c.name
+        out: dict[str,SqlTypes|Null] = {}
         if isinstance(val, str):
             if self._text_column is not None:
-                return {self._text_column.name: val}
+                out[self._text_column.name] = val
+                if frid_key:
+                    out[frid_key] = '.'
+                return out
         elif isinstance(val, BlobTypes):
             if self._blob_column is not None:
-                return {self._blob_column.name: bytes(val)}
+                out[self._blob_column.name] = bytes(val)
+                if frid_key:
+                    out[frid_key] = '.'
+                return out
         elif isinstance(val, Mapping):
             val = dict(val)
+            if frid_key:
+                out[frid_key] = '{}'
             for col in self._val_columns:
                 item = val.get(col.name, MISSING)
                 if self._match_dtype(item, col):
@@ -597,16 +614,24 @@ class _SqlBaseStore:
         return result.rowcount
 
 class DbsqlValueStore(_SqlBaseStore, ValueStore):
-    def __init__(self, url: str, *args, echo=False, **kwargs):
-        self._engine = create_engine(url, echo=echo)
-        self._dbconn: Connection|None = None
+    def __init__(self, url: str, *args, echo=False, engine: Engine|None=None, **kwargs):
+        self._engine = create_engine(url, echo=echo) if engine is None else engine
         super().__init__(*args, **kwargs)
+
+    @classmethod
+    def create(cls, url: str, table_name: str, *args, echo=False, **kwargs):
+        engine = create_engine(url, echo=echo)
+        table = Table(table_name, MetaData(), autoload_with=engine)
+        # for col in table.c:
+        #     print("   ", repr(col))
+        return cls(url, *args, table=table, **kwargs)
 
     def substore(self, name: str, *args: str):
         raise NotImplementedError
-
     def get_lock(self, name: str|None=None):
         raise NotImplementedError
+    def finalize(self, depth: int=0):
+        self._engine.dispose()
 
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
@@ -667,3 +692,87 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
         (cmd, par) = self._del_bulk_delete(keys)
         with self._engine.begin() as conn:
             return self._del_bulk_result(conn.execute(cmd, par))
+
+class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
+    def __init__(self, url: str, *args, echo=False, **kwargs):
+        self._engine = create_async_engine(url, echo=echo)
+        super().__init__(*args, **kwargs)
+
+    @classmethod
+    async def create(cls, url: str, table_name: str, *args, echo=False, **kwargs):
+        engine = create_async_engine(url, echo=echo)
+        async with engine.begin() as conn:
+            table = await conn.run_sync(
+                lambda c: Table(table_name, MetaData(), autoload_with=c)
+            )
+        return cls(url, *args, table=table, **kwargs)
+
+    def substore(self, name: str, *args: str):
+        raise NotImplementedError
+    def get_lock(self, name: str|None=None):
+        raise NotImplementedError
+    async def finalize(self, depth: int=0):
+        await self._engine.dispose()
+
+    async def get_meta(self, *args: VStoreKey,
+                      keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
+        merged_keys = list_concat(args, keys)
+        cmd = self._get_bulk_select(merged_keys)
+        async with self._engine.begin() as conn:
+            return self._get_meta_result(await conn.execute(cmd), merged_keys)
+
+    async def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
+                       /, dtype: FridTypeName='') -> FridValue|MissingType:
+        cmd = self._get_frid_select(key, sel, dtype)
+        async with self._engine.begin() as conn:
+            return self._get_frid_result(await conn.execute(cmd), sel, dtype)
+    async def put_frid(self, key: VStoreKey, val: FridValue,
+                       /, flags=VSPutFlag.UNCHECKED) -> bool:
+        async with self._engine.begin() as conn:
+            return await self._put_frid(conn, key, val, flags)
+    async def _put_frid(self, conn: AsyncConnection, key: VStoreKey, val: FridValue,
+                        /, flags=VSPutFlag.UNCHECKED) -> bool:
+        sel_cmd = self._put_frid_select(key, val, flags)
+        sel_out = list(await conn.execute(sel_cmd))  # Put into a writeable list
+        del_cmd = self._put_frid_delete(key, val, flags, sel_out)
+        del_out = await conn.execute(del_cmd) if del_cmd is not None else None
+        upd_cmd = self._put_frid_update(key, val, flags, sel_out)
+        upd_out = [await conn.execute(cmd) for cmd in upd_cmd]
+        ins_cmd = self._put_frid_insert(key, val, flags, sel_out)
+        ins_out = [await conn.execute(cmd) for cmd in ins_cmd]
+        return self._put_frid_result(del_out, upd_out, ins_out)
+    async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
+        sel_cmd = self._del_frid_select(key, sel)
+        async with self._engine.begin() as conn:
+            if sel_cmd is not None:
+                results = await conn.execute(sel_cmd)
+            else:
+                results = None
+            del_cmd = self._del_frid_delete(key, sel, results)
+            if del_cmd is not None:
+                return self._del_frid_result(await conn.execute(del_cmd), False)
+            upd_cmd = self._del_frid_update(key, sel, results)
+            if upd_cmd is not None:
+                return self._del_frid_result(await conn.execute(upd_cmd), True)
+        return False
+
+    async def get_bulk(self, keys: Iterable[VStoreKey],
+                       /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+        cmd = self._get_bulk_select(keys)
+        async with self._engine.begin() as conn:
+            return self._get_bulk_result(await conn.execute(cmd), keys, alt)
+    async def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
+        pairs = as_kv_pairs(data)
+        async with self._engine.begin() as conn:
+            meta = self._get_meta_result(await conn.execute(
+                self._get_meta_select(k for k, _ in pairs),
+            ), (k for k, _ in pairs))
+            if not utils.check_flags(flags, len(pairs), len(meta)):
+                return 0
+            # If Atomicity for bulk is set and any other flags are set, we need to check
+            data = await asyncio.gather(*(self._put_frid(conn, k, v, flags) for k, v in pairs))
+            return sum(int(x) for x in data)
+    async def del_bulk(self, keys: Iterable[VStoreKey]) -> int:
+        (cmd, par) = self._del_bulk_delete(keys)
+        async with self._engine.begin() as conn:
+            return self._del_bulk_result(await conn.execute(cmd, par))

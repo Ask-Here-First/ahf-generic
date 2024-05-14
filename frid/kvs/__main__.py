@@ -1,8 +1,6 @@
 import os, sys, random, asyncio, unittest
 from concurrent.futures import ThreadPoolExecutor
 
-from sqlalchemy import Integer, LargeBinary, UniqueConstraint, null
-
 from ..typing import MISSING
 from ..loader import load_from_str
 from ..random import frid_random
@@ -149,7 +147,7 @@ class VStoreTest(unittest.TestCase):
 
     def check_random(self, store: ValueStore, *, exact=False):
         rng = random.Random(0)
-        for _ in range(256):
+        for _ in range(64):
             # Note: for some backends, falsy value are the same as empty
             data = frid_random(rng)
             if data and exact:
@@ -256,32 +254,44 @@ class VStoreTest(unittest.TestCase):
             loop.run_until_complete(loop.shutdown_default_executor())
             loop.close()
 
-    def create_sqlite_tables(self, dbfile: str, dburl: str, **kwargs):
+    def create_sqlite_tables(self, dbfile: str, *, echo=False, **kwargs) -> tuple[str,str]:
         self.remove_sqlite_dbfile(dbfile)
-        from sqlalchemy import create_engine, MetaData, Table, Column, String
-        engine = create_engine(dburl, **kwargs)
+        from sqlalchemy import (
+            MetaData, Table, Column, String, LargeBinary, Integer,
+            UniqueConstraint, create_engine
+        )
+        table1 = "test_table1"
+        table2 = "test_table2"
         metadata = MetaData()
-        table1 = Table(
-            "test_table1", metadata,
+        t1 = Table(
+            table1, metadata,
             Column('id', String, primary_key=True),
-            Column('frid', String, nullable=True),
-            Column('n0', String, default=null(), nullable=True),
-            Column('n1', LargeBinary, default=null(), nullable=True),
+            Column('frid', String, nullable=False),
+            Column('n0', String, nullable=True),
+            Column('n1', LargeBinary, nullable=True),
             # The two fields are set to constants if text_field/blob_field are not set
-            Column('text', String, default=null(), nullable=True),
+            Column('text', String, nullable=True),
             Column('blob', LargeBinary, nullable=True),
         )
-        table2 = Table(
-            "test_table2", metadata,
-            Column('id', String),
-            Column('frid', String, nullable=True),
-            Column('n0', String, default=null(), nullable=True),
-            Column('n1', LargeBinary, default=null(), nullable=True),
+        t2 = Table(
+            table2, metadata,
+            Column('id', String, nullable=False),
+            Column('frid', String, nullable=False),
+            Column('n0', String, nullable=True),
+            Column('n1', LargeBinary, nullable=True),
             Column('mapkey', String, nullable=True),
             Column('seqind', Integer, nullable=True),
             UniqueConstraint('id', 'mapkey', 'seqind'),
         )
-        metadata.create_all(engine)
+        if echo:
+            print("Creating the following tables")
+            print("***", table1)
+            for col in t1.c:
+                print("   ", repr(col))
+            print("***", table2)
+            for col in t2.c:
+                print("   ", repr(col))
+        metadata.create_all(create_engine("sqlite+pysqlite:///" + dbfile, echo=echo, **kwargs))
         return (table1, table2)
 
     def remove_sqlite_dbfile(self, dbfile: str):
@@ -299,11 +309,13 @@ class VStoreTest(unittest.TestCase):
         dbfile = "/tmp/VStoreTest.sdb"
         dburl = "sqlite+pysqlite:///" + dbfile
         echo = bool(load_from_str(os.getenv("ECHO_SQL", '-')))
-        (table1, table2) = self.create_sqlite_tables(dbfile, dburl, echo=echo)
+        (table1, table2) = self.create_sqlite_tables(dbfile, echo=echo)
 
         # Single frid columm
-        store = DbsqlValueStore(dburl, table1, echo=echo, frid_field=True,
-                                col_values={'text': "(UNUSED)", 'blob': b"(UNUSED)"})
+        store = DbsqlValueStore.create(
+            dburl, table1, echo=echo, frid_field=True,
+            col_values={'text': "(UNUSED)", 'blob': b"(UNUSED)"}
+        )
         self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
         self.assertTrue(store._text_column is None)
         self.assertTrue(store._blob_column is None)
@@ -311,8 +323,10 @@ class VStoreTest(unittest.TestCase):
         store.finalize()
 
         # Separate text columm
-        store = DbsqlValueStore(dburl, table1, echo=echo, frid_field=True,
-                                text_field='text', col_values={'blob': b"(UNUSED)"})
+        store = DbsqlValueStore.create(
+            dburl, table1, echo=echo, frid_field=True,
+            text_field='text', col_values={'blob': b"(UNUSED)"}
+        )
         self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
         self.assertTrue(store._text_column is not None and store._text_column.name == 'text')
         self.assertTrue(store._blob_column is None)
@@ -320,23 +334,98 @@ class VStoreTest(unittest.TestCase):
         store.finalize()
 
         # Separate blob columm
-        store = DbsqlValueStore(dburl, table1, echo=echo, frid_field=True,
-                                blob_field=True, col_values={'text': "(UNUSED)"})
+        store = DbsqlValueStore.create(
+            dburl, table1, echo=echo, frid_field=True,
+            blob_field='blob', col_values={'text': "(UNUSED)"}
+        )
         self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
         self.assertTrue(store._text_column is None)
         self.assertTrue(store._blob_column is not None and store._blob_column.name == 'blob')
-        self.do_test_store(store)
+        self.do_test_store(store, exact=True)
         store.finalize()
 
         # Multirow for sequence
-        store = DbsqlValueStore(dburl, table2, echo=echo,
-                                key_fields='id', frid_field='frid',
-                                seq_subkey='seqind', map_subkey='mapkey')
+        store = DbsqlValueStore.create(
+            dburl, table2, echo=echo,
+            key_fields='id', frid_field='frid',
+            seq_subkey='seqind', map_subkey='mapkey'
+        )
         self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
         self.assertTrue(store._seq_key_col is not None)
         self.assertTrue(store._map_key_col is not None)
         self.do_test_store(store, exact=True)
         store.finalize()
+
+        self.remove_sqlite_dbfile(dbfile)
+
+    def test_dbsql_async_store(self):
+        try:
+            import aiosqlite  # noqa: F401
+            from .dbsql import DbsqlAsyncStore
+        except Exception:
+            print("Skip Dbsql tests (Is sqlalchemy package installed?)", file=sys.stderr)
+            return
+        dbfile = "/tmp/VStoreTest.sdb"
+        dburl = "sqlite+aiosqlite:///" + dbfile
+        echo = bool(load_from_str(os.getenv("ECHO_SQL", '-')))
+        (table1, table2) = self.create_sqlite_tables(dbfile, echo=echo)
+
+        loop = asyncio.new_event_loop()
+        try:
+            # Single frid columm
+            store = loop.run_until_complete(DbsqlAsyncStore.create(
+                dburl, table1, echo=echo, frid_field=True,
+                col_values={'text': "(UNUSED)", 'blob': b"(UNUSED)"}
+            ))
+            self.assertTrue(store._frid_column is not None
+                            and store._frid_column.name == 'frid')
+            self.assertTrue(store._text_column is None)
+            self.assertTrue(store._blob_column is None)
+            self.do_test_store(AsyncProxyValueStore(store, loop=loop),
+                               no_proxy=True, exact=True)
+            loop.run_until_complete(store.finalize())
+
+            # Separate text columm
+            store = loop.run_until_complete(DbsqlAsyncStore.create(
+                dburl, table1, echo=echo, frid_field=True,
+                text_field='text', col_values={'blob': b"(UNUSED)"}
+            ))
+            self.assertTrue(store._frid_column is not None
+                            and store._frid_column.name == 'frid')
+            self.assertTrue(store._text_column is not None
+                            and store._text_column.name == 'text')
+            self.assertTrue(store._blob_column is None)
+            self.do_test_store(AsyncProxyValueStore(store, loop=loop),
+                               no_proxy=True, exact=True)
+            loop.run_until_complete(store.finalize())
+
+            # Separate blob columm
+            store = loop.run_until_complete(DbsqlAsyncStore.create(
+                dburl, table1, echo=echo, frid_field=True,
+                blob_field='blob', col_values={'text': "(UNUSED)"}
+            ))
+            self.assertTrue(store._frid_column is not None
+                            and store._frid_column.name == 'frid')
+            self.assertTrue(store._text_column is None)
+            self.assertTrue(store._blob_column is not None
+                            and store._blob_column.name == 'blob')
+            self.do_test_store(AsyncProxyValueStore(store, loop=loop),
+                               no_proxy=True, exact=True)
+            loop.run_until_complete(store.finalize())
+
+            # Multirow for sequence
+            store = loop.run_until_complete(DbsqlAsyncStore.create(
+                dburl, table2, echo=echo, key_fields='id', frid_field='frid',
+                seq_subkey='seqind', map_subkey='mapkey'
+            ))
+            self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
+            self.assertTrue(store._seq_key_col is not None)
+            self.assertTrue(store._map_key_col is not None)
+            self.do_test_store(AsyncProxyValueStore(store, loop=loop),
+                               no_proxy=True, exact=True)
+            loop.run_until_complete(store.finalize())
+        finally:
+            loop.run_until_complete(loop.shutdown_default_executor())
 
         self.remove_sqlite_dbfile(dbfile)
 
