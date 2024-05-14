@@ -5,7 +5,7 @@ from typing import TypeGuard, TypeVar
 from sqlalchemy import (
     Integer, Row, Table, Column, ColumnElement, CursorResult,
     Delete, Insert, Select, Update,
-    LargeBinary, String, Date, DateTime, Time, Numeric, Boolean, Null, Sequence as SqlSequence,
+    LargeBinary, String, Date, DateTime, Time, Numeric, Boolean, Null,
     bindparam, create_engine, null,
     delete, insert, select, update
 )
@@ -24,7 +24,7 @@ from ..loader import load_from_str
 from .store import ValueStore
 from .utils import (
     BulkInput, VSPutFlag, VStoreKey, VStoreSel, is_dict_sel, is_list_sel,
-    dict_concat, list_concat, frid_delete, frid_select, list_select
+    dict_concat, list_concat, frid_delete, frid_select, list_remove_all, list_select
 )
 from frid.kvs import utils
 
@@ -110,7 +110,7 @@ class _SqlBaseStore:
         if isinstance(name, str):
             col = table.c[name]
             if seq_key:
-                if not isinstance(col.type, (Integer, DateTime, SqlSequence)):
+                if not isinstance(col.type, Integer):
                     raise ValueError(f"Column type of {name} is not for sequence: {col.type}")
             else:
                 if not isinstance(col.type, String):
@@ -119,7 +119,7 @@ class _SqlBaseStore:
         # Search from right to left
         for col in reversed(table.primary_key.columns):
             if seq_key:
-                if isinstance(col.type, (Integer, DateTime, SqlSequence)):
+                if isinstance(col.type, Integer):
                     return col
             else:
                 if isinstance(col.type, String):
@@ -243,7 +243,7 @@ class _SqlBaseStore:
         """
         out: dict[str,SqlTypes|Null] = {
             col.name: null() for col in self._select_cols
-            if col is not self._seq_key_col  # This column needs to use its autoincrease
+            if col is not self._seq_key_col and col is not self._map_key_col
         }
         if isinstance(val, str):
             if self._text_column is not None:
@@ -266,7 +266,7 @@ class _SqlBaseStore:
         raise ValueError(f"No column to store data of type {type(val)}")
     def _extract_row_value(
             self, row: Sequence, sel: VStoreSel
-    ) -> tuple[int|DateTime|str|None,FridValue|MissingType]:
+    ) -> tuple[int|str|None,FridValue|MissingType]:
         """Extracts data from the row coming from SQL result."""
         assert len(row) == len(self._select_cols)
         key = None
@@ -277,8 +277,8 @@ class _SqlBaseStore:
             if val is None or val == null():
                 continue
             if self._seq_key_col is not None and col.name == self._seq_key_col.name:
-                assert isinstance(val, (int, datetime))
-                key = round(val.timestamp() * 1E9) if isinstance(val, datetime) else val
+                assert isinstance(val, int)
+                key = val
                 continue
             if self._map_key_col is not None and col.name == self._map_key_col.name:
                 assert isinstance(val, str)
@@ -378,7 +378,7 @@ class _SqlBaseStore:
                 if out_val is not MISSING:
                     raise ValueError("Multiple values for a single entry result")
                 out_val = val
-            elif isinstance(key, (int, datetime)):
+            elif isinstance(key, int):
                 assert val is not MISSING
                 seq_val.append(val)
             elif isinstance(key, str):
@@ -401,8 +401,7 @@ class _SqlBaseStore:
         if out_val is MISSING:
             return seq_val or map_val or MISSING
         return frid_select(out_val, sel)
-    def _put_frid_select(self, key: VStoreKey, val: FridValue,
-                         /, flags: VSPutFlag) -> Select|None:
+    def _put_frid_select(self, key: VStoreKey, val: FridValue, /, flags: VSPutFlag) -> Select:
         """Returns the select command for put_frid for read-modify-write.
         - Returns None if select is not needed by flags.
         """
@@ -411,38 +410,46 @@ class _SqlBaseStore:
                 return select(self._map_key_col).where(*self._make_where_args(key))
         elif is_frid_array(val):
             if self._seq_key_col is not None:
-                # return select(self._seq_key_col).where(
-                #     *self._make_where_args(key)
-                # ).order_by(self._seq_key_col)
-                return None  # Do not need past for put for now because insert is not supported
+                return select(self._seq_key_col).where(*self._make_where_args(key))
         return self._make_select_cmd(key)
     def _put_frid_delete(self, key: VStoreKey, val: FridValue,
-                         /, flags: VSPutFlag, datarows: Sequence[Row]|None) -> Delete|None:
-        """Returns a delete command for put_frid() if a delete is needed."""
-        if isinstance(val, Mapping):
-            to_delete = self._map_key_col is not None and bool(datarows)
-        elif is_frid_array(val):
-            to_delete = self._seq_key_col is not None and bool(datarows)
-        else:
-            to_delete = False
-        # Deleting existing data in the case of overwrite
-        if to_delete and not (flags & (VSPutFlag.KEEP_BOTH | VSPutFlag.NO_CHANGE)):
+                         /, flags: VSPutFlag, datarows: list[Row]) -> Delete|None:
+        """Returns a delete command for put_frid() if a delete is needed.
+        - datarows: the data rows returned by existing the select given by _put_frid_select()
+        - Note this function update datarows to remove the entries that will be deleted.
+        """
+        if not datarows:  # Nothing to delete
+            return None
+        if flags & VSPutFlag.NO_CHANGE:
+            return None
+        if not flags & VSPutFlag.KEEP_BOTH:
             return self._make_delete_cmd(key)
-        # Do not call delete for regular single row update
+        if isinstance(val, Mapping):
+            if self._map_key_col is not None:
+                if list_remove_all(datarows, None):
+                    return self._make_delete_cmd(key, self._map_key_col == null())
+                return None
+        elif is_frid_array(val):
+            if self._seq_key_col is not None:
+                if list_remove_all(datarows, None):
+                    return self._make_delete_cmd(key, self._seq_key_col == null())
+                return None
         return None
     def _put_frid_update(self, key: VStoreKey, val: FridValue, /, flags: VSPutFlag,
-                         datarows: Sequence[Row]|None) -> list[Update]:
+                         datarows: Sequence[Row]) -> list[Update]:
         """Returns a list of update commands for put_frid().
         - `datarows` is the result of the commond given by `_put_frid_select()`;
           it's none if no select was executed.
         - Returns empty if update is not required.
         """
+        if not datarows or flags & VSPutFlag.NO_CHANGE:
+            return []
+        if not flags & VSPutFlag.KEEP_BOTH:
+            return []  # All rows are already delete by this point
         if isinstance(val, Mapping):
             if not val:
                 return []
-            if self._map_key_col is not None and datarows:
-                if flags & VSPutFlag.NO_CHANGE:
-                    return []
+            if self._map_key_col is not None:
                 existing = set(row[0] for row in datarows)
                 return [
                     self._make_update_cmd(k, v, self._map_key_col == k)
@@ -454,16 +461,10 @@ class _SqlBaseStore:
                 return []
             if self._seq_key_col is not None:
                 return []   # Do not support insert yet
-        if flags & VSPutFlag.NO_CHANGE:
-            return []
-        assert datarows is not None
-        if not datarows:
-            return []
         assert len(datarows) == 1
-        if flags & VSPutFlag.KEEP_BOTH:
-            (row_key, data) = self._extract_row_value(datarows[0], None)
-            assert row_key is None
-            val = frid_merge(data, val)
+        (row_key, data) = self._extract_row_value(datarows[0], None)
+        assert row_key is None
+        val = frid_merge(data, val)
         return [self._make_update_cmd(key, val)]
     def _put_frid_insert(self, key: VStoreKey, val: FridValue, /, flags: VSPutFlag,
                          datarows: Sequence[Row]|None) -> list[Insert]:
@@ -472,13 +473,17 @@ class _SqlBaseStore:
           it's none if no select was executed.
         - Returns empty if update is not required.
         """
+        if not datarows and flags & VSPutFlag.NO_CREATE:
+            return []
+        if datarows and flags & VSPutFlag.NO_CHANGE:
+            return []
         if isinstance(val, Mapping):
             if self._map_key_col is not None:
                 if not val:
                     return []
-                if not datarows and flags & VSPutFlag.NO_CREATE:
-                    return []
-                existing = set(row[0] for row in datarows) if datarows else set()
+                existing = set()
+                if datarows and flags & VSPutFlag.KEEP_BOTH:
+                    existing.union(row[0] for row in datarows if row[0] is not None)
                 return [
                     self._make_insert_cmd(key, v, {self._map_key_col.name: k})
                     for k, v in val.items()
@@ -486,17 +491,19 @@ class _SqlBaseStore:
                 ]
         elif is_frid_array(val):
             if self._seq_key_col is not None:
-                if not datarows and flags & VSPutFlag.NO_CREATE:
+                if not val:
                     return []
-                return [self._make_insert_cmd(key, v) for v in val]
-        if flags & VSPutFlag.NO_CREATE:
-            return []
-        assert datarows is not None
-        if datarows:
-            return []
-        return [self._make_insert_cmd(key, val, (
-            {self._seq_key_col.name: null()} if self._seq_key_col is not None else {}
-        ))]
+                next_index: int = 0
+                if datarows and flags & VSPutFlag.KEEP_BOTH:
+                    next_index = 1 + max((
+                        row[0] for row in datarows if row[0] is not None
+                    ), default=-1)
+                return [self._make_insert_cmd(key, v, {
+                    self._seq_key_col.name: next_index + i
+                }) for i, v in enumerate(val)]
+        if datarows and flags & VSPutFlag.KEEP_BOTH:
+            return []  # Done by update
+        return [self._make_insert_cmd(key, val)]
     def _put_frid_result(self, delete: CursorResult|None, update: Sequence[CursorResult],
                          insert: Sequence[CursorResult]) -> bool:
         """Returns the put_frid() return value according to the insert or upate result."""
@@ -619,7 +626,7 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
     def _put_frid(self, conn: Connection, key: VStoreKey, val: FridValue,
                   /, flags=VSPutFlag.UNCHECKED) -> bool:
         sel_cmd = self._put_frid_select(key, val, flags)
-        sel_out = conn.execute(sel_cmd).all() if sel_cmd is not None else None
+        sel_out = list(conn.execute(sel_cmd))  # Put into a writeable list
         del_cmd = self._put_frid_delete(key, val, flags, sel_out)
         del_out = conn.execute(del_cmd) if del_cmd is not None else None
         upd_cmd = self._put_frid_update(key, val, flags, sel_out)

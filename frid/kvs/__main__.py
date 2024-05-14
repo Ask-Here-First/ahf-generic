@@ -1,7 +1,7 @@
 import os, sys, random, asyncio, unittest
 from concurrent.futures import ThreadPoolExecutor
 
-from sqlalchemy import DateTime, LargeBinary, UniqueConstraint, func, null
+from sqlalchemy import Integer, LargeBinary, UniqueConstraint, null
 
 from ..typing import MISSING
 from ..loader import load_from_str
@@ -278,7 +278,7 @@ class VStoreTest(unittest.TestCase):
             Column('n0', String, default=null(), nullable=True),
             Column('n1', LargeBinary, default=null(), nullable=True),
             Column('mapkey', String, nullable=True),
-            Column('seqind', DateTime, default=func.current_timestamp(), nullable=True),
+            Column('seqind', Integer, nullable=True),
             UniqueConstraint('id', 'mapkey', 'seqind'),
         )
         metadata.create_all(engine)
@@ -329,14 +329,14 @@ class VStoreTest(unittest.TestCase):
         store.finalize()
 
         # Multirow for sequence
-        # store = DbsqlValueStore(dburl, table2, echo=echo,
-        #                         key_fields='id', frid_field='frid',
-        #                         seq_subkey='seqind', map_subkey='mapkey')
-        # self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
-        # self.assertTrue(store._seq_key_col is not None)
-        # self.assertTrue(store._map_key_col is not None)
-        # self.do_test_store(store, exact=True)
-        # store.finalize()
+        store = DbsqlValueStore(dburl, table2, echo=echo,
+                                key_fields='id', frid_field='frid',
+                                seq_subkey='seqind', map_subkey='mapkey')
+        self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
+        self.assertTrue(store._seq_key_col is not None)
+        self.assertTrue(store._map_key_col is not None)
+        self.do_test_store(store, exact=True)
+        store.finalize()
 
         self.remove_sqlite_dbfile(dbfile)
 

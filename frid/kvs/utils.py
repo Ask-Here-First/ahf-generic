@@ -79,13 +79,13 @@ def fix_indexes(sel: tuple[int,int], val_len: int):
             until = 0
     return (index, until)
 
-def list_concat(list1: Iterable[_T]|None, list2: Iterable[_T]|None) -> Iterable[_T]:
-    if list2 is None:
-        return [] if list1 is None else list1
-    if list1 is None:
-        return list2
-    list0 = list(list1)
-    list0.extend(list2)
+def list_concat(seq1: Iterable[_T]|None, seq2: Iterable[_T]|None) -> Iterable[_T]:
+    if seq2 is None:
+        return [] if seq1 is None else seq1
+    if seq1 is None:
+        return seq2
+    list0 = list(seq1)
+    list0.extend(seq2)
     return list0
 
 def dict_concat(map1: Mapping[_K,_T]|None, map2: Mapping[_K,_T]|None) -> Mapping[_K,_T]:
@@ -97,6 +97,17 @@ def dict_concat(map1: Mapping[_K,_T]|None, map2: Mapping[_K,_T]|None) -> Mapping
     m = dict(map1)
     m.update(map2)
     return m
+
+def list_remove_all(seq: list, item) -> int:
+    index: int = 0
+    count: int = 0
+    while index < len(seq):
+        if seq[index] == item:
+            seq.pop(index)
+            count += 1
+        else:
+            index += 1
+    return count
 
 def list_select(
     val: Sequence[_T], sel: int|slice|tuple[int,int]
