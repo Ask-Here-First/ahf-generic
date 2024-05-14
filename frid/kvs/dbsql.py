@@ -5,7 +5,7 @@ from typing import TypeGuard, TypeVar
 from sqlalchemy import (
     Integer, Row, Table, Column, ColumnElement, CursorResult,
     Delete, Insert, Select, Update,
-    LargeBinary, String, Date, DateTime, Time, Numeric, Boolean, Null,
+    LargeBinary, String, Date, DateTime, Time, Numeric, Boolean, Null, Sequence as SqlSequence,
     bindparam, create_engine, null,
     delete, insert, select, update
 )
@@ -54,10 +54,12 @@ class _SqlBaseStore:
         if self._map_key_col is not None:
             exclude.append(self._map_key_col.name)
         self._key_columns: list[Column] = self._find_key_columns(table, key_fields, exclude)
+        exclude.extend(col.name for col in self._key_columns)
         # For values
         if frid_field is True and text_field is True:
             raise ValueError("frid_field and text_field cannot both be true; use column names")
-        exclude: list[str] = list(col_values.keys()) if col_values else []
+        if col_values:
+            exclude.extend(col_values.keys())
         self._frid_column: Column|None = self._find_column(table, frid_field, exclude, String)
         if self._frid_column is not None:
             exclude.append(self._frid_column.name)
@@ -96,31 +98,33 @@ class _SqlBaseStore:
             return isinstance(column.type, Time)
         if isinstance(data, bool):
             return isinstance(column.type, Boolean)
-        if isinstance(data, int|float):
+        if isinstance(data, int):
+            return isinstance(column.type, Integer)
+        if isinstance(data, float):
             return isinstance(column.type, Numeric)
         return False
     @classmethod
-    def _find_sub_key_col(cls, table: Table, name: str|bool, int_key=False) -> Column|None:
+    def _find_sub_key_col(cls, table: Table, name: str|bool, seq_key=False) -> Column|None:
         if not name:
             return None
         if isinstance(name, str):
             col = table.c[name]
-            if int_key:
-                if not isinstance(col.type, Integer):
-                    raise ValueError(f"Column type of {name} is not integer: {col.type}")
+            if seq_key:
+                if not isinstance(col.type, (Integer, DateTime, SqlSequence)):
+                    raise ValueError(f"Column type of {name} is not for sequence: {col.type}")
             else:
                 if not isinstance(col.type, String):
                     raise ValueError(f"Column type of {name} is not string: {col.type}")
             return col
         # Search from right to left
         for col in reversed(table.primary_key.columns):
-            if int_key:
-                if isinstance(col.type, Integer):
+            if seq_key:
+                if isinstance(col.type, (Integer, DateTime, SqlSequence)):
                     return col
             else:
                 if isinstance(col.type, String):
                     return col
-        raise ValueError(f"Cannot find key with a {'integer' if int_key else 'string'} type")
+        raise ValueError(f"Cannot find key with a {'integer' if seq_key else 'string'} type")
     @classmethod
     def _find_key_columns(cls, table: Table, names: str|Sequence[str]|None,
                           exclude: list[str]|None) -> list[Column]:
@@ -237,7 +241,10 @@ class _SqlBaseStore:
         Otherwise, if the frid column is set, it will store dumped data of other
         types, or for mapping, whatever remains after some fields are extracted.
         """
-        out: dict[str,SqlTypes|Null] = {col.name: null() for col in self._select_cols}
+        out: dict[str,SqlTypes|Null] = {
+            col.name: null() for col in self._select_cols
+            if col is not self._seq_key_col  # This column needs to use its autoincrease
+        }
         if isinstance(val, str):
             if self._text_column is not None:
                 return {self._text_column.name: val}
@@ -259,7 +266,7 @@ class _SqlBaseStore:
         raise ValueError(f"No column to store data of type {type(val)}")
     def _extract_row_value(
             self, row: Sequence, sel: VStoreSel
-    ) -> tuple[int|str|None,FridValue|MissingType]:
+    ) -> tuple[int|DateTime|str|None,FridValue|MissingType]:
         """Extracts data from the row coming from SQL result."""
         assert len(row) == len(self._select_cols)
         key = None
@@ -270,12 +277,12 @@ class _SqlBaseStore:
             if val is None or val == null():
                 continue
             if self._seq_key_col is not None and col.name == self._seq_key_col.name:
-                key = val
-                assert isinstance(key, int)
+                assert isinstance(val, (int, datetime))
+                key = round(val.timestamp() * 1E9) if isinstance(val, datetime) else val
                 continue
             if self._map_key_col is not None and col.name == self._map_key_col.name:
+                assert isinstance(val, str)
                 key = val
-                assert isinstance(key, str)
                 continue
             if self._text_column is not None and col.name == self._text_column.name:
                 if isinstance(val, str):
@@ -307,19 +314,24 @@ class _SqlBaseStore:
         out.extend(args)
         out.extend(self._where_conds)
         return out
-    def _make_select_cmd(self, key: VStoreKey, *args: ColumnElement[bool]):
+    def _make_select_cmd(self, key: VStoreKey, *args: ColumnElement[bool]) -> Select:
         return select(*self._select_cols).where(*self._make_where_args(key, *args))
-    def _make_delete_cmd(self, key: VStoreKey, *args: ColumnElement[bool]):
+    def _make_delete_cmd(self, key: VStoreKey, *args: ColumnElement[bool]) -> Delete:
         return delete(self._table).where(*self._make_where_args(key, *args))
-    def _make_update_cmd(self, key: VStoreKey, val: FridValue, *args: ColumnElement[bool]):
+    def _make_update_cmd(self, key: VStoreKey, val: FridValue,
+                         *args: ColumnElement[bool]) -> Update:
         return update(self._table).where(*self._make_where_args(key, *args)).values(
             **self._val_to_dict(val)
         )
-    def _make_insert_cmd(self, key: VStoreKey, val: FridValue, extra: StrKeyMap|None=None):
-        if extra is None:
-            extra = {}
+    def _make_insert_cmd(self, key: VStoreKey, val: FridValue,
+                         extra: Mapping[str,FridValue|Null]|None=None) -> Insert:
+        args: dict[str,FridValue|Null] = dict(extra) if extra is not None else {}
+        # if self._seq_key_col is not None and self._seq_key_col.name not in args:
+        #     args[self._seq_key_col.name] = null()
+        # if self._map_key_col is not None and self._map_key_col.name not in args:
+        #     args[self._map_key_col.name] = null()
         return insert(self._table).values(
-            **self._key_to_dict(key), **extra, **self._val_to_dict(val), **self._insert_data,
+            **self._key_to_dict(key), **args, **self._val_to_dict(val), **self._insert_data,
         )
 
     def _get_meta_select(self, keys: Iterable[VStoreKey], /) -> Select:
@@ -366,10 +378,12 @@ class _SqlBaseStore:
                 if out_val is not MISSING:
                     raise ValueError("Multiple values for a single entry result")
                 out_val = val
-            elif isinstance(key, int):
-                seq_val.append(seq_val)
+            elif isinstance(key, (int, datetime)):
+                assert val is not MISSING
+                seq_val.append(val)
             elif isinstance(key, str):
                 map_val[key] = val
+        # print("===", dtype, datarows, seq_val, map_val, out_val)
         if dtype == 'list' or (not dtype and utils.is_list_sel(sel)):
             if map_val:
                 raise ValueError("Found mapping data while sequence results are expected")
@@ -385,7 +399,7 @@ class _SqlBaseStore:
             elif map_val:
                 raise ValueError("Found regular data while mapping results are expected")
         if out_val is MISSING:
-            return MISSING
+            return seq_val or map_val or MISSING
         return frid_select(out_val, sel)
     def _put_frid_select(self, key: VStoreKey, val: FridValue,
                          /, flags: VSPutFlag) -> Select|None:
@@ -480,7 +494,9 @@ class _SqlBaseStore:
         assert datarows is not None
         if datarows:
             return []
-        return [self._make_insert_cmd(key, val)]
+        return [self._make_insert_cmd(key, val, (
+            {self._seq_key_col.name: null()} if self._seq_key_col is not None else {}
+        ))]
     def _put_frid_result(self, delete: CursorResult|None, update: Sequence[CursorResult],
                          insert: Sequence[CursorResult]) -> bool:
         """Returns the put_frid() return value according to the insert or upate result."""
