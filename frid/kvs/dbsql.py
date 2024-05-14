@@ -4,15 +4,13 @@ from logging import error
 from typing import TypeGuard, TypeVar
 
 from sqlalchemy import (
-    Engine, Integer, MetaData, Row, Table, Column, ColumnElement, CursorResult,
-    Delete, Insert, Select, Update,
-    LargeBinary, String, Date, DateTime, Time, Numeric, Boolean, Null,
-    bindparam, create_engine, null,
-    delete, insert, select, update
+    Engine,  Connection, MetaData, Table, Row, Column, ColumnElement, CursorResult,
+    Delete, Insert, Select, Update, Null, delete, insert, select, update, null,
+    create_engine, bindparam,
+
 )
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncConnection
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine, AsyncConnection
 from sqlalchemy import types
-from sqlalchemy.engine import Connection
 
 from ..typing import (
     MISSING, BlobTypes, DateTypes, FridArray, FridBeing, FridSeqVT,
@@ -62,14 +60,16 @@ class _SqlBaseStore:
             raise ValueError("frid_field and text_field cannot both be true; use column names")
         if col_values:
             exclude.extend(col_values.keys())
-        self._frid_column: Column|None = self._find_column(table, frid_field, exclude, String)
+        self._frid_column: Column|None = self._find_column(table, frid_field, exclude,
+                                                           types.String)
         if self._frid_column is not None:
             exclude.append(self._frid_column.name)
-        self._text_column: Column|None = self._find_column(table, text_field, exclude, String)
+        self._text_column: Column|None = self._find_column(table, text_field, exclude,
+                                                           types.String)
         if self._text_column is not None:
             exclude.append(self._text_column.name)
         self._blob_column: Column|None = self._find_column(table, blob_field, exclude,
-                                                           LargeBinary)
+                                                           types.LargeBinary)
         if self._blob_column is not None:
             exclude.append(self._blob_column.name)
         self._val_columns: list[Column] = self._find_val_columns(table, val_fields, exclude)
@@ -89,21 +89,21 @@ class _SqlBaseStore:
     @classmethod
     def _match_dtype(cls, data, column: Column) -> TypeGuard[SqlTypes]:
         if isinstance(data, str):
-            return isinstance(column.type, String)
+            return isinstance(column.type, types.String)
         if isinstance(data, BlobTypes):
-            return isinstance(column.type, LargeBinary)
+            return isinstance(column.type, types.LargeBinary)
         if isinstance(data, datetime):
-            return isinstance(column.type, DateTime)
+            return isinstance(column.type, types.DateTime)
         if isinstance(data, dateonly):
-            return isinstance(column.type, Date)
+            return isinstance(column.type, types.Date)
         if isinstance(data, timeonly):
-            return isinstance(column.type, Time)
+            return isinstance(column.type, types.Time)
         if isinstance(data, bool):
-            return isinstance(column.type, Boolean)
+            return isinstance(column.type, types.Boolean)
         if isinstance(data, int):
-            return isinstance(column.type, Integer)
+            return isinstance(column.type, types.Integer)
         if isinstance(data, float):
-            return isinstance(column.type, Numeric)
+            return isinstance(column.type, types.Numeric)
         return False
     @classmethod
     def _find_sub_key_col(cls, table: Table, name: str|bool, seq_key=False) -> Column|None:
@@ -112,21 +112,21 @@ class _SqlBaseStore:
         if isinstance(name, str):
             col = table.c[name]
             if seq_key:
-                if not isinstance(col.type, Integer):
+                if not isinstance(col.type, types.Integer):
                     raise ValueError(f"Column type of {name} is not for sequence: {col.type}")
             else:
-                if not isinstance(col.type, String):
-                    raise ValueError(f"Column type of {name} is not string: {col.type}")
+                if not isinstance(col.type, types.String):
+                    raise ValueError(f"Column type of {name} is not types.String: {col.type}")
             return col
         # Search from right to left
         for col in reversed(table.primary_key.columns):
             if seq_key:
-                if isinstance(col.type, Integer):
+                if isinstance(col.type, types.Integer):
                     return col
             else:
-                if isinstance(col.type, String):
+                if isinstance(col.type, types.String):
                     return col
-        raise ValueError(f"Cannot find key with a {'integer' if seq_key else 'string'} type")
+        raise ValueError(f"Cannot find key with a {'Integer' if seq_key else 'String'} type")
     @classmethod
     def _find_key_columns(cls, table: Table, names: str|Sequence[str]|None,
                           exclude: list[str]|None) -> list[Column]:
@@ -161,7 +161,7 @@ class _SqlBaseStore:
                      col_type: type[types.TypeEngine]) -> Column|None:
         """Finds and returns the desire column in the `table`.
         - If `field` is falsy, returns None.
-        - If `field` is a string, returns the column of this name.
+        - If `field` is a types.String, returns the column of this name.
         - If `field` is true, find a non-key column with the particular `col_type`,
           but do not only any columns with names in exclude.
         The column without a default is chosen over columns with defaults.
@@ -304,7 +304,7 @@ class _SqlBaseStore:
             if self._text_column is not None and col.name == self._text_column.name:
                 if isinstance(val, str):
                     return (key, val)
-                error(f"Data in column {col.name} is not string: {type(val)}")
+                error(f"Data in column {col.name} is not types.String: {type(val)}")
                 continue
             if self._blob_column is not None and col.name == self._blob_column.name:
                 if isinstance(val, BlobTypes):
@@ -315,7 +315,7 @@ class _SqlBaseStore:
                 if val and isinstance(val, str):
                     frid_val = load_from_str(val)
                 else:
-                    error(f"Data in column {col.name} is not string: {type(val)}")
+                    error(f"Data in column {col.name} is not types.String: {type(val)}")
                 continue
             out[col.name] = val
         if frid_val is MISSING:
@@ -694,8 +694,8 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
             return self._del_bulk_result(conn.execute(cmd, par))
 
 class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
-    def __init__(self, url: str, *args, echo=False, **kwargs):
-        self._engine = create_async_engine(url, echo=echo)
+    def __init__(self, url: str, *args, echo=False, engine: AsyncEngine|None=None, **kwargs):
+        self._engine = create_async_engine(url, echo=echo) if engine is None else engine
         super().__init__(*args, **kwargs)
 
     @classmethod
@@ -705,7 +705,7 @@ class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
             table = await conn.run_sync(
                 lambda c: Table(table_name, MetaData(), autoload_with=c)
             )
-        return cls(url, *args, table=table, **kwargs)
+        return cls(url, *args, table=table, engine=engine, **kwargs)
 
     def substore(self, name: str, *args: str):
         raise NotImplementedError
