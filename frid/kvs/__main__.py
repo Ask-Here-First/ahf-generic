@@ -426,6 +426,7 @@ class VStoreTest(unittest.TestCase):
             loop.run_until_complete(store.finalize())
         finally:
             loop.run_until_complete(loop.shutdown_default_executor())
+            loop.close()
 
         self.remove_sqlite_dbfile(dbfile)
 
