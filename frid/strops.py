@@ -3,6 +3,32 @@ from collections.abc import Callable, Iterable, Mapping
 
 from frid.guards import as_kv_pairs
 
+def str_redact(s: str, min_redacted_chars: int=8, /, retain: tuple[int,int]|int=4,
+               *, filler: str="....", length: tuple[str,str]|None=(" [", " chars]")) -> str:
+    """Redact the content of a string `s` by keeping only the first few and last few chars.
+    - `min_removed_chars`: minimum numer of characters to be removed,
+    - `starting` and `stopping`: number of characters to keep on each side,
+    - `filler`: string to be replaced into for redacted parts,
+    - `length`: if not None, a pair of prefix and suffix for the length of the string.
+    """
+    n = len(s)
+    if isinstance(retain, tuple):
+        (lkeep, rkeep) = retain
+    else:
+        lkeep = rkeep = retain
+    if n <= min_redacted_chars:
+        x = filler
+    elif n >= min_redacted_chars + lkeep + rkeep:
+        x = s[:lkeep] + filler + s[-rkeep:]
+    else:
+        m = n - min_redacted_chars
+        lk = lkeep * m // (lkeep + rkeep)
+        rk = m - lk
+        x = s[:lk] + filler + s[-rk:]
+    if length:
+        x += length[0] + str(n) + length[1]
+    return x
+
 def _bound_index(limit: int, index: int|None=None, /) -> int:
     """Puts the index within the bound between 0..limit.
     - If `index` is negative, it is considered to be from the limit.
