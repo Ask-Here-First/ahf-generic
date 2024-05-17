@@ -3,8 +3,8 @@ from collections.abc import Callable, Iterable, Mapping
 
 from frid.guards import as_kv_pairs
 
-def str_redact(s: str, min_redacted_chars: int=8, /, retain: tuple[int,int]|int=4,
-               *, filler: str="....", length: tuple[str,str]|None=(" [", " chars]")) -> str:
+def str_sanitize(s: str, min_redacted_chars: int=8, /, retain: tuple[int,int]|int=4,
+                 *, filler: str="....", length: tuple[str,str]|None=(" [", " chars]")) -> str:
     """Redact the content of a string `s` by keeping only the first few and last few chars.
     - `min_removed_chars`: minimum numer of characters to be removed,
     - `starting` and `stopping`: number of characters to keep on each side,
