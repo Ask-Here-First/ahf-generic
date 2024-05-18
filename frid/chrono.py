@@ -95,7 +95,7 @@ def strfr_timeonly(time: timeonly, /, precision: int=3,
         return out + 'Z'
     return out + time.strftime("%z")
 
-def strfr_datetime(data: DateTypes|float, /, precision: int=3, colon: bool=False) -> str|None:
+def strfr_datetime(data: DateTypes|float, /, precision: int=3, colon: bool=False) -> str:
     """Show date/time/datetime format only without colons."""
     if isinstance(data, int|float):
         data = datetime.fromtimestamp(data)
@@ -107,5 +107,5 @@ def strfr_datetime(data: DateTypes|float, /, precision: int=3, colon: bool=False
         return data.isoformat()
     if isinstance(data, timeonly):
         return strfr_timeonly(data, precision, colon=colon)
-    return None
+    raise ValueError(f"INvalid date/time type {type(data)}")
 
