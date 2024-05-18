@@ -4,7 +4,7 @@ from typing import  Any, Literal, NoReturn, TextIO, TypeVar, cast
 
 from .typing import (
     PRESENT, BlobTypes, DateTypes, FridArray, FridBeing, FridMapVT,
-    FridMixin, FridPrime, FridSeqVT, FridValue, StrKeyMap
+    FridMixin, FridPrime, FridSeqVT, FridValue, FridNameArgs, StrKeyMap, ValueArgs
 )
 from .guards import (
     is_dict_like, is_frid_identifier, is_frid_prime, is_frid_quote_free,  is_quote_free_char
@@ -38,8 +38,10 @@ class DummyMixin(FridMixin):
         self.name = name
         self.args = args
         self.kwds = kwds
-    def frid_repr(self) -> tuple[str,list[FridSeqVT],dict[str,FridMapVT]]:
-        return (self.name, self.args or [], self.kwds or {})
+    def frid_repr(self) -> FridNameArgs:
+        return FridNameArgs(self.name, self.args or (), self.kwds or {})
+
+MixinTypeSpec = type[FridMixin]|ValueArgs[type[FridMixin]]
 
 class FridLoader:
     """This class loads data in buffer into Frid-allowed data structures.
@@ -75,7 +77,7 @@ class FridLoader:
             self, buffer: str|None=None, length: int|None=None, offset: int=0, /,
             *, json_level: Literal[0,1,5]=0, escape_seq: str|None=None,
             comments: Sequence[tuple[str,str]]=(),
-            frid_mixin: Mapping[str,type[FridMixin]]|Iterator[type[FridMixin]]|None=None,
+            frid_mixin: Mapping[str,MixinTypeSpec]|Iterator[MixinTypeSpec]|None=None,
             parse_real: Callable[[str],int|float|None]|None=None,
             parse_date: Callable[[str],DateTypes|None]|None=None,
             parse_blob: Callable[[str],BlobTypes|None]|None=None,
@@ -97,13 +99,14 @@ class FridLoader:
         self.parse_blob = parse_blob
         self.parse_expr = parse_expr
         self.parse_misc = parse_misc
-        self.frid_mixin: dict[str,type[FridMixin]] = {}
+        self.frid_mixin: dict[str,MixinTypeSpec] = {}
         if isinstance(frid_mixin, Mapping):
             self.frid_mixin.update(frid_mixin)
         elif frid_mixin is not None:
-            for mixin in frid_mixin:
+            for entry in frid_mixin:
+                mixin = entry.data if isinstance(entry, ValueArgs) else entry
                 for key in mixin.frid_keys():
-                    self.frid_mixin[key] = mixin
+                    self.frid_mixin[key] = entry
         self.se_decoder = StringEscapeDecode(
             EXTRA_ESCAPE_PAIRS + ''.join(x + x for x in ALLOWED_QUOTES),
             '\\', ('x', 'u', 'U')
@@ -354,7 +357,7 @@ class FridLoader:
             if data.endswith("()"):
                 name = data[:-2]
                 if is_frid_identifier(name):
-                    return (index, self.construct_mixin(start, path, name, [], {}))
+                    return (index, self.construct_mixin(start, path, name, (), {}))
             elif check_mixin and is_frid_identifier(data):
                 return (index, DummyMixin(data))
             out = self.parse_prime_str(data, ...)
@@ -366,10 +369,12 @@ class FridLoader:
             self, start: int, path: str,
             /, name: str, args: FridArray, kwds: StrKeyMap,
     ) -> FridMixin:
-        mixin = self.frid_mixin.get(name)
-        if mixin is None:
+        entry = self.frid_mixin.get(name)
+        if entry is None:
             self.error(start, f"Cannot find constructor called '{name}'")
-        return mixin.frid_from(name, *args, **kwds)
+        if not isinstance(entry, ValueArgs):
+            return entry.frid_from(FridNameArgs(name, args, kwds))
+        return entry.data.frid_from(FridNameArgs(name, args, kwds), *entry.args, **entry.kwds)
     def try_mixin_in_seq(
             self, data: list[FridSeqVT], start: int, path: str, *, parent_checking: bool=False
     ) -> FridMixin|list[FridSeqVT]:
@@ -396,7 +401,7 @@ class FridLoader:
         if not isinstance(first, DummyMixin):
             return data
         data.pop('')
-        return self.construct_mixin(start, path, first.name, first.args or [], data)
+        return self.construct_mixin(start, path, first.name, first.args or (), data)
 
     def scan_naked_list(
             self, index: int, path: str,

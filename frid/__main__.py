@@ -21,7 +21,7 @@ try:
 except ImportError:
     _cov = None
 
-from .typing import MISSING, PRESENT, FridBeing, FridMixin, FridValue, StrKeyMap
+from .typing import MISSING, PRESENT, FridBeing, FridMixin, FridValue, FridNameArgs, StrKeyMap, ValueArgs
 from .chrono import parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode
@@ -524,19 +524,34 @@ class TestLoaderAndDumper(unittest.TestCase):
 
     class TestMixinClass(FridMixin):
         def __init__(self, *args, **kwds):
+            super().__init__()
             self._args = args
             self._kwds = kwds
-        def frid_repr(self):
-            return (get_type_name(self), self._args, self._kwds)
+        def frid_repr(self) -> FridNameArgs:
+            return FridNameArgs(get_type_name(self), self._args, self._kwds)
         def __repr__(self):
-            return dump_args_into_str(*self.frid_repr())
+            return dump_args_into_str(self.frid_repr())
         def __eq__(self, other):
             if self is other:
                 return True
             if not isinstance(other, __class__):
                 return False
             return self._args == other._args and self._kwds == other._kwds
-
+    class TestMixinClass2(TestMixinClass):
+        def __init__(self, opt1, *args, opt2, **kwds):
+            super().__init__(*args, **kwds)
+            self._opt1 = opt1
+            self._opt2 = opt2
+        @classmethod
+        def frid_from(cls, data: FridNameArgs, opt1, /, *, opt2):
+            return cls(opt1, *data.args, opt2=opt2, **data.kwds)
+        def frid_repr(self, opt1, /, *, opt2) -> FridNameArgs:
+            assert opt1 == self._opt1 and opt2 == self._opt2
+            return super().frid_repr()
+        def __eq__(self, other):
+            if not super().__eq__(other):
+                return False
+            return self._opt1 == other._opt1 and self._opt2 == other._opt2
 
     def test_mixins(self):
         test = self.TestMixinClass()
@@ -557,6 +572,18 @@ class TestLoaderAndDumper(unittest.TestCase):
         self.assertEqual(dump_into_str(test, json_level=1, escape_seq="#!"), json)
         self.assertEqual(load_from_str(
             json, frid_mixin=[self.TestMixinClass], json_level=1, escape_seq="#!"
+        ), test)
+
+        test = self.TestMixinClass2("1", "Test", opt2=2, a=3)
+        frid = "TestMixinClass2(Test, a=3)"
+        mixin_list = [ValueArgs(self.TestMixinClass2, "1", opt2=2)]
+        self.assertEqual(dump_into_str(test, mixin_args=mixin_list), frid)
+        self.assertEqual(load_from_str(frid, frid_mixin=mixin_list), test)
+        json = """{"": ["#!TestMixinClass2", "Test"], "a": 3}"""
+        self.assertEqual(dump_into_str(test, mixin_args=mixin_list,
+                                       json_level=1, escape_seq="#!"), json)
+        self.assertEqual(load_from_str(
+            json, frid_mixin=mixin_list, json_level=1, escape_seq="#!"
         ), test)
 
     def test_redact(self):

@@ -2,7 +2,7 @@ import os, traceback
 from collections.abc import Sequence
 from types import TracebackType
 
-from .typing import FridArray, FridMixin
+from .typing import FridMixin, FridNameArgs
 from .helper import get_qual_name, get_type_name
 from .guards import is_text_list_like
 
@@ -44,12 +44,20 @@ class FridError(FridMixin, Exception):
             raise ValueError(f"Invalid trace type {type(trace)}")
 
     @classmethod
-    def frid_from(cls, name: str, *args, error: str, trace: Sequence[str]|None=None,
-                  cause: str|None=None, **kwds):
+    def frid_from(cls, data: FridNameArgs, /):
         # The `trace` and `cause` are not accepting TrackbackType and BaseException;
         # and `error` is passed as the first argument.
-        assert name in cls.frid_keys()
-        return FridError(error, trace=trace, **kwds)
+        assert data.name in cls.frid_keys()
+        error = data.kwds.get('error')
+        trace = data.kwds.get('trace')
+        cause = data.kwds.get('cause')
+        notes = data.kwds.get('notes')
+        venue = data.kwds.get('venue')
+        assert trace is None or is_text_list_like(trace)
+        assert cause is None or isinstance(cause, str)
+        assert notes is None or is_text_list_like(notes)
+        assert venue is None or isinstance(venue, str)
+        return FridError(error, trace=trace, cause=cause, notes=notes, venue=venue)
 
     def frid_dict(self) -> dict[str,str|int|list[str]]:
         """Convert the error into a dictionary"""
@@ -74,5 +82,5 @@ class FridError(FridMixin, Exception):
             out['venue'] = FRID_ERROR_VENUE
         return out
 
-    def frid_repr(self) -> tuple[str,FridArray,dict[str,str|int|list[str]]]:
-        return (get_type_name(self), (), self.frid_dict())
+    def frid_repr(self) -> FridNameArgs:
+        return FridNameArgs(get_type_name(self), (), self.frid_dict())

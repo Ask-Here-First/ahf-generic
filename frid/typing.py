@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from datetime import date as dateonly, time as timeonly, datetime
 from collections.abc import Mapping, Sequence, Set
 from enum import Enum
-from typing import Literal, TypeVar
+from typing import Generic, Literal, NamedTuple, TypeVar, final
 
 # Quick union types used in many places
 BlobTypes = bytes|bytearray|memoryview
@@ -10,7 +10,8 @@ DateTypes = dateonly|timeonly|datetime   # Note that datetime in Python is deriv
 
 # FRID types follow (Flexibly represented inteactive data)
 
-_T = TypeVar('_T', bound='FridMixin')
+_T = TypeVar('_T')
+_M = TypeVar('_M', bound='FridMixin')
 
 class FridBeing(Enum):
     """This "being or not being" class introduces two special values, PRESENT and MISSING.
@@ -60,13 +61,13 @@ class FridMixin(ABC):
         return [cls.__name__]
 
     @classmethod
-    def frid_from(cls: type[_T], name: str, *args: 'FridSeqVT', **kwds: 'FridMapVT') -> _T:
+    def frid_from(cls: type[_M], data: 'FridNameArgs') -> _M:
         """Construct an instance with given name and arguments."""
-        assert name in cls.frid_keys()
-        return cls(*args, **kwds)
+        assert data.name in cls.frid_keys()
+        return cls(*data.args, **data.kwds)
 
     @abstractmethod
-    def frid_repr(self) -> tuple[str,'FridArray','StrKeyMap']:
+    def frid_repr(self) -> 'FridNameArgs':
         """Converts an instance to a triplet of name, a list of positional values,
         and a dict of keyword values.
         """
@@ -81,5 +82,28 @@ FridSeqVT = StrKeyMap|Sequence|Set|FridPrime|FridMixin
 FridArray = Sequence[FridSeqVT]
 FridValue = StrKeyMap|FridArray|FridPrime|FridExtra
 
+class FridNameArgs(NamedTuple):
+    """This is a named tuple used to create and represent FridMixin."""
+    name: str
+    args: FridArray
+    kwds: StrKeyMap
+
 FridTypeName = Literal['text','blob','list','dict','real','date','null','bool','']
 FridTypeSize = tuple[FridTypeName,int]
+
+@final
+class ValueArgs(Generic[_T]):
+    """Container to hold a value of specific type with positional and keyword arguments."""
+    __slots__ = ('data', 'args', 'kwds')
+    def __init__(self, data: _T, *args, **kwds):
+        self.data = data
+        self.args = args
+        self.kwds = kwds
+    def __args_to_str(self):
+        sargs = [repr(x) for x in self.args]
+        sargs.extend(str(k) + "=" + repr(v) for k, v in self.kwds.items())
+        return "(" + ", ".join(sargs) + ")"
+    def __str__(self):
+        return str(self.data) + self.__args_to_str()
+    def __repr__(self):
+        return repr(self.data) + self.__args_to_str()

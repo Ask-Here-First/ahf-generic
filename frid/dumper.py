@@ -2,7 +2,7 @@ import math, base64
 from collections.abc import Callable, Iterable, Mapping, Sequence, Set
 from typing import Any, Literal, TextIO, overload
 
-from .typing import MISSING, PRESENT, FridBeing, BlobTypes
+from .typing import MISSING, PRESENT, FridBeing, BlobTypes, FridNameArgs, ValueArgs
 from .typing import FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
 from .chrono import DateTypes, strfr_datetime, timeonly, datetime, dateonly
 from .guards import is_frid_identifier, is_frid_quote_free, is_list_like
@@ -35,6 +35,7 @@ class FridDumper(PrettyPrint):
     """
     def __init__(self, *args, json_level: Literal[0,1,5]=0, escape_seq: str|None=None,
                  ascii_only: bool=False,
+                 mixin_args: Iterable[ValueArgs[type[FridMixin]]]|None=None,
                  print_real: Callable[[int|float],str|None]|None=None,
                  print_date: Callable[[DateTypes],str|None]|None=None,
                  print_blob: Callable[[BlobTypes],str|None]|None=None,
@@ -48,6 +49,10 @@ class FridDumper(PrettyPrint):
         self.print_date = print_date
         self.print_blob = print_blob
         self.print_user = print_user
+        self.mixin_args: dict[type[FridMixin],ValueArgs[type[FridMixin]]] = {}
+        if mixin_args:
+            for item in mixin_args:
+                self.mixin_args[item.data] = item
         if not self.json_level:
             pairs = EXTRA_ESCAPE_PAIRS
             hex_prefix = ('x', 'u', 'U')
@@ -237,47 +242,51 @@ class FridDumper(PrettyPrint):
         if data and self.json_level in (0, 5):
             self.print(sep[0], PPTokenType.OPT_0)
 
-    def print_named_args(self, name: str, args: FridArray,
-                         kwas: StrKeyMap, path: str, /, sep: str=',:'):
-        path = path + '(' + name + ')'
+    def print_named_args(self, name_args: FridNameArgs, path: str, /, sep: str=',:'):
+        path = path + '(' + name_args.name + ')'
         if not self.json_level:
             # assert not name or is_frid_identifier(name) # Do not check name
-            self.print(name, PPTokenType.ENTRY)
+            self.print(name_args.name, PPTokenType.ENTRY)
             self.print('(', PPTokenType.START)
-            if args:
-                self.print_naked_list(args, path, ',')
-            if args and kwas:
+            if name_args.args:
+                self.print_naked_list(name_args.args, path, ',')
+            if name_args.args and name_args.kwds:
                 self.print(',', PPTokenType.SEP_0)
-            if kwas:
-                self.print_naked_dict(kwas, path, ',=')
+            if name_args.kwds:
+                self.print_naked_dict(name_args.kwds, path, ',=')
             self.print(')', PPTokenType.CLOSE)
             return
         if self.escape_seq is None:
             raise ValueError(f"FridMixin is not supported by json={self.json_level} at {path=}")
-        if kwas:
-            assert isinstance(kwas, Mapping), str(kwas)
+        if name_args.kwds:
+            assert isinstance(name_args.kwds, Mapping), str(name_args.kwds)
             self.print('{', PPTokenType.START)
             self.print_quoted_str('', path, as_key=True)
             self.print(sep[1], PPTokenType.SEP_0)
         # Print as an array
-        if args:
-            assert isinstance(args, Sequence), str(args)
+        if name_args.args:
+            assert isinstance(name_args.args, Sequence), str(name_args.args)
             self.print('[', PPTokenType.START)
-            self.print_quoted_str(name, path, escape=True)
+            self.print_quoted_str(name_args.name, path, escape=True)
             self.print(sep[0], PPTokenType.SEP_0)
-            self.print_naked_list(args)
+            self.print_naked_list(name_args.args)
             self.print(']', PPTokenType.CLOSE)
         else:
-            self.print_quoted_str(name if kwas else name + "()", path, escape=True)
-        if kwas:
+            self.print_quoted_str((name_args.name if name_args.kwds else name_args.name + "()"),
+                                  path, escape=True)
+        if name_args.kwds:
             self.print(sep[0], PPTokenType.SEP_0)
-            self.print_naked_dict(kwas)
+            self.print_naked_dict(name_args.kwds)
             self.print('}', PPTokenType.CLOSE)
 
     def print_frid_mixin(self, data: FridMixin, path: str, /):
         """Print any Frid mixin types."""
-        (name, args, kwas) = data.frid_repr()
-        self.print_named_args(name, args, kwas, path)
+        entry = self.mixin_args.get(data.__class__)
+        if entry is not None:
+            name_args = data.frid_repr(*entry.args, **entry.kwds)
+        else:
+            name_args = data.frid_repr()
+        self.print_named_args(name_args, path)
 
     def print_frid_value(self, data: FridValue, path: str='', /):
         """Print the any value that Frid supports to the stream."""
@@ -322,16 +331,14 @@ def dump_into_tio(data: FridValue, /, file: TextIO, *args, **kwargs) -> TextIO:
     dumper.print_frid_value(data)
     return file
 
-def dump_args_into_str(name: str, opas: FridArray, kwas: StrKeyMap,
-                       *args, **kwargs) -> str:
+def dump_args_into_str(named_args: FridNameArgs, *args, **kwargs) -> str:
     dumper = FridStringDumper(*args, **kwargs)
-    dumper.print_named_args(name, opas, kwas, '')
+    dumper.print_named_args(named_args, '')
     return str(dumper)
 
-def dump_args_into_tio(name: str, opas: FridArray, kwas: StrKeyMap,
-                       /, file: TextIO, *args, **kwargs) -> TextIO:
+def dump_args_into_tio(named_args: FridNameArgs, /, file: TextIO, *args, **kwargs) -> TextIO:
     dumper = FridTextIODumper(file, *args, **kwargs)
-    dumper.print_named_args(name, opas, kwas, '')
+    dumper.print_named_args(named_args, '')
     return file
 
 @overload
