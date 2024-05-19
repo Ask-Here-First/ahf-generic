@@ -216,14 +216,10 @@ class VStoreTest(unittest.TestCase):
         except Exception:
             print("Skip Redis sync tests (Is redis-py package installed?)", file=sys.stderr)
             return
-        host = os.getenv('REDIS_KVS_HOST')
-        if not host:
+        if not os.getenv('FRID_REDIS_HOST'):
             print("Skip Redis sync tests since REDIS_KVS_HOST is not set", file=sys.stderr)
             return
-        store = RedisValueStore(
-            host=host, port=int(os.getenv('REDIS_KVS_PORT', 6379)),
-            username=os.getenv('REDIS_KVS_USER'), password=os.getenv('REDIS_KVS_PASS'),
-        ).substore("UNITTEST")
+        store = RedisValueStore().substore("UNITTEST")
         store.wipe_all()
         self.do_test_store(store, exact=False)
         store.wipe_all()
@@ -235,16 +231,12 @@ class VStoreTest(unittest.TestCase):
         except Exception:
             print("Skip Redis async tests (Is redis-py package installed?)", file=sys.stderr)
             return
-        host = os.getenv('REDIS_KVS_HOST')
-        if not host:
+        if not os.getenv('FRID_REDIS_HOST'):
             print("Skip Redis async tests since REDIS_KVS_HOST is not set", file=sys.stderr)
             return
         loop = asyncio.new_event_loop()
         try:
-            store = RedisAsyncStore(
-                host=host, port=int(os.getenv('REDIS_KVS_PORT', 6379)),
-                username=os.getenv('REDIS_KVS_USER'), password=os.getenv('REDIS_KVS_PASS'),
-            ).substore("UNITTEST")
+            store = RedisAsyncStore().substore("UNITTEST")
             loop.run_until_complete(store.awipe_all())
             self.do_test_store(AsyncProxyValueStore(store, loop=loop),
                                no_proxy=True, exact=False)

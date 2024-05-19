@@ -1,8 +1,9 @@
-import traceback
+import os, traceback
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
 from collections.abc import Iterable, Mapping, Sequence
-from typing import TypeVar, cast, overload
+from typing import Any, TypeVar, cast, overload
 from logging import error
+from urllib.parse import urlparse
 
 import redis
 from redis import asyncio as async_redis
@@ -28,6 +29,27 @@ class _RedisBaseStore(BinaryStoreMixin):
         super().__init__(frid_prefix=frid_prefix, text_prefix=text_prefix,
                          blob_prefix=blob_prefix,  **kwargs)
         self._name_prefix = name_prefix
+    def _parse_redis_args(
+            self, url: str|None=None, *, host: str|None=None, port: int|None=None,
+            username: str|None=None, password: str|None=None, **kwargs) -> dict[str,Any]:
+        if url is not None:
+            result = urlparse(url)
+            if result.scheme != 'redis':
+                raise ValueError(f"Invalid URL scheme: {result.scheme}")
+            if host is None:
+                host = result.hostname
+            if port is None:
+                port = result.port
+            if username is None:
+                username = result.username
+            if password is None:
+                password = result.password
+        return {k: v for k, v in [
+            ('host', os.getenv('FRID_REDIS_HOST', host)),
+            ('port', os.getenv('FRID_REDIS_PORT', port)),
+            ('username', os.getenv('FRID_REDIS_USER', username)),
+            ('password', os.getenv('FRID_REDIS_PASS', password)),
+        ] if v is not None}
 
     def substore(self: _Self, name: str, *args: str) -> _Self:
         prefix = name + self.NAMESPACE_SEP
@@ -35,7 +57,7 @@ class _RedisBaseStore(BinaryStoreMixin):
             prefix = self._name_prefix + self.NAMESPACE_SEP + prefix
         if args:
             prefix += self.NAMESPACE_SEP.join(args) + self.NAMESPACE_SEP
-        return self.__class__(parent=self, name_prefix=prefix)
+        return self.__class__(_parent=self, name_prefix=prefix)
 
     def _key_name(self, key: VStoreKey):
         if isinstance(key, tuple):
@@ -71,16 +93,12 @@ class _RedisBaseStore(BinaryStoreMixin):
         return None  # pragma: no cover
 
 class RedisValueStore(_RedisBaseStore, ValueStore):
-    def __init__(self, host: str|None=None, port: int=0,
-                 username: str|None=None, password: str|None=None,
-                 *, parent: 'RedisValueStore|None'=None, **kwargs):
+    def __init__(self, *args, _parent: 'RedisValueStore|None'=None, **kwargs):
         super().__init__(**kwargs)
-        if isinstance(parent, self.__class__):
-            self._redis = parent._redis
+        if isinstance(_parent, self.__class__):
+            self._redis = _parent._redis
         else:
-            assert host is not None
-            self._redis = redis.StrictRedis(host=host, port=port,
-                                            username=username, password=password)
+            self._redis = redis.StrictRedis(**self._parse_redis_args(*args, **kwargs))
     def wipe_all(self) -> int:
         """This is mainly for testing."""
         keys = self._redis.keys(self._name_prefix + "*")
@@ -289,16 +307,12 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         ), int, 0)
 
 class RedisAsyncStore(_RedisBaseStore, AsyncStore):
-    def __init__(self, host: str|None=None, port: int=0,
-                 username: str|None=None, password: str|None=None,
-                 *, parent: 'RedisAsyncStore|None'=None, **kwargs):
+    def __init__(self, *args, _parent: 'RedisAsyncStore|None'=None, **kwargs):
         super().__init__(**kwargs)
-        if isinstance(parent, self.__class__):
-            self._aredis = parent._aredis
+        if isinstance(_parent, self.__class__):
+            self._aredis = _parent._aredis
         else:
-            assert host is not None
-            self._aredis = async_redis.Redis(host=host, port=port,
-                                             username=username, password=password)
+            self._aredis = async_redis.Redis(**self._parse_redis_args(*args, **kwargs))
     async def awipe_all(self) -> int:
         """This is mainly for testing."""
         keys = await self._aredis.keys(self._name_prefix + "*")
