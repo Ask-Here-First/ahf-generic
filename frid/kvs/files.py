@@ -186,6 +186,8 @@ class FileIOValueStore(StreamValueStore):
     """File based value store."""
     def __init__(self, root: os.PathLike|str, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if isinstance(root, str) and root.startswith("file://"):
+            root = root[7:]
         self._root = os.path.abspath(root)
         if not os.path.isdir(self._root):
             os.makedirs(self._root, exist_ok=True)

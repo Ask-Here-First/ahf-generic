@@ -190,8 +190,13 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
         alock: asyncio.Lock = field(default_factory=AsyncReentrantLock)
     StorageType = dict[tuple[str,...],StoreMeta]
 
-    def __init__(self, storage: StorageType|None=None, names: tuple[str,...]=()):
+    def __init__(self, storage: StorageType|str|None=None, names: tuple[str,...]=()):
         super().__init__()
+        if isinstance(storage, str):
+            # Allow passing an URL through but the content is not checked
+            if not storage.startswith("memory://"):
+                raise ValueError("Unsupported URL for memory value store: {storage}")
+            storage = None
         self._storage = storage if storage is not None else {}
         self._meta = self._storage.setdefault(names, self.StoreMeta())
         self._data = self._meta.store
