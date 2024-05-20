@@ -88,7 +88,7 @@ class FridNameArgs(NamedTuple):
     args: FridArray
     kwds: StrKeyMap
 
-FridTypeName = Literal['text','blob','list','dict','real','date','null','bool','']
+FridTypeName = Literal['frid','text','blob','list','dict','real','date','null','bool','']
 FridTypeSize = tuple[FridTypeName,int]
 
 @final

@@ -2,7 +2,7 @@ from collections.abc import Callable, Mapping, Sequence
 from functools import partial
 from typing import Concatenate, Generic, ParamSpec, TypeVar, cast, overload
 
-from .typing import MISSING, BlobTypes, DateTypes, FridBeing, FridTypeSize, MissingType
+from .typing import MISSING, BlobTypes, DateTypes, FridBeing, FridMixin, FridTypeSize, MissingType
 from .typing import FridArray, FridMapVT, FridSeqVT, FridValue, StrKeyMap
 from .chrono import dateonly, timeonly, datetime
 from .guards import is_list_like
@@ -243,6 +243,8 @@ def frid_type_size(data: FridValue) -> FridTypeSize:
         return ('dict', len(data))
     if isinstance(data, Sequence):
         return ('list', len(data))
+    if isinstance(data, FridMixin):
+        return ('frid', 0)
     return ('', -1)
 
 
