@@ -7,8 +7,8 @@ from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Concatenate, Generic, ParamSpec, TypeVar
 
-from ..typing import MISSING, PRESENT, BlobTypes, FridArray, FridBeing, FridTypeName, MissingType, StrKeyMap
-from ..typing import FridTypeSize, FridValue
+from ..typing import MISSING, PRESENT, BlobTypes, MissingType
+from ..typing import FridTypeName, FridTypeSize, FridValue, FridArray, FridBeing, StrKeyMap
 from ..autils import AsyncReentrantLock
 from ..chrono import parse_datetime, strfr_datetime, datetime, timezone
 from ..guards import is_frid_array, is_frid_skmap
@@ -468,7 +468,7 @@ class StreamStoreMixin(BinaryStoreMixin, _SimpleBaseStore[bytes]):
 
     def _create_header(self, typ: str|bytes) -> bytes:
         typ_bytes = typ.encode() if isinstance(typ, str) else typ
-        assert len(typ_bytes) == 4
+        assert len(typ_bytes) == 4, f"{typ_bytes=}"
         now_str = strfr_datetime(datetime.now(timezone.utc), precision=3)
         assert now_str is not None
         tim_bytes = now_str.encode()

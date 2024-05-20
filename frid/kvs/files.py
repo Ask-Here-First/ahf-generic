@@ -206,6 +206,7 @@ class FileIOValueStore(StreamValueStore):
         return out
     def get_lock(self, name: str|None=None):
         path = os.path.join(self._root, (name or '') + ".lck")
+        self._makedir_parent(path)
         while True:
             try:
                 with open(path, "x+b") as f:
@@ -247,6 +248,10 @@ class FileIOValueStore(StreamValueStore):
                     time.sleep(0.1)
                 else:
                     raise
+    def _makedir_parent(self, path):
+        """Create the parent directory of the path."""
+        parent = os.path.dirname(path)
+        os.makedirs(parent, exist_ok=True)
     def _move_or_create(self, old_path, new_path) -> BinaryIO|None:
         """Trying to move the `old_path` to `new_path` atomically.
         - If the `new_path` exists, it will back-off and retry for a period of time.
@@ -303,6 +308,7 @@ class FileIOValueStore(StreamValueStore):
 
     def _open(self, key: str, mode: OpenMode) -> FileIOAgent:
         (kvs_path, tmp_path) = self._get_path_pairs(key)
+        self._makedir_parent(kvs_path)  # tmp_path is in the same directory
         if mode & OpenMode.READ_ONLY:
             return self._get_read_agent(kvs_path, tmp_path)
         # If the renaming is successful, the write lock is held
