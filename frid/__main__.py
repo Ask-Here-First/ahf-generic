@@ -79,7 +79,8 @@ class TestChrono(unittest.TestCase):
         self.assertEqual(strfr_datetime(timeonly(11, 22, 33), precision=0), "0T112233")
         self.assertEqual(strfr_datetime(timeonly(11, 22, 33), precision=-1), "0T1122")
         self.assertEqual(strfr_datetime(timeonly(11, 22, 33), precision=-2), "0T11")
-        self.assertEqual(strfr_datetime(0), strfr_datetime(datetime.fromtimestamp(0)))
+        self.assertEqual(strfr_datetime(0),
+                         strfr_datetime(datetime.fromtimestamp(0, timezone.utc)))
         with self.assertRaises(ValueError):
             strfr_datetime(timeonly(11, 22, 33), precision=-3)
 
