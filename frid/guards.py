@@ -186,6 +186,8 @@ def is_frid_identifier(s) -> TypeGuard[str]:
     """
     if not s or not isinstance(s, str):
         return False
+    if s[0] == '.' and len(s) >= 2:
+        s = s[1:]   # If starting with . check the reset if it is an identifier
     return is_identifier_head(s[0]) and all(
         is_identifier_char(c) for c in s[1:-1]
     ) and is_identifier_tail(s[-1])
@@ -211,6 +213,8 @@ def is_frid_quote_free(data) -> TypeGuard[str]:
     """
     if not data or not isinstance(data, str):
         return False
+    if data[0] == '.' and len(data) >= 2:
+        data = data[1:]   # If starting with . check the reset if it is an identifier
     return is_quote_free_head(data[0]) and all(
         is_quote_free_char(c) for c in data[1:-1]
     ) and is_quote_free_tail(data[-1]) and "  " not in data

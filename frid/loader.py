@@ -179,6 +179,11 @@ class FridLoader:
                     return +math.nan
                 case "-+":
                     return -math.nan
+        if s[0] == '.' and len(s) >= 2:
+            if s[1] not in "+-.0123456789":
+                if is_frid_quote_free(s):
+                    return s
+                return default
         if s.startswith('..'):
             # Base64 URL safe encoding with padding with dot. Space in between is allowed.
             s = s[2:]
