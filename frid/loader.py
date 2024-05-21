@@ -175,9 +175,9 @@ class FridLoader:
                     return +math.inf
                 case "--":
                     return -math.inf
-                case "+.":
+                case "+-":
                     return +math.nan
-                case "-.":
+                case "-+":
                     return -math.nan
         if s.startswith('..'):
             # Base64 URL safe encoding with padding with dot. Space in between is allowed.

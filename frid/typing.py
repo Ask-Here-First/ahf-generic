@@ -25,13 +25,13 @@ class FridBeing(Enum):
     def __bool__(self):
         return self.value
     def strfr(self) -> str:
-        return ".+" if self.value else ".-"
+        return "+." if self.value else "-."
     @classmethod
     def parse(cls, s: str) -> 'FridBeing|None':
         match s:
-            case '.+':
+            case '+.':
                 return PRESENT
-            case '.-':
+            case '-.':
                 return MISSING
             case _:
                 return None

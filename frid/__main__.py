@@ -253,13 +253,13 @@ class TestHelper(unittest.TestCase):
         self.assertFalse(cmp({'a': 1}, 3))
 
     def test_substitute(self):
-        sub = Substitute(present=".+", missing=".-")
+        sub = Substitute(present="+.", missing="-.")
         self.assertEqual(sub(3), 3)
-        self.assertEqual(sub("${a}", a=MISSING), ".-")
-        self.assertEqual(sub("${a}", a=PRESENT), ".+")
-        self.assertEqual(sub("[${a}]", a=MISSING), "[.-]")
-        self.assertEqual(sub("[${a}]", a=PRESENT), "[.+]")
-        self.assertEqual(sub("${a}"), ".-")
+        self.assertEqual(sub("${a}", a=MISSING), "-.")
+        self.assertEqual(sub("${a}", a=PRESENT), "+.")
+        self.assertEqual(sub("[${a}]", a=MISSING), "[-.]")
+        self.assertEqual(sub("[${a}]", a=PRESENT), "[+.]")
+        self.assertEqual(sub("${a}"), "-.")
         self.assertEqual(sub("a"), "a")
         self.assertEqual(sub("The ${key}=${val} is here", {'key': "data", 'val': 3}),
                          "The data=3 is here")
@@ -269,7 +269,7 @@ class TestHelper(unittest.TestCase):
         }, var1=3, var2=['abc', 4], var3='def'), {
             'a': 3, 'b': ['abc', 4, 'def']
         })
-        self.assertEqual(sub(["${var1}", "${var2}"], var1=PRESENT, var2=MISSING), [".+", ".-"])
+        self.assertEqual(sub(["${var1}", "${var2}"], var1=PRESENT, var2=MISSING), ["+.", "-."])
         with self.assertRaises(ValueError):
             sub("abc ${def")
         # This is for the pattern
@@ -342,7 +342,7 @@ class TestLoaderAndDumper(unittest.TestCase):
         "12345": 12345, "1_2_3_4_5": 12345,
         "-400000": -400000,             "-400_000  ": -400000,
         "0.25": 0.25,   ".25": 0.25,    "2.5E-1": 0.25,
-        "++": math.inf, "--": -math.inf, "+.": math.isnan, "-.": math.isnan,
+        "++": math.inf, "--": -math.inf, "+-": math.isnan, "-+": math.isnan,
         # Unquoted strings
         '""': '',       "": '',         " ": '',        "  ": '',
         "c": "c",       "'c'": "c",     '"c"': "c",     "  `c`  ": "c",
@@ -407,8 +407,8 @@ class TestLoaderAndDumper(unittest.TestCase):
         self._do_test_positive(self.frid_json5_cases, 0)
         self._do_test_positive(self.frid_json5_cases, 5)
         self._do_test_positive(self.frid_only_cases, 0)
-        self.assertEqual(dump_into_str(math.nan), "+.")
-        self.assertEqual(dump_into_str(-math.nan), "-.")
+        self.assertEqual(dump_into_str(math.nan), "+-")
+        self.assertEqual(dump_into_str(-math.nan), "-+")
         self.assertEqual(dump_into_str(math.nan, json_level=5), "NaN")
 
     def test_random(self):

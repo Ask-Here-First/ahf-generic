@@ -94,7 +94,7 @@ class FridDumper(PrettyPrint):
                 raise ValueError(f"Infinity is not supported by JSON at {path=}")
             return str(data)
         if math.isnan(data):
-            out = "+." if math.copysign(1.0, data) >= 0 else "-."
+            out = "+-" if math.copysign(1.0, data) >= 0 else "-+"
         elif math.isinf(data):
             out = "++" if data >= 0 else "--"
         else:
