@@ -98,7 +98,7 @@ def strfr_timeonly(time: timeonly, /, precision: int=3,
 def strfr_datetime(data: DateTypes|float, /, precision: int=3, colon: bool=False) -> str:
     """Show date/time/datetime format only without colons."""
     if isinstance(data, int|float):
-        data = datetime.fromtimestamp(data)
+        data = datetime.fromtimestamp(data, timezone.utc)
     if isinstance(data, datetime):
         return data.date().isoformat() + strfr_timeonly(
             data.timetz(), precision, prefix='T', colon=colon
