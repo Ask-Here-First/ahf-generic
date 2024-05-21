@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import AsyncIterable, Collection, Iterable, Mapping, Sequence
 from logging import error
 from typing import TypeGuard, TypeVar
 
@@ -23,8 +23,8 @@ from ..dumper import dump_into_str
 from ..loader import load_from_str
 from .store import AsyncStore, ValueStore
 from .utils import (
-    BulkInput, VSPutFlag, VStoreKey, VStoreSel, is_dict_sel, is_list_sel,
-    dict_concat, list_concat, frid_delete, frid_select, list_remove_all, list_select
+    BulkInput, KeySearch, VSPutFlag, VStoreKey, VStoreSel, is_dict_sel, is_list_sel,
+    dict_concat, list_concat, frid_delete, frid_select, list_remove_all, list_select, match_key
 )
 from frid.kvs import utils
 
@@ -351,8 +351,23 @@ class _SqlBaseStore:
             **self._key_to_dict(key), **args, **self._val_to_dict(val), **self._insert_data,
         )
 
+    def _get_keys_select(self, pat: KeySearch=None, /) -> Select:
+        """Returns the select cmd for get_keys()."""
+        if pat is None:
+            return select(*self._key_columns)
+        if isinstance(pat, str|int):
+            pat = (pat,)
+        return select(*self._key_columns).where(
+            *(k == v for k, v in zip(self._key_columns, pat) if v is not None),
+            *self._where_conds
+        )
+    def _get_keys_result(self, result: CursorResult, pat: KeySearch, /) -> Iterable[VStoreKey]:
+        for row in result:
+            t = tuple(x for x in row)
+            if match_key(t, pat):
+                yield t[0] if len(t) == 1 else t
     def _get_meta_select(self, keys: Iterable[VStoreKey], /) -> Select:
-        """Returns the select cmd for _get_meta()."""
+        """Returns the select cmd for get_meta()."""
         return self._get_bulk_select(keys)
     def _get_meta_result(self, result: CursorResult, keys: Iterable[VStoreKey],
                          /) -> dict[VStoreKey,FridTypeSize]:
@@ -633,6 +648,10 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
     def finalize(self, depth: int=0):
         self._engine.dispose()
 
+    def get_keys(self, pat: KeySearch=None, /) -> Iterable[VStoreKey]:
+        cmd = self._get_keys_select(pat)
+        with self._engine.begin() as conn:
+            return self._get_keys_result(conn.execute(cmd), pat)
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         merged_keys = list_concat(args, keys)
@@ -714,6 +733,11 @@ class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
     async def finalize(self, depth: int=0):
         await self._engine.dispose()
 
+    async def get_keys(self, pat: KeySearch) -> AsyncIterable[VStoreKey]:
+        cmd = self._get_keys_select(pat)
+        async with self._engine.begin() as conn:
+            for x in self._get_keys_result(await conn.execute(cmd), pat):
+                yield x
     async def get_meta(self, *args: VStoreKey,
                       keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         merged_keys = list_concat(args, keys)

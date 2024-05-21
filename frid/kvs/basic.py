@@ -17,7 +17,7 @@ from ..strops import escape_control_chars, revive_control_chars
 from ..dumper import dump_into_str
 from ..loader import load_from_str
 from .store import AsyncStore, ValueStore
-from .utils import VSPutFlag, VStoreKey, VStoreSel, frid_delete, frid_select, list_concat
+from .utils import KeySearch, VSPutFlag, VStoreKey, VStoreSel, frid_delete, frid_select, list_concat, match_key
 
 _T = TypeVar('_T')
 _E = TypeVar('_E')   # The encoding type
@@ -213,6 +213,10 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
 
     def get_lock(self, name: str|None=None):
         return self._meta.tlock
+    def get_keys(self, pat: KeySearch=None, /) -> Iterable[VStoreKey]:
+        for k in self._data.keys():
+            if match_key(k, pat):
+                yield k
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return {k: frid_type_size(v) for k in list_concat(args, keys)

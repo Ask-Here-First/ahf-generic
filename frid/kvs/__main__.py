@@ -11,6 +11,7 @@ from .files import FileIOValueStore
 
 class VStoreTest(unittest.TestCase):
     def check_text_store(self, store: ValueStore):
+        self.assertEqual(set(store.get_keys()), set())
         self.assertIsNone(store.get_text("key0"))
         self.assertTrue(store.put_frid("key0", "value0"))
         self.assertEqual(store.get_text("key0"), "value0")
@@ -24,6 +25,8 @@ class VStoreTest(unittest.TestCase):
         self.assertEqual(store.put_bulk({"key0": "value", "key1": "value1"},
                                         VSPutFlag.UNCHECKED), 2)
         self.assertEqual(store.get_bulk(["key0", "key1"]), ["value", "value1"])
+        self.assertEqual(set(store.get_keys()), {"key0", "key1"})
+        self.assertEqual(set(store.get_keys("key0")), {"key0"})
         self.assertTrue(store.put_frid("key0", "0", VSPutFlag.KEEP_BOTH))
         self.assertEqual(store.get_text("key0"), "value0")
         self.assertEqual(store.get_meta("key0").get("key0"), ("text", 6))

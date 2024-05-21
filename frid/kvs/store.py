@@ -1,7 +1,7 @@
 """The Frid Value Store."""
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import AsyncIterable, Iterable, Mapping
 from contextlib import AbstractContextManager, AbstractAsyncContextManager
 from typing import TypeVar, overload
 
@@ -10,7 +10,7 @@ from ..typing import MISSING, BlobTypes, FridTypeName, FridTypeSize
 from ..typing import FridArray, FridSeqVT, FridValue, MissingType, StrKeyMap
 from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap
 from . import utils
-from .utils import VSPutFlag, VSListSel, VSDictSel, VStoreKey, VStoreSel, BulkInput
+from .utils import KeySearch, VSPutFlag, VSListSel, VSDictSel, VStoreKey, VStoreSel, BulkInput
 
 
 _T = TypeVar('_T')
@@ -22,14 +22,17 @@ class _BaseStore(ABC):
         """Returns a substore ValueStore as given by a list of names."""
         raise NotImplementedError  # pragma: no cover
 
-    def get_lock(self, name: str|None=None) -> AbstractContextManager:
-        """Returns an reentrant lock for desired concurrency."""
-        raise NotImplementedError  # pragma: no cover
     def finalize(self, depth=0):
         """Calling to finalize this store before drop the reference.
         - `depth`: only effective for proxies: if depth > 0, call
           `finalize(depth - 1)` of the backend.
         """
+        raise NotImplementedError  # pragma: no cover
+    def get_lock(self, name: str|None=None, /) -> AbstractContextManager:
+        """Returns an reentrant lock for desired concurrency."""
+        raise NotImplementedError  # pragma: no cover
+    def get_keys(self, pat: KeySearch=None, /):
+        """Returns a list of keys according to the key search string."""
         raise NotImplementedError  # pragma: no cover
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
@@ -115,7 +118,10 @@ class ValueStore(_BaseStore):
     def finalize(self, depth=0):
         pass
     @abstractmethod
-    def get_lock(self, name: str|None=None) -> AbstractContextManager:
+    def get_lock(self, name: str|None=None, /) -> AbstractContextManager:
+        raise NotImplementedError  # pragma: no cover
+    @abstractmethod
+    def get_keys(self, pat: KeySearch=None, /) -> Iterable[VStoreKey]:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
     def get_meta(self, *args: VStoreKey, keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
@@ -175,7 +181,10 @@ class AsyncStore(_BaseStore):
     async def finalize(self, depth=0):
         pass
     @abstractmethod
-    def get_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
+    def get_lock(self, name: str|None=None, /) -> AbstractAsyncContextManager:
+        raise NotImplementedError  # pragma: no cover
+    @abstractmethod
+    def get_keys(self, pat: KeySearch=None, /) -> AsyncIterable[VStoreKey]:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
     async def get_meta(self, *args: VStoreKey,

@@ -1,6 +1,6 @@
 import os, traceback
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import AsyncIterator, Iterable, Iterator, Mapping, Sequence
 from typing import Any, TypeVar, cast, overload
 from logging import error
 from urllib.parse import urlparse
@@ -11,12 +11,13 @@ from redis import asyncio as async_redis
 from ..typing import MISSING, FridBeing, FridTypeName, MissingType
 from ..typing import FridArray, FridSeqVT, FridTypeSize, FridValue, StrKeyMap
 from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap, is_list_like
-from ..strops import escape_control_chars
+from ..strops import escape_control_chars, revive_control_chars
 from ..helper import frid_merge, frid_type_size
 from . import utils
 from .store import ValueStore, AsyncStore
 from .basic import BinaryStoreMixin
-from .utils import VSDictSel, VSListSel, VStoreSel, BulkInput, VSPutFlag, VStoreKey
+from .utils import KeySearch, VSDictSel, VSListSel, VStoreSel, BulkInput, VSPutFlag, VStoreKey
+from .utils import match_key
 
 _T = TypeVar('_T')
 _Self = TypeVar('_Self', bound='_RedisBaseStore')  # TODO: remove this in 3.11
@@ -65,6 +66,7 @@ class _RedisBaseStore(BinaryStoreMixin):
         return self._name_prefix + key
     def _key_list(self, keys: Iterable[VStoreKey]) -> list[str]:
         return [self._key_name(k) for k in keys]
+
     @overload
     def _check_type(self, data, typ: type[_T], default: None=None) -> _T|None: ...
     @overload
@@ -91,6 +93,19 @@ class _RedisBaseStore(BinaryStoreMixin):
             return bytes(data).decode()
         raise ValueError(f"Incorrect Redis type {type(data)}; expect string") # pragma: no cover
         return None  # pragma: no cover
+    def _revive_key(self, data, pat: KeySearch) -> VStoreKey|None:
+        text = self._check_text(data)
+        if text is None:
+            return None
+        if not text.startswith(self._name_prefix):
+            return None
+        items = text[len(self._name_prefix):].split('\t')
+        key = tuple(revive_control_chars(x, '\x7f') for x in items)
+        if not match_key(key, pat):
+            return None
+        if len(key) == 1:
+            return key[0]
+        return key
 
 class RedisValueStore(_RedisBaseStore, ValueStore):
     def __init__(self, *args, _parent: 'RedisValueStore|None'=None, **kwargs):
@@ -123,6 +138,15 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         if data is None:
             return None
         return frid_type_size(self._decode(data))
+    def get_keys(self, pat: KeySearch=None, /) -> Iterator[VStoreKey]:
+        # TODO: speed up to convert KeySearch to a minimal superset Redis pattern
+        keys = self._redis.keys()
+        if not isinstance(keys, Iterable):
+            return
+        for k in keys:
+            key = self._revive_key(k, pat)
+            if key is not None:
+                yield key
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return {k: v for k in utils.list_concat(args, keys)
@@ -342,6 +366,15 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         if data is None:
             return None
         return frid_type_size(self._decode(data))
+    async def get_keys(self, pat: KeySearch) -> AsyncIterator[VStoreKey]:
+        # TODO: speed up to convert KeySearch to a minimal superset Redis pattern
+        keys = await self._aredis.keys()
+        if not isinstance(keys, Iterable):
+            return
+        for k in keys:
+            key = self._revive_key(k, pat)
+            if key is not None:
+                yield key
     async def get_meta(self, *args: VStoreKey,
                        keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return {k: v for k in utils.list_concat(args, keys)

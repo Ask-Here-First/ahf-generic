@@ -1,13 +1,14 @@
 import asyncio
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import AsyncIterable, Awaitable, Callable, Iterable, Mapping
 from concurrent.futures import Executor
 from contextlib import AbstractAsyncContextManager
 from typing import Concatenate, ParamSpec, TypeVar
 
 from ..typing import MISSING, BlobTypes, FridBeing, FridSeqVT, FridTypeName, FridTypeSize, FridValue
+from ..autils import collect_async_iterable
 from . import utils
 from .store import AsyncStore, ValueStore
-from .utils import VSDictSel, VSListSel, VSPutFlag, VStoreKey, VStoreSel, BulkInput
+from .utils import KeySearch, VSDictSel, VSListSel, VSPutFlag, VStoreKey, VStoreSel, BulkInput
 
 
 _T = TypeVar('_T')
@@ -23,6 +24,8 @@ class ValueProxyStore(ValueStore):
     def finalize(self, depth=0):
         if depth > 0:
             return self._store.finalize(depth - 1)
+    def get_keys(self, pat: KeySearch=None, /) -> Iterable[VStoreKey]:
+        return self._store.get_keys(pat)
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return self._store.get_meta(*args, keys=keys)
@@ -61,6 +64,8 @@ class AsyncProxyStore(AsyncStore):
     async def finalize(self, depth=0):
         if depth > 0:
             return await self._store.finalize(depth - 1)
+    def get_keys(self, pat: KeySearch=None, /) -> AsyncIterable[VStoreKey]:
+        return self._store.get_keys(pat)
     async def get_meta(self, *args: VStoreKey,
                        keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return await self._store.get_meta(*args, keys=keys)
@@ -116,11 +121,14 @@ class ValueProxyAsyncStore(AsyncStore):
         return func(*args)
     async def _loop_run(self, call: Callable[...,_T], *args) -> _T:
         return await asyncio.get_running_loop().run_in_executor(self._executor, call, *args)
-    def get_lock(self, name: str|None=None):
-        return self._store.get_lock(name)
     async def finalize(self, depth=0):
         if depth > 0:
             return await self._asyncrun(self._store.finalize, depth - 1)
+    def get_lock(self, name: str|None=None):
+        return self._store.get_lock(name)
+    async def get_keys(self, pat: KeySearch=None, /) -> AsyncIterable[VStoreKey]:
+        for key in self._store.get_keys(pat):
+            yield key
     async def get_meta(self, *args: VStoreKey,
                        keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return await self._asyncrun(self._store.get_meta, *utils.list_concat(args, keys))
@@ -178,6 +186,8 @@ class AsyncProxyValueStore(ValueStore):
             result = self._loop.run_until_complete(self._store.finalize(depth - 1))
         self._del_loop()
         return result
+    def get_keys(self, pat: KeySearch=None, /) -> Iterable[VStoreKey]:
+        return self._loop.run_until_complete(collect_async_iterable(self._store.get_keys(pat)))
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return self._loop.run_until_complete(self._store.get_meta(*args, keys=keys))

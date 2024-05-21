@@ -4,12 +4,12 @@ from abc import ABC, abstractmethod
 from enum import Flag
 from logging import error
 from typing import BinaryIO, ParamSpec, TypeVar
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 
 from ..typing import MISSING, PRESENT, BlobTypes, FridBeing, FridTypeSize, MissingType
 from ..helper import frid_type_size
-from .utils import VSPutFlag, VStoreKey, list_concat
+from .utils import KeySearch, VSPutFlag, VStoreKey, list_concat, match_key
 from .basic import ModFunc, SimpleValueStore, StreamStoreMixin
 
 _T = TypeVar('_T')
@@ -184,6 +184,10 @@ class FileDeleter:
 
 class FileIOValueStore(StreamValueStore):
     """File based value store."""
+    SUBSTORE_EXT = ".dir"
+    LCK_FILE_EXT = ".lck"
+    KVS_FILE_EXT = ".kvs"
+    TMP_FILE_EXT = ".tmp"
     def __init__(self, root: os.PathLike|str, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if isinstance(root, str) and root.startswith("file://"):
@@ -192,10 +196,40 @@ class FileIOValueStore(StreamValueStore):
         if not os.path.isdir(self._root):
             os.makedirs(self._root, exist_ok=True)
     def substore(self, name: str, *args: str):
-        root = os.path.join(self._root, self._encode_name(name) + ".dir",
-                            *(self._encode_name(x) + ".dir" for x in args))
+        root = os.path.join(self._root, self._encode_name(name) + self.SUBSTORE_EXT,
+                            *(self._encode_name(x) + self.SUBSTORE_EXT for x in args))
         return self.__class__(root=root)
 
+    def get_keys(self, pat: KeySearch=None, /) -> Iterable[VStoreKey]: # type: ignore
+        for (path, dirs, files) in os.walk(self._root):
+            path = os.path.relpath(path, self._root)
+            if '.' in path:
+                if path != '.':
+                    continue
+                prefix = ()
+            else:
+                prefix = tuple(self._decode_name(n) for n in os.path.split(path))
+            existing = set()
+            for name in files:
+                if name.endswith(self.KVS_FILE_EXT):
+                    name = name[:-len(self.KVS_FILE_EXT)]
+                elif name.endswith(self.TMP_FILE_EXT):
+                    name = name[:-len(self.TMP_FILE_EXT)]
+                else:
+                    continue
+                if name in existing:
+                    continue
+                existing.add(name)
+                key = (*prefix, name)
+                if match_key(key, pat):
+                    yield key[0] if len(key) == 1 else key
+            # TODO: we can do prefix match for subdirectories to speed up
+            # Remove substores from search
+            i = len(dirs)
+            while i > 0:
+                if dirs[i].endswith(self.SUBSTORE_EXT):
+                    del dirs[i]
+                i -= 1
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         out = {}
@@ -205,7 +239,7 @@ class FileIOValueStore(StreamValueStore):
                 out[k] = frid_type_size(v)
         return out
     def get_lock(self, name: str|None=None):
-        path = os.path.join(self._root, (name or '') + ".lck")
+        path = os.path.join(self._root, (name or '') + self.LCK_FILE_EXT)
         self._makedir_parent(path)
         while True:
             try:
@@ -216,8 +250,11 @@ class FileIOValueStore(StreamValueStore):
                 time.sleep(0.1)
 
     def _encode_name(self, key: str):
-        """Encode string to file system compatible."""
-        return quote(key, safe='+')
+        """Encode string into file system compatible name string."""
+        return quote(key, safe='+@')
+    def _decode_name(self, file_name: str):
+        """Decode string from file system compatible name string."""
+        return unquote(file_name)
 
     def _key_str(self, key: VStoreKey) -> str:
         if isinstance(key, str):
@@ -233,7 +270,7 @@ class FileIOValueStore(StreamValueStore):
         dir = os.path.dirname(path)
         if not os.path.isdir(dir):
             os.makedirs(dir)
-        return (path + ".kvs", path + ".tmp")
+        return (path + self.KVS_FILE_EXT, path + self.TMP_FILE_EXT)
 
     def _get_read_agent(self, kvs_path, tmp_path):
         count = 300

@@ -7,6 +7,7 @@ from ..guards import is_frid_array, is_frid_skmap, is_list_like
 
 
 VStoreKey = str|tuple[str|int,...]
+KeySearch = str|tuple[str|int|None,...]|None
 VSListSel = int|slice|tuple[int,int]|None
 VSDictSel = str|Iterable[str]|None
 VStoreSel = VSListSel|VSDictSel
@@ -35,6 +36,24 @@ def check_flags(flags: VSPutFlag, total_count: int, exist_count: int) -> bool:
             return exist_count <= 0
         # TODO: what to do for other flags: no need to check if result is not affected
     return True
+
+def match_key(key: VStoreKey, pat: KeySearch) -> bool:
+    if pat is None:
+        return True
+    if isinstance(pat, str|int):
+        if isinstance(key, str|int):
+            return str(key) == str(pat)
+        if isinstance(key, tuple):
+            return len(key) == 1 and str(key[0]) == str(pat)
+        return False
+    if isinstance(pat, tuple):
+        if isinstance(key, str|int):
+            return len(pat) == 1 and (pat[0] is None or str(key) == str(pat[0]))
+        if isinstance(key, tuple):
+            return len(key) == len(pat) and all(
+                p is None or str(k) == str(p) for k, p in zip(key, pat)
+            )
+    return False
 
 def is_list_sel(sel) -> TypeGuard[VSListSel]:
     return isinstance(sel, int|slice) or (
