@@ -40,12 +40,17 @@ def create_async_store(url: str|None) -> AsyncStore|None:
             raise ValueError(f"Storage URL scheme is not supported: {scheme}")
     return func(url)
 
+def is_local_store_url(url: str|None) -> bool:
+    if url is None:
+        return False
+    return any(url.startswith(x) for x in ("file://", "memory://"))
+
 __all__ = [
     'ValueStore', 'AsyncStore',
     'ValueProxyStore', 'AsyncProxyStore', 'AsyncProxyValueStore', 'ValueProxyAsyncStore',
     'VStoreKey', 'VStoreSel', 'VSPutFlag',
     'MemoryValueStore', 'FileIOValueStore',
-    'create_value_store', 'create_async_store',
+    'create_value_store', 'create_async_store', 'is_local_store_url',
 ]
 
 
