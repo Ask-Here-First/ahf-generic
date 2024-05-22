@@ -184,7 +184,7 @@ class FileDeleter:
 
 class FileIOValueStore(StreamValueStore):
     """File based value store."""
-    SUBSTORE_EXT = ".dir"
+    SUBSTORE_EXT = ".!"
     LCK_FILE_EXT = ".lck"
     KVS_FILE_EXT = ".kvs"
     TMP_FILE_EXT = ".tmp"
@@ -202,13 +202,13 @@ class FileIOValueStore(StreamValueStore):
 
     def get_keys(self, pat: KeySearch=None, /) -> Iterable[VStoreKey]: # type: ignore
         for (path, dirs, files) in os.walk(self._root):
-            path = os.path.relpath(path, self._root)
-            if '.' in path:
-                if path != '.':
-                    continue
+            relpath = os.path.relpath(path, self._root)
+            if '!' in relpath:
+                continue
+            if relpath == '.':
                 prefix = ()
             else:
-                prefix = tuple(self._decode_name(n) for n in os.path.split(path))
+                prefix = tuple(self._decode_name(n) for n in os.path.split(relpath))
             existing = set()
             for name in files:
                 if name.endswith(self.KVS_FILE_EXT):
@@ -220,13 +220,13 @@ class FileIOValueStore(StreamValueStore):
                 if name in existing:
                     continue
                 existing.add(name)
-                key = (*prefix, name)
+                key = (*prefix, self._decode_name(name))
                 if match_key(key, pat):
                     yield key[0] if len(key) == 1 else key
             # TODO: we can do prefix match for subdirectories to speed up
             # Remove substores from search
-            i = len(dirs)
-            while i > 0:
+            i = len(dirs) - 1
+            while i >= 0:
                 if dirs[i].endswith(self.SUBSTORE_EXT):
                     del dirs[i]
                 i -= 1
@@ -249,10 +249,10 @@ class FileIOValueStore(StreamValueStore):
             except FileExistsError:
                 time.sleep(0.1)
 
-    def _encode_name(self, key: str):
+    def _encode_name(self, key: str) -> str:
         """Encode string into file system compatible name string."""
         return quote(key, safe='+@')
-    def _decode_name(self, file_name: str):
+    def _decode_name(self, file_name: str) -> str:
         """Decode string from file system compatible name string."""
         return unquote(file_name)
 
