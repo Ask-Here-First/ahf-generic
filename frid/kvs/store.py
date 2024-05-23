@@ -17,6 +17,14 @@ _T = TypeVar('_T')
 _Self = TypeVar('_Self', bound='_BaseStore')  # TODO: remove this in 3.11
 
 class _BaseStore(ABC):
+    @classmethod
+    def from_url(cls: type[_Self], url: str, /, *args, **kwargs) -> _Self:
+        """Create an store accorind to an URL.
+        - Optional positional arguments may be needed but they are not passed
+          unchecked to constructor.
+        - Some eyword arguments are passed unchecked to the constructor.
+        """
+        raise NotImplementedError  # pragma: no cover
     @abstractmethod
     def substore(self: _Self, name: str, *args: str) -> _Self:
         """Returns a substore ValueStore as given by a list of names."""
@@ -115,6 +123,9 @@ class _BaseStore(ABC):
         raise NotImplementedError  # pragma: no cover
 
 class ValueStore(_BaseStore):
+    @classmethod
+    def from_url(cls: type[_Self], url: str, /, *args, **kwargs) -> _Self:
+        raise NotImplementedError  # pragma: no cover
     def finalize(self, depth=0):
         pass
     @abstractmethod
@@ -177,6 +188,9 @@ class ValueStore(_BaseStore):
         return data
 
 class AsyncStore(_BaseStore):
+    @classmethod
+    async def from_url(cls: type[_Self], url: str, /, *args, **kwargs) -> _Self:
+        raise NotImplementedError  # pragma: no cover
     # Override all methods if signature is different
     async def finalize(self, depth=0):
         pass

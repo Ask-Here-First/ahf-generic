@@ -3,7 +3,6 @@ from contextlib import AbstractAsyncContextManager, AbstractContextManager
 from collections.abc import AsyncIterator, Iterable, Iterator, Mapping, Sequence
 from typing import Any, TypeVar, cast, overload
 from logging import error
-from urllib.parse import urlparse
 
 import redis
 from redis import asyncio as async_redis
@@ -28,37 +27,28 @@ class _RedisBaseStore(BinaryStoreMixin):
                  text_prefix: bytes|None=b'', blob_prefix: bytes|None=b'#=',
                  **kwargs):
         super().__init__(frid_prefix=frid_prefix, text_prefix=text_prefix,
-                         blob_prefix=blob_prefix,  **kwargs)
+                         blob_prefix=blob_prefix, **kwargs)
         self._name_prefix = name_prefix
-    def _parse_redis_args(
-            self, url: str|None=None, *, host: str|None=None, port: int|None=None,
-            username: str|None=None, password: str|None=None, **kwargs) -> dict[str,Any]:
-        if url is not None:
-            result = urlparse(url)
-            if result.scheme != 'redis':
-                raise ValueError(f"Invalid URL scheme: {result.scheme}")
-            if host is None:
-                host = result.hostname
-            if port is None:
-                port = result.port
-            if username is None:
-                username = result.username
-            if password is None:
-                password = result.password
-        return {k: v for k, v in [
-            ('host', os.getenv('FRID_REDIS_HOST', host)),
-            ('port', os.getenv('FRID_REDIS_PORT', port)),
-            ('username', os.getenv('FRID_REDIS_USER', username)),
-            ('password', os.getenv('FRID_REDIS_PASS', password)),
-        ] if v is not None}
-
-    def substore(self: _Self, name: str, *args: str) -> _Self:
-        prefix = name + self.NAMESPACE_SEP
-        if self._name_prefix:
-            prefix = self._name_prefix + self.NAMESPACE_SEP + prefix
+    @classmethod
+    def _update_redis_args(cls, kwargs: dict[str,Any]):
+        env_set = {
+            'FRID_REDIS_HOST': 'host',
+            'FRID_REDIS_PORT': 'port',
+            'FRID_REDIS_USER': 'username',
+            'FRID_REDIS_PASS': 'password',
+        }
+        for key, val in env_set.items():
+            data = os.getenv(key)
+            if data is not None:
+                kwargs[val] = data
+    @classmethod
+    def _build_name_prefix(cls, base: str, name: str, *args: str) -> str:
+        prefix = name + cls.NAMESPACE_SEP
+        if base:
+            prefix = base + cls.NAMESPACE_SEP + prefix
         if args:
-            prefix += self.NAMESPACE_SEP.join(args) + self.NAMESPACE_SEP
-        return self.__class__(_parent=self, name_prefix=prefix)
+            prefix += cls.NAMESPACE_SEP.join(args) + cls.NAMESPACE_SEP
+        return prefix
 
     def _key_name(self, key: VStoreKey):
         if isinstance(key, tuple):
@@ -108,12 +98,20 @@ class _RedisBaseStore(BinaryStoreMixin):
         return key
 
 class RedisValueStore(_RedisBaseStore, ValueStore):
-    def __init__(self, *args, _parent: 'RedisValueStore|None'=None, **kwargs):
+    URL_SCHEME = 'redis'
+    def __init__(self, *args, _redis: redis.Redis|None=None, **kwargs):
         super().__init__(**kwargs)
-        if isinstance(_parent, self.__class__):
-            self._redis = _parent._redis
+        if _redis is not None:
+            self._redis = _redis
         else:
-            self._redis = redis.StrictRedis(**self._parse_redis_args(*args, **kwargs))
+            self._update_redis_args(kwargs)
+            self._redis = redis.Redis(**kwargs)
+    @classmethod
+    def from_url(cls, url: str, **kwargs) -> 'RedisValueStore':
+        # Allow passing an URL through but the content is not checked
+        assert url.startswith('redis://')
+        cls._update_redis_args(kwargs)
+        return cls(_redis=redis.Redis.from_url(url, **kwargs))
     def wipe_all(self) -> int:
         """This is mainly for testing."""
         keys = self._redis.keys(self._name_prefix + "*")
@@ -123,11 +121,15 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         if not keys:
             return 0
         return self._check_type(self._redis.delete(*keys), int, -1)
+    def finalize(self, depth=0):
+        self._redis.close()
+    def substore(self, name: str, *args: str) -> 'RedisValueStore':
+        return self.__class__(_redis=self._redis, name_prefix=self._build_name_prefix(
+            self._name_prefix, name, *args
+        ))
 
     def get_lock(self, name: str|None=None) -> AbstractContextManager:
         return self._redis.lock((name or "*GLOBAL*") + "\v*LOCK*")
-    def finalize(self, depth=0):
-        self._redis.close()
     def _get_name_meta(self, name: str) -> FridTypeSize|None:
         t = self._check_text(self._redis.type(name))
         if t == 'list':
@@ -331,13 +333,26 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         ), int, 0)
 
 class RedisAsyncStore(_RedisBaseStore, AsyncStore):
-    def __init__(self, *args, _parent: 'RedisAsyncStore|None'=None, **kwargs):
+    def __init__(self, *, _aredis: async_redis.Redis|None=None, **kwargs):
         super().__init__(**kwargs)
-        if isinstance(_parent, self.__class__):
-            self._aredis = _parent._aredis
+        if _aredis is not None:
+            self._aredis = _aredis
         else:
-            self._aredis = async_redis.Redis(**self._parse_redis_args(*args, **kwargs))
-    async def awipe_all(self) -> int:
+            self._update_redis_args(kwargs)
+            self._aredis = async_redis.Redis(**kwargs)
+    @classmethod
+    async def from_url(cls, url: str, **kwargs) -> 'RedisAsyncStore':
+        # Allow passing an URL through but the content is not checked
+        assert url.startswith('redis://')
+        cls._update_redis_args(kwargs)
+        return cls(_aredis=async_redis.Redis.from_url(url, **kwargs))
+    def substore(self, name: str, *args: str) -> 'RedisAsyncStore':
+        return self.__class__(_aredis=self._aredis, name_prefix=self._build_name_prefix(
+            self._name_prefix, name, *args
+        ))
+    async def finalize(self, depth=0):
+        await self._aredis.aclose()
+    async def wipe_all(self) -> int:
         """This is mainly for testing."""
         keys = await self._aredis.keys(self._name_prefix + "*")
         if not isinstance(keys, Iterable):  # pragma: no cover
@@ -349,8 +364,6 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
 
     def get_lock(self, name: str|None=None) -> AbstractAsyncContextManager:
         return self._aredis.lock((name or "*GLOBAL*") + "\v*LOCK*")
-    async def finalize(self, depth=0):
-        await self._aredis.aclose()
     async def _get_name_meta(self, name: str) -> FridTypeSize|None:
         t = await self._aredis.type(name)
         if t is None:

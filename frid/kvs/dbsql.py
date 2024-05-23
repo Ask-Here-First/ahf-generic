@@ -78,6 +78,14 @@ class _SqlBaseStore:
         # self._multi_rows = table.c[multi_rows] if isinstance(multi_rows, str) else multi_rows
 
         self._select_cols: list[Column] = self._select_args()
+    @classmethod
+    def _get_conn_and_table_name(cls, url: str, table_name: str|None, /) -> tuple[str,str|None]:
+        (conn, _, name) = url.partition('#')
+        if name:
+            if table_name is not None:
+                error(f"Table name {table_name} is overriden through URL string to {name}")
+            return (conn, table_name)
+        return (conn, table_name)
 
     @classmethod
     def _build_where(cls, table: Table, data: Mapping[str,SqlTypes]|None):
@@ -629,25 +637,29 @@ class _SqlBaseStore:
         return result.rowcount
 
 class DbsqlValueStore(_SqlBaseStore, ValueStore):
-    def __init__(self, url: str, *args, echo=False, engine: Engine|None=None, **kwargs):
-        self._engine = create_engine(url, echo=echo) if engine is None else engine
-        super().__init__(*args, **kwargs)
+    def __init__(self, conn_url: str, table: Table, /,
+                 *, echo=False, _engine: Engine|None=None, **kwargs):
+        self._engine = create_engine(conn_url, echo=echo) if _engine is None else _engine
+        super().__init__(table=table, **kwargs)
 
     @classmethod
-    def create(cls, url: str, table_name: str, *args, echo=False, **kwargs):
+    def from_url(cls, url: str, table: Table|None=None, /,
+                 *, table_name: str|None=None, echo=False, **kwargs):
+        (conn_url, table_name) = cls._get_conn_and_table_name(url, table_name)
         engine = create_engine(url, echo=echo)
-        table = Table(table_name, MetaData(), autoload_with=engine)
+        if table is None:
+            assert table_name is not None
+            table = Table(table_name, MetaData(), autoload_with=engine)
         # for col in table.c:
         #     print("   ", repr(col))
-        return cls(url, *args, table=table, **kwargs)
-
+        return cls(conn_url, table, _engine=engine, echo=echo, **kwargs)
     def substore(self, name: str, *args: str):
-        raise NotImplementedError
-    def get_lock(self, name: str|None=None):
         raise NotImplementedError
     def finalize(self, depth: int=0):
         self._engine.dispose()
 
+    def get_lock(self, name: str|None=None):
+        raise NotImplementedError
     def get_keys(self, pat: KeySearch=None, /) -> Iterable[VStoreKey]:
         cmd = self._get_keys_select(pat)
         with self._engine.begin() as conn:
@@ -713,26 +725,31 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
             return self._del_bulk_result(conn.execute(cmd, par))
 
 class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
-    def __init__(self, url: str, *args, echo=False, engine: AsyncEngine|None=None, **kwargs):
-        self._engine = create_async_engine(url, echo=echo) if engine is None else engine
-        super().__init__(*args, **kwargs)
-
+    def __init__(self, conn_url: str, table: Table, /,
+                 *, echo=False, _engine: AsyncEngine|None=None, **kwargs):
+        self._engine = create_async_engine(conn_url, echo=echo) if _engine is None else _engine
+        super().__init__(table, **kwargs)
     @classmethod
-    async def create(cls, url: str, table_name: str, *args, echo=False, **kwargs):
+    async def from_url(cls, url: str, table: Table|None=None, /,
+                       *, table_name: str|None=None, echo=False, **kwargs):
+        (conn_url, table_name) = cls._get_conn_and_table_name(url, table_name)
         engine = create_async_engine(url, echo=echo)
-        async with engine.begin() as conn:
-            table = await conn.run_sync(
-                lambda c: Table(table_name, MetaData(), autoload_with=c)
-            )
-        return cls(url, *args, table=table, engine=engine, **kwargs)
-
+        if table is None:
+            assert table_name is not None
+            async with engine.begin() as conn:
+                table = await conn.run_sync(
+                    lambda c: Table(table_name, MetaData(), autoload_with=c)
+                )
+        # for col in table.c:
+        #     print("   ", repr(col))
+        return cls(conn_url, table, _engine=engine, echo=echo, **kwargs)
     def substore(self, name: str, *args: str):
-        raise NotImplementedError
-    def get_lock(self, name: str|None=None):
         raise NotImplementedError
     async def finalize(self, depth: int=0):
         await self._engine.dispose()
 
+    def get_lock(self, name: str|None=None):
+        raise NotImplementedError
     async def get_keys(self, pat: KeySearch) -> AsyncIterable[VStoreKey]:
         cmd = self._get_keys_select(pat)
         async with self._engine.begin() as conn:

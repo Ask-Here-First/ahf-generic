@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from enum import Flag
 from logging import error
 from typing import BinaryIO, ParamSpec, TypeVar
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urlparse
 
 
 from ..typing import MISSING, PRESENT, BlobTypes, FridBeing, FridTypeSize, MissingType
@@ -184,21 +184,31 @@ class FileDeleter:
 
 class FileIOValueStore(StreamValueStore):
     """File based value store."""
+    URL_SCHEME = "file"
     SUBSTORE_EXT = ".!"
     LCK_FILE_EXT = ".lck"
     KVS_FILE_EXT = ".kvs"
     TMP_FILE_EXT = ".tmp"
-    def __init__(self, root: os.PathLike|str, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, root: os.PathLike|str, /, **kwargs):
+        super().__init__(**kwargs)
         if isinstance(root, str) and root.startswith("file://"):
             root = root[7:]
         self._root = os.path.abspath(root)
         if not os.path.isdir(self._root):
             os.makedirs(self._root, exist_ok=True)
+    @classmethod
+    def from_url(cls, url: str, **kwargs) -> 'FileIOValueStore':
+        # Allow passing an URL through but the content is not checked
+        result = urlparse(url)
+        if result.scheme != cls.URL_SCHEME:
+            raise ValueError("Unsupported URL scheme for memory value store: {result.scheme}")
+        if result.netloc or result.query or result.fragment:
+            raise ValueError("The URL should just be {cls.URL_SCHEME}:///[PATH]")
+        return cls(result.path, **kwargs)
     def substore(self, name: str, *args: str):
         root = os.path.join(self._root, self._encode_name(name) + self.SUBSTORE_EXT,
                             *(self._encode_name(x) + self.SUBSTORE_EXT for x in args))
-        return self.__class__(root=root)
+        return self.__class__(root)
 
     def get_keys(self, pat: KeySearch=None, /) -> Iterable[VStoreKey]: # type: ignore
         for (path, dirs, files) in os.walk(self._root):

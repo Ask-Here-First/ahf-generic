@@ -1,18 +1,17 @@
-from typing import Callable
+import asyncio
+
 from .store import ValueStore, AsyncStore
 from .proxy import ValueProxyStore, AsyncProxyStore, AsyncProxyValueStore, ValueProxyAsyncStore
 from .utils import VStoreKey, VStoreSel, VSPutFlag
 from .basic import MemoryValueStore
 from .files import FileIOValueStore
 
-_value_store_constructors: dict[str,Callable[[str],ValueStore]] = {
+_value_store_constructors: dict[str,type[ValueStore]] = {
     'memory': MemoryValueStore,
     'file': FileIOValueStore,
 }
 
-_async_store_constructors: dict[str,Callable[[str],AsyncStore]] = {
-    'memory': lambda url: ValueProxyAsyncStore(MemoryValueStore(url)),
-    'file': lambda url: ValueProxyAsyncStore(FileIOValueStore(url)),
+_async_store_constructors: dict[str,type[AsyncStore]] = {
 }
 
 def _get_scheme(url: str) -> str:
@@ -22,23 +21,38 @@ def create_value_store(url: str|None) -> ValueStore|None:
     if url is None:
         return None
     scheme = _get_scheme(url)
-    func = _value_store_constructors.get(scheme)
-    if func is None:
-        func = _value_store_constructors.get('')
-        if func is None:
-            raise ValueError(f"Storage URL scheme is not supported: {scheme}")
-    return func(url)
+    value_cls = _value_store_constructors.get(scheme)
+    if value_cls is not None:
+        return value_cls.from_url(url)
+    async_cls = _async_store_constructors.get(scheme)
+    if async_cls is not None:
+        return AsyncProxyValueStore(asyncio.run(async_cls.from_url(url)))
+    value_cls = _value_store_constructors.get('')
+    if value_cls is not None:
+        return value_cls.from_url(url)
+    async_cls = _async_store_constructors.get(scheme)
+    if async_cls is not None:
+        return AsyncProxyValueStore(asyncio.run(async_cls.from_url(url)))
+    raise ValueError(f"Storage URL scheme is not supported: {scheme}")
 
 def create_async_store(url: str|None) -> AsyncStore|None:
     if url is None:
         return None
     scheme = _get_scheme(url)
-    func = _async_store_constructors.get(scheme)
-    if func is None:
-        func = _async_store_constructors.get('')
-        if func is None:
-            raise ValueError(f"Storage URL scheme is not supported: {scheme}")
-    return func(url)
+    async_cls = _async_store_constructors.get(scheme)
+    if async_cls is not None:
+        return asyncio.get_event_loop().run_until_complete(async_cls.from_url(url))
+    scheme = _get_scheme(url)
+    value_cls = _value_store_constructors.get(scheme)
+    if value_cls is not None:
+        return ValueProxyAsyncStore(value_cls.from_url(url))
+    async_cls = _async_store_constructors.get(scheme)
+    if async_cls is not None:
+        return asyncio.get_event_loop().run_until_complete(async_cls.from_url(url))
+    value_cls = _value_store_constructors.get('')
+    if value_cls is not None:
+        return ValueProxyAsyncStore(value_cls.from_url(url))
+    raise ValueError(f"Storage URL scheme is not supported: {scheme}")
 
 def is_local_store_url(url: str|None) -> bool:
     if url is None:

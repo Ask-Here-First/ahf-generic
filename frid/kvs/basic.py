@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Concatenate, Generic, ParamSpec, TypeVar
+from urllib.parse import urlparse
 
 from ..typing import MISSING, PRESENT, BlobTypes, MissingType
 from ..typing import FridTypeName, FridTypeSize, FridValue, FridArray, FridBeing, StrKeyMap
@@ -183,26 +184,31 @@ class SimpleAsyncStore(_SimpleBaseStore[_E], AsyncStore):
 
 class MemoryValueStore(SimpleValueStore[FridValue]):
     """Simplest memory based value store with thread locking."""
+    URL_SCHEME = 'memory'
     @dataclass
     class StoreMeta:
         store: dict[str,FridValue] = field(default_factory=dict)
         tlock: threading.RLock = field(default_factory=threading.RLock)
         alock: asyncio.Lock = field(default_factory=AsyncReentrantLock)
-    StorageType = dict[tuple[str,...],StoreMeta]
 
-    def __init__(self, storage: StorageType|str|None=None, names: tuple[str,...]=()):
+    DataSpaceType = dict[tuple[str,...],StoreMeta]
+    def __init__(self, dataspace: DataSpaceType|None=None, namespace: tuple[str,...]=(), /):
         super().__init__()
-        if isinstance(storage, str):
-            # Allow passing an URL through but the content is not checked
-            if not storage.startswith("memory://"):
-                raise ValueError("Unsupported URL for memory value store: {storage}")
-            storage = None
-        self._storage = storage if storage is not None else {}
-        self._meta = self._storage.setdefault(names, self.StoreMeta())
+        self._storage = dataspace if dataspace is not None else {}
+        self._meta = self._storage.setdefault(namespace, self.StoreMeta())
         self._data = self._meta.store
     def all_data(self) -> Mapping[str,FridValue]:
         return self._data
 
+    @classmethod
+    def from_url(cls, url: str, **kwargs) -> 'MemoryValueStore':
+        # Allow passing an URL through but the content is not checked
+        result = urlparse(url)
+        if result.scheme != cls.URL_SCHEME:
+            raise ValueError("Unsupported URL scheme for memory value store: {result.scheme}")
+        if result.netloc or result.path or result.query or result.fragment:
+            raise ValueError("The URL should just be {cls.URL_SCHEME}://")
+        return cls(**kwargs)
     def substore(self, name: str, *args: str) -> 'MemoryValueStore':
         return __class__(self._storage, (name, *args))
 

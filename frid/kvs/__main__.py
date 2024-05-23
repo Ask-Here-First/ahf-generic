@@ -200,8 +200,8 @@ class VStoreTest(unittest.TestCase):
     def test_fileio_store(self):
         root_dir = "/tmp/VStoreTest"
         sub_name = "UNITTEST"
-        store = FileIOValueStore(root=root_dir).substore(sub_name)
-        sub_root = os.path.join(root_dir, sub_name + ".dir")
+        store = FileIOValueStore(root_dir).substore(sub_name)
+        sub_root = os.path.join(root_dir, sub_name + FileIOValueStore.SUBSTORE_EXT)
         self.assertTrue(os.path.isdir(sub_root), f"{root_dir=}")
         for name in os.listdir(sub_root):
             path = os.path.join(sub_root, name)
@@ -220,7 +220,7 @@ class VStoreTest(unittest.TestCase):
             print("Skip Redis sync tests (Is redis-py package installed?)", file=sys.stderr)
             return
         if not os.getenv('FRID_REDIS_HOST'):
-            print("Skip Redis sync tests since REDIS_KVS_HOST is not set", file=sys.stderr)
+            print("Skip Redis sync tests since FRID_REDIS_HOST is not set", file=sys.stderr)
             return
         store = RedisValueStore().substore("UNITTEST")
         store.wipe_all()
@@ -235,15 +235,15 @@ class VStoreTest(unittest.TestCase):
             print("Skip Redis async tests (Is redis-py package installed?)", file=sys.stderr)
             return
         if not os.getenv('FRID_REDIS_HOST'):
-            print("Skip Redis async tests since REDIS_KVS_HOST is not set", file=sys.stderr)
+            print("Skip Redis async tests since FRID_REDIS_HOST is not set", file=sys.stderr)
             return
         loop = asyncio.new_event_loop()
         try:
             store = RedisAsyncStore().substore("UNITTEST")
-            loop.run_until_complete(store.awipe_all())
+            loop.run_until_complete(store.wipe_all())
             self.do_test_store(AsyncProxyValueStore(store, loop=loop),
                                no_proxy=True, exact=False)
-            loop.run_until_complete(store.awipe_all())
+            loop.run_until_complete(store.wipe_all())
             loop.run_until_complete(store.finalize())
         finally:
             loop.run_until_complete(loop.shutdown_default_executor())
@@ -307,8 +307,8 @@ class VStoreTest(unittest.TestCase):
         (table1, table2) = self.create_sqlite_tables(dbfile, echo=echo)
 
         # Single frid columm
-        store = DbsqlValueStore.create(
-            dburl, table1, echo=echo, frid_field=True,
+        store = DbsqlValueStore.from_url(
+            dburl, table_name=table1, echo=echo, frid_field=True,
             col_values={'text': "(UNUSED)", 'blob': b"(UNUSED)"}
         )
         self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
@@ -318,8 +318,8 @@ class VStoreTest(unittest.TestCase):
         store.finalize()
 
         # Separate text columm
-        store = DbsqlValueStore.create(
-            dburl, table1, echo=echo, frid_field=True,
+        store = DbsqlValueStore.from_url(
+            dburl, table_name=table1, echo=echo, frid_field=True,
             text_field='text', col_values={'blob': b"(UNUSED)"}
         )
         self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
@@ -329,8 +329,8 @@ class VStoreTest(unittest.TestCase):
         store.finalize()
 
         # Separate blob columm
-        store = DbsqlValueStore.create(
-            dburl, table1, echo=echo, frid_field=True,
+        store = DbsqlValueStore.from_url(
+            dburl, table_name=table1, echo=echo, frid_field=True,
             blob_field='blob', col_values={'text': "(UNUSED)"}
         )
         self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
@@ -340,8 +340,8 @@ class VStoreTest(unittest.TestCase):
         store.finalize()
 
         # Multirow for sequence
-        store = DbsqlValueStore.create(
-            dburl, table2, echo=echo,
+        store = DbsqlValueStore.from_url(
+            dburl, table_name=table2, echo=echo,
             key_fields='id', frid_field='frid',
             seq_subkey='seqind', map_subkey='mapkey'
         )
@@ -368,8 +368,8 @@ class VStoreTest(unittest.TestCase):
         loop = asyncio.new_event_loop()
         try:
             # Single frid columm
-            store = loop.run_until_complete(DbsqlAsyncStore.create(
-                dburl, table1, echo=echo, frid_field=True,
+            store = loop.run_until_complete(DbsqlAsyncStore.from_url(
+                dburl, table_name=table1, echo=echo, frid_field=True,
                 col_values={'text': "(UNUSED)", 'blob': b"(UNUSED)"}
             ))
             self.assertTrue(store._frid_column is not None
@@ -381,8 +381,8 @@ class VStoreTest(unittest.TestCase):
             loop.run_until_complete(store.finalize())
 
             # Separate text columm
-            store = loop.run_until_complete(DbsqlAsyncStore.create(
-                dburl, table1, echo=echo, frid_field=True,
+            store = loop.run_until_complete(DbsqlAsyncStore.from_url(
+                dburl, table_name=table1, echo=echo, frid_field=True,
                 text_field='text', col_values={'blob': b"(UNUSED)"}
             ))
             self.assertTrue(store._frid_column is not None
@@ -395,8 +395,8 @@ class VStoreTest(unittest.TestCase):
             loop.run_until_complete(store.finalize())
 
             # Separate blob columm
-            store = loop.run_until_complete(DbsqlAsyncStore.create(
-                dburl, table1, echo=echo, frid_field=True,
+            store = loop.run_until_complete(DbsqlAsyncStore.from_url(
+                dburl, table_name=table1, echo=echo, frid_field=True,
                 blob_field='blob', col_values={'text': "(UNUSED)"}
             ))
             self.assertTrue(store._frid_column is not None
@@ -409,8 +409,8 @@ class VStoreTest(unittest.TestCase):
             loop.run_until_complete(store.finalize())
 
             # Multirow for sequence
-            store = loop.run_until_complete(DbsqlAsyncStore.create(
-                dburl, table2, echo=echo, key_fields='id', frid_field='frid',
+            store = loop.run_until_complete(DbsqlAsyncStore.from_url(
+                dburl, table_name=table2, echo=echo, key_fields='id', frid_field='frid',
                 seq_subkey='seqind', map_subkey='mapkey'
             ))
             self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
