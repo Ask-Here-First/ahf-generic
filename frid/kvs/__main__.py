@@ -249,14 +249,23 @@ class VStoreTest(unittest.TestCase):
             loop.run_until_complete(loop.shutdown_default_executor())
             loop.close()
 
-    def create_sqlite_tables(self, dbfile: str, *, echo=False, **kwargs) -> tuple[str,str]:
-        self.remove_sqlite_dbfile(dbfile)
+    def create_tables(self, aio: bool, *, echo=False, **kwargs) -> tuple[str,str|None,str,str]:
+        dburl = os.getenv('DBAIO_TEST_URL' if aio else 'DBSQL_TEST_URL')
+        if dburl:
+            dbfile = None
+        else:
+            dbfile = "/tmp/VStoreTest.sdb"
+            if aio:
+                dburl = "sqlite+aiosqlite:///" + dbfile
+            else:
+                dburl = "sqlite+pysqlite:///" + dbfile
+        self.remove_dbfile(dbfile)
         from sqlalchemy import (
             MetaData, Table, Column, String, LargeBinary, Integer,
             UniqueConstraint, create_engine
         )
-        table1 = "test_table1"
-        table2 = "test_table2"
+        table1 = "unittest_table1"
+        table2 = "unittest_table2"
         metadata = MetaData()
         t1 = Table(
             table1, metadata,
@@ -286,10 +295,20 @@ class VStoreTest(unittest.TestCase):
             print("***", table2)
             for col in t2.c:
                 print("   ", repr(col))
-        metadata.create_all(create_engine("sqlite+pysqlite:///" + dbfile, echo=echo, **kwargs))
-        return (table1, table2)
+        if aio:
+            from sqlalchemy.ext.asyncio import create_async_engine
+            async def create_all():
+                engine = create_async_engine(dburl, echo=echo, **kwargs)
+                async with engine.begin() as conn:
+                    await conn.run_sync(lambda c: metadata.create_all(c))
+            asyncio.run(create_all())
+        else:
+            metadata.create_all(create_engine(dburl, echo=echo, **kwargs))
+        return (dburl, dbfile, table1, table2)
 
-    def remove_sqlite_dbfile(self, dbfile: str):
+    def remove_dbfile(self, dbfile: str|None):
+        if dbfile is None:
+            return
         try:
             os.unlink(dbfile)
         except Exception:
@@ -301,10 +320,9 @@ class VStoreTest(unittest.TestCase):
         except Exception:
             print("Skip Dbsql tests (Is sqlalchemy package installed?)", file=sys.stderr)
             return
-        dbfile = "/tmp/VStoreTest.sdb"
-        dburl = "sqlite+pysqlite:///" + dbfile
+
         echo = bool(load_from_str(os.getenv("ECHO_SQL", '-')))
-        (table1, table2) = self.create_sqlite_tables(dbfile, echo=echo)
+        (dburl, dbfile, table1, table2) = self.create_tables(False, echo=echo)
 
         # Single frid columm
         store = DbsqlValueStore.from_url(
@@ -351,7 +369,7 @@ class VStoreTest(unittest.TestCase):
         self.do_test_store(store, exact=True)
         store.finalize()
 
-        self.remove_sqlite_dbfile(dbfile)
+        self.remove_dbfile(dbfile)
 
     def test_dbsql_async_store(self):
         try:
@@ -360,10 +378,8 @@ class VStoreTest(unittest.TestCase):
         except Exception:
             print("Skip Dbsql tests (Is sqlalchemy package installed?)", file=sys.stderr)
             return
-        dbfile = "/tmp/VStoreTest.sdb"
-        dburl = "sqlite+aiosqlite:///" + dbfile
-        echo = bool(load_from_str(os.getenv("ECHO_SQL", '-')))
-        (table1, table2) = self.create_sqlite_tables(dbfile, echo=echo)
+        echo = bool(load_from_str(os.getenv("DBSQL_ECHO_SQL", '-')))
+        (dburl, dbfile, table1, table2) = self.create_tables(True, echo=echo)
 
         loop = asyncio.new_event_loop()
         try:
@@ -423,7 +439,7 @@ class VStoreTest(unittest.TestCase):
             loop.run_until_complete(loop.shutdown_default_executor())
             loop.close()
 
-        self.remove_sqlite_dbfile(dbfile)
+        self.remove_dbfile(dbfile)
 
 if __name__ == '__main__':
     unittest.main()
