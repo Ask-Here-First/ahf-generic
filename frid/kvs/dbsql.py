@@ -6,8 +6,7 @@ from typing import TypeGuard, TypeVar
 from sqlalchemy import (
     Engine,  Connection, MetaData, Table, Row, Column, ColumnElement, CursorResult,
     Delete, Insert, Select, Update, Null, delete, insert, select, update, null,
-    create_engine, bindparam,
-
+    create_engine,
 )
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine, AsyncConnection
 from sqlalchemy import types
@@ -655,6 +654,11 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
     @classmethod
     def from_url(cls, url: str, table: Table|None=None, /,
                  *, table_name: str|None=None, echo=False, **kwargs):
+        """The exmples for URL format for SQL Value Stores are:
+        - SQLite: "sqlite+pysqlite:////abs/path/to/file"
+        - PostgreSQL: "postgresql+psycopg://postgres:PASSWORD@HOST"
+          (requires `pip3 install psycopg[binary]`)
+        """
         (conn_url, table_name) = cls._get_conn_and_table_name(url, table_name)
         engine = create_engine(url, echo=echo)
         if table is None:
@@ -744,6 +748,11 @@ class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
     @classmethod
     async def from_url(cls, url: str, table: Table|None=None, /,
                        *, table_name: str|None=None, echo=False, **kwargs):
+        """The exmples for URL format for SQL Async Stores are:
+        - SQLite: "sqlite+aiosqlite:////abs/path/to/file"
+        - PostgreSQL: "postgresql+asyncpg://postgres:PASSWORD@HOST"
+          (requires `pip3 install asyncpg[binary]`)
+        """
         (conn_url, table_name) = cls._get_conn_and_table_name(url, table_name)
         engine = create_async_engine(url, echo=echo)
         if table is None:
