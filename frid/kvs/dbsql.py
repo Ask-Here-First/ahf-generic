@@ -623,18 +623,28 @@ class _SqlBaseStore:
             else:
                 out.append(self._proc_multi_rows(v))
         return out
-    def _del_bulk_delete(self, keys: Iterable[VStoreKey], /) -> tuple[Delete,ParTypes]:
+    # def _del_bulk_delete(self, keys: Iterable[VStoreKey], /) -> tuple[Delete, ParTypes]:
+    def _del_bulk_delete(self, keys: Iterable[VStoreKey], /) -> list[Delete]:
         """Returns the update command for del_frid.
         - Returns None if no delete should be performed, according to `key` and `sel`.
         """
-        cmd = delete(self._table).where(
-            *(k == bindparam(k.name) for k in self._key_columns),
-            *self._where_conds
-        )
-        return (cmd, [self._key_to_dict(k) for k in keys])
-    def _del_bulk_result(self, result: CursorResult, /) -> int:
+        out = []
+        for k in keys:
+            k_dict = self._key_to_dict(k)
+            out.append(delete(self._table).where(
+                *(c == k_dict[c.name] for c in self._key_columns),
+                *self._where_conds
+            ))
+        return out
+        # cmd = delete(self._table).where(
+        #     *(k == bindparam(k.name) for k in self._key_columns),
+        #     *self._where_conds
+        # )
+        # return (cmd, [self._key_to_dict(k) for k in keys])
+    # def _del_bulk_result(self, result: CursorResult, /) -> int:
+    def _del_bulk_result(self, result: list[CursorResult], /) -> int:
         """Returns the del_frid() return value according to the insert or upate result."""
-        return result.rowcount
+        return sum(int(bool(r.rowcount)) for r in result)
 
 class DbsqlValueStore(_SqlBaseStore, ValueStore):
     def __init__(self, conn_url: str, table: Table, /,
@@ -720,9 +730,11 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
             # If Atomicity for bulk is set and any other flags are set, we need to check
             return sum(int(self._put_frid(conn, k, v, flags)) for k, v in pairs)
     def del_bulk(self, keys: Iterable[VStoreKey]) -> int:
-        (cmd, par) = self._del_bulk_delete(keys)
+        # (cmd, par) = self._del_bulk_delete(keys)
+        cmd_list = self._del_bulk_delete(keys)
         with self._engine.begin() as conn:
-            return self._del_bulk_result(conn.execute(cmd, par))
+            # return self._del_bulk_result(conn.execute(cmd, par))
+            return self._del_bulk_result([conn.execute(cmd) for cmd in cmd_list])
 
 class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
     def __init__(self, conn_url: str, table: Table, /,
@@ -814,6 +826,10 @@ class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
             data = await asyncio.gather(*(self._put_frid(conn, k, v, flags) for k, v in pairs))
             return sum(int(x) for x in data)
     async def del_bulk(self, keys: Iterable[VStoreKey]) -> int:
-        (cmd, par) = self._del_bulk_delete(keys)
+        # (cmd, par) = self._del_bulk_delete(keys)
+        cmd_list = self._del_bulk_delete(keys)
         async with self._engine.execution_options().begin() as conn:
-            return self._del_bulk_result(await conn.execute(cmd, par))
+            # return self._del_bulk_result(await conn.execute(cmd, par))
+            return self._del_bulk_result(await asyncio.gather(
+                *(conn.execute(cmd) for cmd in cmd_list)
+            ))
