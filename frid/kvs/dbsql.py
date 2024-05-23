@@ -815,5 +815,5 @@ class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
             return sum(int(x) for x in data)
     async def del_bulk(self, keys: Iterable[VStoreKey]) -> int:
         (cmd, par) = self._del_bulk_delete(keys)
-        async with self._engine.begin() as conn:
+        async with self._engine.execution_options().begin() as conn:
             return self._del_bulk_result(await conn.execute(cmd, par))
