@@ -23,18 +23,18 @@ async def proxied_async_iterable(data: Iterable[T]) -> AsyncIterable[T]:
         yield x
 
 async def collect_async_iterable(
-        it: AsyncIterable[T], catch: type[BaseException]|None=None
+        it: AsyncIterable[T], *catch: type[BaseException]
 ) -> list[T]:
     out = []
-    if catch is None:
-        async for data in it:
-            out.append(data)
-    else:
+    if catch:
         try:
             async for data in it:
                 out.append(data)
         except catch:
             pass
+    else:
+        async for data in it:
+            out.append(data)
     return out
 
 def timeout_async_iterable(timeout: float|tuple[float,float], it: AsyncIterable[T]):
@@ -59,6 +59,8 @@ async def timeout_multi_callable(
     while t < t1:
         try:
             yield await asyncio.wait_for(func(*args, **kwargs), timeout=(t2 - t))
+        except asyncio.TimeoutError:
+            break
         except StopIteration:
             break
         except StopAsyncIteration:
