@@ -9,7 +9,7 @@ from .basic import MemoryValueStore
 from .proxy import AsyncProxyValueStore, ValueProxyAsyncStore
 from .files import FileIOValueStore
 
-class VStoreTest(unittest.TestCase):
+class _VStoreTestBase(unittest.TestCase):
     def check_text_store(self, store: ValueStore):
         self.assertEqual(set(store.get_keys()), set())
         self.assertIsNone(store.get_text("key0"))
@@ -190,6 +190,7 @@ class VStoreTest(unittest.TestCase):
             self.check_store(proxy, exact=exact)
             proxy.finalize(1)
 
+class VStoreTestMemoryAndFile(_VStoreTestBase):
     def test_memory_store(self):
         store = MemoryValueStore()
         self.assertFalse(store.all_data())
@@ -213,45 +214,46 @@ class VStoreTest(unittest.TestCase):
         os.rmdir(sub_root)
         os.rmdir(root_dir)
 
-    def test_redis_value_store(self):
-        try:
-            from .redis import RedisValueStore
-        except Exception:
-            print("Skip Redis sync tests (Is redis-py package installed?)", file=sys.stderr)
-            return
-        if not os.getenv('FRID_REDIS_HOST'):
-            print("Skip Redis sync tests since FRID_REDIS_HOST is not set", file=sys.stderr)
-            return
-        store = RedisValueStore().substore("UNITTEST")
-        store.wipe_all()
-        self.do_test_store(store, exact=False)
-        store.wipe_all()
-        store.finalize()
+try:
+    from .redis import RedisValueStore
+except Exception:
+    print("Skip Redis sync tests (Is redis-py package installed?)", file=sys.stderr)
+else:
+    class VStoreTestRedis(_VStoreTestBase):
+        def test_redis_value_store(self):
+            if not os.getenv('FRID_REDIS_HOST'):
+                print("Skip Redis value tests as FRID_REDIS_HOST is not set", file=sys.stderr)
+                return
+            store = RedisValueStore().substore("UNITTEST")
+            store.wipe_all()
+            self.do_test_store(store, exact=False)
+            store.wipe_all()
+            store.finalize()
 
-    def test_redis_async_store(self):
-        try:
-            from .redis import RedisAsyncStore
-        except Exception:
-            print("Skip Redis async tests (Is redis-py package installed?)", file=sys.stderr)
-            return
-        if not os.getenv('FRID_REDIS_HOST'):
-            print("Skip Redis async tests since FRID_REDIS_HOST is not set", file=sys.stderr)
-            return
-        loop = asyncio.new_event_loop()
-        try:
-            store = RedisAsyncStore().substore("UNITTEST")
-            loop.run_until_complete(store.wipe_all())
-            self.do_test_store(AsyncProxyValueStore(store, loop=loop),
-                               no_proxy=True, exact=False)
-            loop.run_until_complete(store.wipe_all())
-            loop.run_until_complete(store.finalize())
-        finally:
-            loop.run_until_complete(loop.shutdown_default_executor())
-            loop.close()
-
+        def test_redis_async_store(self):
+            try:
+                from .redis import RedisAsyncStore
+            except Exception:
+                print("Skip Redis async tests (Is redis-py not installed?)", file=sys.stderr)
+                return
+            if not os.getenv('FRID_REDIS_HOST'):
+                print("Skip Redis async tests as FRID_REDIS_HOST is not set", file=sys.stderr)
+                return
+            loop = asyncio.new_event_loop()
+            try:
+                store = RedisAsyncStore().substore("UNITTEST")
+                loop.run_until_complete(store.wipe_all())
+                self.do_test_store(AsyncProxyValueStore(store, loop=loop),
+                                no_proxy=True, exact=False)
+                loop.run_until_complete(store.wipe_all())
+                loop.run_until_complete(store.finalize())
+            finally:
+                loop.run_until_complete(loop.shutdown_default_executor())
+                loop.close()
 
 try:
-    from .dbsql import DbsqlValueStore
+    import aiosqlite  # noqa: F401
+    from .dbsql import DbsqlValueStore, DbsqlAsyncStore
     from sqlalchemy import (
         MetaData, Table, Column, String, LargeBinary, Integer,
         UniqueConstraint
@@ -259,7 +261,7 @@ try:
 except Exception:
     print("Skip Dbsql tests (Is sqlalchemy package installed?)", file=sys.stderr)
 else:
-    class VStoreTestDbsql(VStoreTest):
+    class VStoreTestDbsql(_VStoreTestBase):
         def create_tables(self, aio: bool,
                         *, echo=False, **kwargs) -> tuple[str,str|None,Table,Table]:
             dburl = os.getenv('DBSQL_ASYNC_STORE_TEST_URL'
@@ -310,7 +312,7 @@ else:
             return (dburl, dbfile, table1, table2)
 
         def remove_tables(self, dburl: str, dbfile: str|None, table1: str, table2: str,
-                        aio: bool, *, echo: bool=False, **kwargs):
+                          aio: bool, *, echo: bool=False, **kwargs):
             from sqlalchemy import create_engine, MetaData
             metadata = MetaData()
             if aio:
@@ -351,7 +353,8 @@ else:
                 dburl, table1, echo=echo, frid_field=True,
                 col_values={'text': "(UNUSED)", 'blob': b"(UNUSED)"}
             )
-            self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
+            self.assertTrue(store._frid_column is not None
+                            and store._frid_column.name == 'frid')
             self.assertTrue(store._text_column is None)
             self.assertTrue(store._blob_column is None)
             self.do_test_store(store, exact=True)
@@ -362,8 +365,10 @@ else:
                 dburl, table_name=table1.name, echo=echo, frid_field=True,
                 text_field='text', col_values={'blob': b"(UNUSED)"}
             )
-            self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
-            self.assertTrue(store._text_column is not None and store._text_column.name == 'text')
+            self.assertTrue(store._frid_column is not None
+                            and store._frid_column.name == 'frid')
+            self.assertTrue(store._text_column is not None
+                            and store._text_column.name == 'text')
             self.assertTrue(store._blob_column is None)
             self.do_test_store(store, exact=True)
             store.finalize()
@@ -373,9 +378,11 @@ else:
                 dburl, table1, echo=echo, frid_field=True,
                 blob_field='blob', col_values={'text': "(UNUSED)"}
             )
-            self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
+            self.assertTrue(store._frid_column is not None
+                            and store._frid_column.name == 'frid')
             self.assertTrue(store._text_column is None)
-            self.assertTrue(store._blob_column is not None and store._blob_column.name == 'blob')
+            self.assertTrue(store._blob_column is not None
+                            and store._blob_column.name == 'blob')
             self.do_test_store(store, exact=True)
             store.finalize()
 
@@ -385,7 +392,8 @@ else:
                 key_fields='id', frid_field='frid',
                 seq_subkey='seqind', map_subkey='mapkey'
             )
-            self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
+            self.assertTrue(store._frid_column is not None
+                            and store._frid_column.name == 'frid')
             self.assertTrue(store._seq_key_col is not None)
             self.assertTrue(store._map_key_col is not None)
             self.do_test_store(store, exact=True)
@@ -394,12 +402,6 @@ else:
             self.remove_tables(dburl, dbfile, table1.name, table2.name, False, echo=echo)
 
         def test_dbsql_async_store(self):
-            try:
-                import aiosqlite  # noqa: F401
-                from .dbsql import DbsqlAsyncStore
-            except Exception:
-                print("Skip Dbsql tests (Is sqlalchemy package installed?)", file=sys.stderr)
-                return
             echo = bool(load_from_str(os.getenv("DBSQL_ECHO", '-')))
             (dburl, dbfile, table1, table2) = self.create_tables(True, echo=echo)
 
@@ -451,7 +453,8 @@ else:
                     dburl, table2, echo=echo, key_fields='id', frid_field='frid',
                     seq_subkey='seqind', map_subkey='mapkey'
                 ))
-                self.assertTrue(store._frid_column is not None and store._frid_column.name == 'frid')
+                self.assertTrue(store._frid_column is not None
+                                and store._frid_column.name == 'frid')
                 self.assertTrue(store._seq_key_col is not None)
                 self.assertTrue(store._map_key_col is not None)
                 self.do_test_store(AsyncProxyValueStore(store, loop=loop),
