@@ -754,6 +754,7 @@ class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
                        *, table_name: str|None=None, echo=False, **kwargs):
         """The exmples for URL format for SQL Async Stores are:
         - SQLite: "sqlite+aiosqlite:////abs/path/to/file"
+          (requires `pip3 install aiosqlite`)
         - PostgreSQL: "postgresql+asyncpg://postgres:PASSWORD@HOST"
           (requires `pip3 install asyncpg[binary]`)
         """

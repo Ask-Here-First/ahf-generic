@@ -23,9 +23,7 @@ def is_dbsql_store_url(url: str) -> bool:
         return False
     return '' in _value_store_constructors or '' in _async_store_constructors
 
-def create_value_store(url: str|None, *args, **kwargs) -> ValueStore|None:
-    if url is None:
-        return None
+def create_value_store(url: str, *args, **kwargs) -> ValueStore|None:
     scheme = _get_scheme(url)
     value_cls = _value_store_constructors.get(scheme)
     if value_cls is not None:
@@ -41,9 +39,7 @@ def create_value_store(url: str|None, *args, **kwargs) -> ValueStore|None:
         return AsyncProxyValueStore(asyncio.run(async_cls.from_url(url, *args, **kwargs)))
     raise ValueError(f"Storage URL scheme is not supported: {scheme}")
 
-def create_async_store(url: str|None, *args, **kwargs) -> AsyncStore|None:
-    if url is None:
-        return None
+def create_async_store(url: str, *args, **kwargs) -> AsyncStore|None:
     scheme = _get_scheme(url)
     async_cls = _async_store_constructors.get(scheme)
     if async_cls is not None:
@@ -64,9 +60,7 @@ def create_async_store(url: str|None, *args, **kwargs) -> AsyncStore|None:
         return ValueProxyAsyncStore(value_cls.from_url(url, *args, **kwargs))
     raise ValueError(f"Storage URL scheme is not supported: {scheme}")
 
-def is_local_store_url(url: str|None) -> bool:
-    if url is None:
-        return False
+def is_local_store_url(url: str) -> bool:
     return any(url.startswith(x) for x in ("file://", "memory://"))
 
 __all__ = [
