@@ -17,6 +17,12 @@ _async_store_constructors: dict[str,type[AsyncStore]] = {
 def _get_scheme(url: str) -> str:
     return url[:url.index('://')]
 
+def is_dbsql_store_url(url: str) -> bool:
+    scheme = _get_scheme(url)
+    if scheme in _value_store_constructors or scheme in _async_store_constructors:
+        return False
+    return '' in _value_store_constructors or '' in _async_store_constructors
+
 def create_value_store(url: str|None) -> ValueStore|None:
     if url is None:
         return None
@@ -64,14 +70,14 @@ __all__ = [
     'ValueProxyStore', 'AsyncProxyStore', 'AsyncProxyValueStore', 'ValueProxyAsyncStore',
     'VStoreKey', 'VStoreSel', 'VSPutFlag',
     'MemoryValueStore', 'FileIOValueStore',
-    'create_value_store', 'create_async_store', 'is_local_store_url',
+    'create_value_store', 'create_async_store', 'is_local_store_url', 'is_dbsql_store_url',
 ]
 
 
 try:
     from .redis import RedisValueStore, RedisAsyncStore
     _value_store_constructors['redis'] = RedisValueStore
-    _async_store_constructors['redis'] = RedisAsyncStore
+    _async_store_constructors['rediss'] = RedisAsyncStore
 except ImportError:
     pass
 
