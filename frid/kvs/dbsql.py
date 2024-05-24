@@ -6,7 +6,7 @@ from typing import TypeGuard, TypeVar
 from sqlalchemy import (
     Engine,  Connection, MetaData, Table, Row, Column, ColumnElement, CursorResult,
     Delete, Insert, Select, Update, Null, delete, insert, select, update, null,
-    create_engine,
+    inspect, create_engine,
 )
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine, AsyncConnection
 from sqlalchemy import types
@@ -664,6 +664,10 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
         if table is None:
             assert table_name is not None
             table = Table(table_name, MetaData(), autoload_with=engine)
+        else:
+            assert table_name is None or table.name == table_name
+            if not inspect(engine).has_table(table.name):
+                table.create(engine)
         # for col in table.c:
         #     print("   ", repr(col))
         return cls(conn_url, table, _engine=engine, echo=echo, **kwargs)
@@ -761,6 +765,13 @@ class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
                 table = await conn.run_sync(
                     lambda c: Table(table_name, MetaData(), autoload_with=c)
                 )
+        else:
+            assert table_name is None or table.name == table_name
+            def create_table(conn: Connection):
+                if not inspect(conn).has_table(table.name):
+                    table.create(conn)
+            async with engine.begin() as conn:
+                await conn.run_sync(create_table)
         # for col in table.c:
         #     print("   ", repr(col))
         return cls(conn_url, table, _engine=engine, echo=echo, **kwargs)
