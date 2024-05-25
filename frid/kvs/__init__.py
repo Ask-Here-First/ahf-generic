@@ -34,30 +34,20 @@ def create_value_store(url: str, *args, **kwargs) -> ValueStore|None:
     value_cls = _value_store_constructors.get('')
     if value_cls is not None:
         return value_cls.from_url(url, *args, **kwargs)
-    async_cls = _async_store_constructors.get(scheme)
-    if async_cls is not None:
-        return AsyncProxyValueStore(asyncio.run(async_cls.from_url(url, *args, **kwargs)))
     raise ValueError(f"Storage URL scheme is not supported: {scheme}")
 
-def create_async_store(url: str, *args, **kwargs) -> AsyncStore|None:
+async def create_async_store(url: str, *args, **kwargs) -> AsyncStore|None:
     scheme = _get_scheme(url)
     async_cls = _async_store_constructors.get(scheme)
     if async_cls is not None:
-        return asyncio.get_event_loop().run_until_complete(
-            async_cls.from_url(url, *args, **kwargs)
-        )
+        return await async_cls.from_url(url, *args, **kwargs)
     scheme = _get_scheme(url)
     value_cls = _value_store_constructors.get(scheme)
     if value_cls is not None:
         return ValueProxyAsyncStore(value_cls.from_url(url, *args, **kwargs))
-    async_cls = _async_store_constructors.get(scheme)
+    async_cls = _async_store_constructors.get('')
     if async_cls is not None:
-        return asyncio.get_event_loop().run_until_complete(
-            async_cls.from_url(url, *args, **kwargs)
-        )
-    value_cls = _value_store_constructors.get('')
-    if value_cls is not None:
-        return ValueProxyAsyncStore(value_cls.from_url(url, *args, **kwargs))
+        return await async_cls.from_url(url, *args, **kwargs)
     raise ValueError(f"Storage URL scheme is not supported: {scheme}")
 
 def is_local_store_url(url: str) -> bool:

@@ -767,7 +767,12 @@ class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
                     lambda c: Table(table_name, MetaData(), autoload_with=c)
                 )
         else:
-            assert table_name is None or table.name == table_name
+            if table_name is not None and table.name != table_name:
+                metadata = table.metadata
+                old_table = table
+                table = Table(table_name, metadata, *(c.copy() for c in old_table.columns),
+                              *(c.copy() for c in old_table.constraints))
+                metadata.remove(old_table)
             def create_table(conn: Connection):
                 if not inspect(conn).has_table(table.name):
                     table.create(conn)
