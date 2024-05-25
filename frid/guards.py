@@ -106,7 +106,7 @@ def is_dict_like(
         return True
     if isinstance(vtype, type):
         if not allow_none:
-            return all(isinstance(x, ktype) for x in data.values())
+            return all(isinstance(x, vtype) for x in data.values())
         return all(isinstance(x, vtype) or x is None for x in data.values())
     if callable(vtype):
         if not allow_none:
