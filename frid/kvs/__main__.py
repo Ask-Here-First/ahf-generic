@@ -1,3 +1,22 @@
+"""Unit test code for various implementations of ValueStore and AsyncStore
+
+To run against Redis, just start a Redis server locally and set `FRID_REDIS_HOST=localhost`
+and run all unit tests.
+
+To run AsyncStore against PostgreSQL (with dependencies `sqlalchemy psycopg[binary]`):
+
+```
+time DBSQL_ECHO=+ DBSQL_VALUE_STORE_TEST_URL='postgresql+psycopg://postgres:PASSWORD@HOSTNAME' \
+    python3 -m unittest frid.kvs.__main__.VStoreTestDbsql.test_dbsql_value_store
+```
+
+To run AsyncStore against PostgreSQL (with dependencies `sqlalchemy asyncpg[binary]`):
+```
+time DBSQL_ECHO=+ DBSQL_ASYNC_STORE_TEST_URL='postgresql+asyncpg://postgres:PASSWORD@HOSTNAME' \
+    python3 -m unittest frid.kvs.__main__.VStoreTestDbsql.test_dbsql_async_store
+```
+"""
+
 import os, sys, random, asyncio, unittest
 from concurrent.futures import ThreadPoolExecutor
 

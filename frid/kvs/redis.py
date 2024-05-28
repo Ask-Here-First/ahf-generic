@@ -153,7 +153,8 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return {k: v for k in utils.list_concat(args, keys)
                 if (v := self._get_name_meta(self._key_name(k))) is not None}
-    def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=MISSING) -> FridValue|_T:
+    def get_list(self, key: VStoreKey, sel: VSListSel=None,
+                 /, alt: _T=MISSING) -> list[FridValue]|FridValue|_T:
         redis_name = self._key_name(key)
         if sel is None:
             seq: Sequence = self._redis.lrange(redis_name, 0, -1)  # type: ignore
@@ -167,7 +168,8 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         if isinstance(sel, slice) and sel.step is not None and sel.step != 1:
             seq = seq[::sel.step]
         return [self._decode_frid(x) for x in seq]
-    def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt: _T=MISSING) -> FridValue|_T:
+    def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
+                 /, alt: _T=MISSING) -> dict[str,FridValue]|FridValue|_T:
         redis_name = self._key_name(key)
         if sel is None:
             map: Mapping = self._redis.hgetall(redis_name) # type: ignore
@@ -393,7 +395,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         return {k: v for k in utils.list_concat(args, keys)
                 if (v := await self._get_name_meta(self._key_name(k))) is not None}
     async def get_list(self, key: VStoreKey, sel: VSListSel=None,
-                        /, alt: _T=MISSING) -> FridValue|_T:
+                        /, alt: _T=MISSING) -> list[FridValue]|FridValue|_T:
         redis_name = self._key_name(key)
         if sel is None:
             seq: Sequence = await self._aredis.lrange(redis_name, 0, -1) # type: ignore
@@ -408,7 +410,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             seq = seq[::sel.step]
         return [self._decode_frid(x) for x in seq]
     async def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
-                        /, alt: _T=MISSING) -> FridValue|_T:
+                        /, alt: _T=MISSING) -> dict[str,FridValue]|FridValue|_T:
         redis_name = self._key_name(key)
         if sel is None:
             map = await self._aredis.hgetall(redis_name) # type: ignore

@@ -48,9 +48,11 @@ class ValueProxyStore(ValueStore):
         return self._store.get_text(key, alt)
     def get_blob(self, key: VStoreKey, /, alt: _T=None) -> BlobTypes|_T:
         return self._store.get_blob(key, alt)
-    def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=None) -> FridValue|_T:
+    def get_list(self, key: VStoreKey, sel: VSListSel=None,
+                 /, alt: _T=None) -> list[FridValue]|FridValue|_T:
         return self._store.get_list(key, sel, alt)
-    def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt: _T=None) -> FridValue|_T:
+    def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
+                 /, alt: _T=None) -> dict[str,FridValue]|FridValue|_T:
         return self._store.get_dict(key, sel, alt)
 
 class AsyncProxyStore(AsyncStore):
@@ -88,10 +90,11 @@ class AsyncProxyStore(AsyncStore):
         return await self._store.get_text(key, alt)
     async def get_blob(self, key: VStoreKey, alt: _T=None) -> BlobTypes|_T:
         return await self._store.get_blob(key, alt)
-    async def get_list(self, key: VStoreKey, sel: VSListSel, /, alt: _T=None) -> FridValue|_T:
+    async def get_list(self, key: VStoreKey, sel: VSListSel,
+                       /, alt: _T=None) -> list[FridValue]|FridValue|_T:
         return await self._store.get_list(key, sel, alt)
     async def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
-                        /, alt: _T=None) -> FridValue|_T:
+                        /, alt: _T=None) -> dict[str,FridValue]|FridValue|_T:
         return await self._store.get_dict(key, sel, alt)
 
 AsyncRunType = Callable[Concatenate[Callable[...,_T],_P],Awaitable[_T]]
@@ -151,10 +154,11 @@ class ValueProxyAsyncStore(AsyncStore):
         return await self._asyncrun(self._store.get_text, key, alt)
     async def get_blob(self, key: VStoreKey, alt: _T=None) -> BlobTypes|_T:
         return await self._asyncrun(self._store.get_blob, key, alt)
-    async def get_list(self, key: VStoreKey, sel: VSListSel, /, alt: _T=None) -> FridValue|_T:
+    async def get_list(self, key: VStoreKey, sel: VSListSel,
+                       /, alt: _T=None) -> list[FridValue]|FridValue|_T:
         return await self._asyncrun(self._store.get_list, key, sel, alt)
     async def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
-                        /, alt: _T=None) -> FridValue|_T:
+                        /, alt: _T=None) -> dict[str,FridValue]|FridValue|_T:
         return await self._asyncrun(self._store.get_dict, key, sel, alt)
 
 class AsyncProxyValueStore(ValueStore):
@@ -212,7 +216,9 @@ class AsyncProxyValueStore(ValueStore):
         return self._loop.run_until_complete(self._store.get_text(key, alt))
     def get_blob(self, key: VStoreKey, /, alt: _T=None) -> BlobTypes|_T:
         return self._loop.run_until_complete(self._store.get_blob(key, alt))
-    def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=None) -> FridValue|_T:
+    def get_list(self, key: VStoreKey, sel: VSListSel=None,
+                 /, alt: _T=None) -> list[FridValue]|FridValue|_T:
         return self._loop.run_until_complete(self._store.get_list(key, sel, alt))
-    def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt: _T=None) -> FridValue|_T:
+    def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
+                 /, alt: _T=None) -> dict[str,FridValue]|FridValue|_T:
         return self._loop.run_until_complete(self._store.get_dict(key, sel, alt))

@@ -7,8 +7,8 @@ from typing import TypeVar, overload
 
 
 from ..typing import MISSING, BlobTypes, FridTypeName, FridTypeSize
-from ..typing import FridArray, FridSeqVT, FridValue, MissingType, StrKeyMap
-from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap
+from ..typing import FridSeqVT, FridValue, MissingType
+from ..guards import as_kv_pairs
 from . import utils
 from .utils import KeySearch, VSPutFlag, VSListSel, VSDictSel, VStoreKey, VStoreSel, BulkInput
 
@@ -99,23 +99,15 @@ class _BaseStore(ABC):
         - Returns the `alt` value if the entry is missing.
         """
         raise NotImplementedError  # pragma: no cover
-    @overload
-    def get_list(self, key: VStoreKey, sel: int, /, alt: _T=None) -> FridValue|_T: ...
-    @overload
-    def get_list(self, key: VStoreKey, sel: slice|tuple[int,int]|None=None,
-                 /, alt: _T=None) -> FridArray|_T: ...
-    def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=None) -> FridValue|_T:
+    def get_list(self, key: VStoreKey, sel: VSListSel=None,
+                 /, alt: _T=None) -> list[FridValue]|FridValue|_T:
         """Gets the list value associated with the given `key`.
         - If the selector `sel` is specified, it will be applied to the value.
         - Returns the `alt` value if the entry is missing.
         """
         raise NotImplementedError  # pragma: no cover
-    @overload
-    def get_dict(self, key: VStoreKey, sel: str, /, alt: _T=None) -> FridValue|_T: ...
-    @overload
-    def get_dict(self, key: VStoreKey, sel: Iterable[str]|None=None,
-                 /, alt: _T=None) -> StrKeyMap|_T: ...
-    def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt: _T=None) -> FridValue|_T:
+    def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
+                 /, alt: _T=None) -> dict[str,FridValue]|FridValue|_T:
         """Gets the dict value associated with the given `key`.
         - If the selector `sel` is specified, it will be applied to the value.
         - Returns the `alt` value if the entry is missing.
@@ -172,19 +164,31 @@ class ValueStore(_BaseStore):
             return alt
         assert isinstance(data, BlobTypes), type(data)
         return data
-    def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt: _T=None) -> FridValue|_T:
+    @overload
+    def get_list(self, key: VStoreKey, sel: int, /, alt: _T=None) -> FridValue|_T: ...
+    @overload
+    def get_list(self, key: VStoreKey, sel: slice|tuple[int,int]|None=None,
+                 /, alt: _T=None) -> list[FridValue]|_T: ...
+    def get_list(self, key: VStoreKey, sel: VSListSel=None,
+                 /, alt: _T=None) -> list[FridValue]|FridValue|_T:
         data = self.get_frid(key, sel, dtype='list')
         if data is MISSING:
             return alt
         if not isinstance(sel, int):
-            assert is_frid_array(data), type(data)
+            assert isinstance(data, list)
         return data
-    def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt: _T=None) -> FridValue|_T:
+    @overload
+    def get_dict(self, key: VStoreKey, sel: str, /, alt: _T=None) -> FridValue|_T: ...
+    @overload
+    def get_dict(self, key: VStoreKey, sel: Iterable[str]|None=None,
+                 /, alt: _T=None) -> dict[str,FridValue]|_T: ...
+    def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
+                 /, alt: _T=None) -> dict[str,FridValue]|FridValue|_T:
         data = self.get_frid(key, sel, dtype='dict')
         if data is MISSING:
             return alt
         if not isinstance(sel, str):
-            assert is_frid_skmap(data), type(data)
+            assert isinstance(data, dict)
         return data
 
 class AsyncStore(_BaseStore):
@@ -251,25 +255,26 @@ class AsyncStore(_BaseStore):
     async def get_list(self, key: VStoreKey, sel: int, /, alt: _T=None) -> FridValue|_T: ...
     @overload
     async def get_list(self, key: VStoreKey, sel: slice|tuple[int,int]|None,
-                        /, alt: _T=None) -> FridArray|_T: ...
-    async def get_list(self, key: VStoreKey, sel: VSListSel, /, alt: _T=None) -> FridValue|_T:
+                        /, alt: _T=None) -> list[FridValue]|_T: ...
+    async def get_list(self, key: VStoreKey, sel: VSListSel,
+                       /, alt: _T=None) -> list[FridValue]|FridValue|_T:
         data = await self.get_frid(key, sel, dtype='list')
         if data is MISSING:
             return alt
         if not isinstance(sel, int):
-            assert is_frid_array(data), type(data)
+            assert isinstance(data, list)
         return data
     @overload
     async def get_dict(self, key: VStoreKey, sel: str, /, alt: _T=None) -> FridValue|_T: ...
     @overload
     async def get_dict(self, key: VStoreKey, sel: Iterable[str]|None=None,
-                        /, alt: _T=None) -> StrKeyMap|_T: ...
+                       /, alt: _T=None) -> dict[str,FridValue]|_T: ...
     async def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
-                        /, alt: _T=None) -> FridValue|_T:
+                       /, alt: _T=None) -> dict[str,FridValue]|FridValue|_T:
         data = await self.get_frid(key, sel, dtype='dict')
         if data is MISSING:
             return alt
         if not isinstance(sel, str):
-            assert is_frid_skmap(data), type(data)
+            assert isinstance(data, dict)
         return data
 
