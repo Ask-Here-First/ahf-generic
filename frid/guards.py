@@ -1,7 +1,10 @@
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, Literal, TypeGuard, TypeVar, overload
 
-from .typing import BlobTypes, DateTypes, FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
+from .typing import (
+    BlobTypes, DateTypes, FridPrime, FridBeing,
+    FridSeqVT, FridMapVT, FridArray, FridMixin, FridValue, StrKeyMap
+)
 
 K = TypeVar('K')
 V = TypeVar('V')
@@ -157,10 +160,14 @@ def as_kv_pairs(
 
 def is_frid_prime(data) -> TypeGuard[FridPrime]:
     return data is None or isinstance(data, str|BlobTypes|DateTypes|int|float|bool)
+def is_frid_seqvt(data) -> TypeGuard[FridSeqVT]:
+    return is_frid_value(data)
 def is_frid_array(data) -> TypeGuard[FridArray]:
-    return is_list_like(data, is_frid_value)
+    return is_list_like(data, is_frid_seqvt)
+def is_frid_mapvt(data) -> TypeGuard[FridMapVT]:
+    return is_frid_value(data) or isinstance(data, FridBeing)
 def is_frid_skmap(data) -> TypeGuard[StrKeyMap]:
-    return is_dict_like(data, is_frid_value)
+    return is_dict_like(data, is_frid_mapvt)
 def is_frid_value(data) -> TypeGuard[FridValue]:
     return (is_frid_prime(data) or is_frid_array(data) or is_frid_skmap(data)
             or isinstance(data, FridMixin))
