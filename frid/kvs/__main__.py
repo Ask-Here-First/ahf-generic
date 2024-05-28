@@ -381,7 +381,7 @@ else:
 
             # Separate text columm
             store = DbsqlValueStore.from_url(
-                dburl, table_name=table1.name, echo=echo, frid_field=True,
+                dburl, table1.name, echo=echo, frid_field=True,
                 text_field='text', col_values={'blob': b"(UNUSED)"}
             )
             self.assertTrue(store._frid_column is not None
@@ -441,7 +441,7 @@ else:
 
                 # Separate text columm
                 store = loop.run_until_complete(DbsqlAsyncStore.from_url(
-                    dburl, table_name=table1.name, echo=echo, frid_field=True,
+                    dburl, table1.name, echo=echo, frid_field=True,
                     text_field='text', col_values={'blob': b"(UNUSED)"}
                 ))
                 self.assertTrue(store._frid_column is not None

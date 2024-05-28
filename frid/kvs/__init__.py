@@ -1,5 +1,8 @@
 import asyncio
+from urllib.parse import unquote
 
+from ..typing import FridNameArgs
+from ..loader import load_from_str
 from .store import ValueStore, AsyncStore
 from .proxy import ValueProxyStore, AsyncProxyStore, AsyncProxyValueStore, ValueProxyAsyncStore
 from .utils import VStoreKey, VStoreSel, VSPutFlag
@@ -17,41 +20,69 @@ _async_store_constructors: dict[str,type[AsyncStore]] = {
 def _get_scheme(url: str) -> str:
     return url[:url.index('://')]
 
+def is_local_store_url(url: str) -> bool:
+    return any(url.startswith(x) for x in ("file://", "memory://"))
+
 def is_dbsql_store_url(url: str) -> bool:
     scheme = _get_scheme(url)
     if scheme in _value_store_constructors or scheme in _async_store_constructors:
         return False
     return '' in _value_store_constructors or '' in _async_store_constructors
 
+def _split_url_varargs(url: str) -> FridNameArgs:
+    (url, sep, frag) = url.partition('#')
+    if not sep:
+        return FridNameArgs(url, (), {})
+    args = []
+    kwds = {}
+    for item in frag.split('&'):
+        (key, sep, val) = item.partition('=')
+        if sep:
+            kwds[unquote(key)] = load_from_str(unquote(val))
+        else:
+            args.append(load_from_str(unquote(key)))
+    return FridNameArgs(url, args, kwds)
+
 def create_value_store(url: str, *args, **kwargs) -> ValueStore|None:
+    name_args = _split_url_varargs(url)
     scheme = _get_scheme(url)
     value_cls = _value_store_constructors.get(scheme)
     if value_cls is not None:
-        return value_cls.from_url(url, *args, **kwargs)
+        return value_cls.from_url(
+            name_args.name, *name_args.args, *args, **name_args.kwds, **kwargs
+        )
     async_cls = _async_store_constructors.get(scheme)
     if async_cls is not None:
-        return AsyncProxyValueStore(asyncio.run(async_cls.from_url(url, *args, **kwargs)))
+        return AsyncProxyValueStore(asyncio.run(async_cls.from_url(
+            name_args.name, *name_args.args, *args, **name_args.kwds, **kwargs
+        )))
     value_cls = _value_store_constructors.get('')
     if value_cls is not None:
-        return value_cls.from_url(url, *args, **kwargs)
+        return value_cls.from_url(
+            name_args.name, *name_args.args, *args, **name_args.kwds, **kwargs
+        )
     raise ValueError(f"Storage URL scheme is not supported: {scheme}")
 
 async def create_async_store(url: str, *args, **kwargs) -> AsyncStore|None:
+    name_args = _split_url_varargs(url)
     scheme = _get_scheme(url)
     async_cls = _async_store_constructors.get(scheme)
     if async_cls is not None:
-        return await async_cls.from_url(url, *args, **kwargs)
+        return await async_cls.from_url(
+            name_args.name, *name_args.args, *args, **name_args.kwds, **kwargs
+        )
     scheme = _get_scheme(url)
     value_cls = _value_store_constructors.get(scheme)
     if value_cls is not None:
-        return ValueProxyAsyncStore(value_cls.from_url(url, *args, **kwargs))
+        return ValueProxyAsyncStore(value_cls.from_url(
+            name_args.name, *name_args.args, *args, **name_args.kwds, **kwargs
+        ))
     async_cls = _async_store_constructors.get('')
     if async_cls is not None:
-        return await async_cls.from_url(url, *args, **kwargs)
+        return await async_cls.from_url(
+            name_args.name, *name_args.args, *args, **name_args.kwds, **kwargs
+        )
     raise ValueError(f"Storage URL scheme is not supported: {scheme}")
-
-def is_local_store_url(url: str) -> bool:
-    return any(url.startswith(x) for x in ("file://", "memory://"))
 
 __all__ = [
     'ValueStore', 'AsyncStore',

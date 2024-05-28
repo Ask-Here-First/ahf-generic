@@ -17,7 +17,7 @@ from ..typing import (
 )
 from ..guards import as_kv_pairs, is_frid_array, is_text_list_like
 from ..chrono import datetime, dateonly, timeonly
-from ..helper import frid_merge, frid_type_size
+from ..helper import frid_merge, frid_type_size, get_type_name
 from ..dumper import dump_into_str
 from ..loader import load_from_str
 from .store import AsyncStore, ValueStore
@@ -77,14 +77,6 @@ class _SqlBaseStore:
         # self._multi_rows = table.c[multi_rows] if isinstance(multi_rows, str) else multi_rows
 
         self._select_cols: list[Column] = self._select_args()
-    @classmethod
-    def _get_conn_and_table_name(cls, url: str, table_name: str|None, /) -> tuple[str,str|None]:
-        (conn, _, name) = url.partition('#')
-        if name:
-            if table_name is not None:
-                error(f"Table name {table_name} is overriden through URL string to {name}")
-            return (conn, table_name)
-        return (conn, table_name)
 
     @classmethod
     def _build_where(cls, table: Table, data: Mapping[str,SqlTypes]|None):
@@ -652,25 +644,23 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
         super().__init__(table=table, **kwargs)
 
     @classmethod
-    def from_url(cls, url: str, table: Table|None=None, /,
-                 *, table_name: str|None=None, echo=False, **kwargs):
+    def from_url(cls, url: str, table: Table|str, /, *, echo=False, **kwargs):
         """The exmples for URL format for SQL Value Stores are:
         - SQLite: "sqlite+pysqlite:////abs/path/to/file"
         - PostgreSQL: "postgresql+psycopg://postgres:PASSWORD@HOST"
           (requires `pip3 install psycopg[binary]`)
         """
-        (conn_url, table_name) = cls._get_conn_and_table_name(url, table_name)
         engine = create_engine(url, echo=echo)
-        if table is None:
-            assert table_name is not None
-            table = Table(table_name, MetaData(), autoload_with=engine)
-        else:
-            assert table_name is None or table.name == table_name
+        if isinstance(table, str):
+            table = Table(table, MetaData(), autoload_with=engine)
+        elif isinstance(table, Table):
             if not inspect(engine).has_table(table.name):
                 table.create(engine)
+        else:
+            raise ValueError(f"Invalid table value type {get_type_name(table)}")
         # for col in table.c:
         #     print("   ", repr(col))
-        return cls(conn_url, table, _engine=engine, echo=echo, **kwargs)
+        return cls(url, table, _engine=engine, echo=echo, **kwargs)
     def substore(self, name: str, *args: str):
         raise NotImplementedError
     def finalize(self, depth: int=0):
@@ -750,37 +740,31 @@ class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
         self._engine = create_async_engine(conn_url, echo=echo) if _engine is None else _engine
         super().__init__(table, **kwargs)
     @classmethod
-    async def from_url(cls, url: str, table: Table|None=None, /,
-                       *, table_name: str|None=None, echo=False, **kwargs):
+    async def from_url(cls, url: str, table_name: Table|str, /, *, echo=False, **kwargs):
         """The exmples for URL format for SQL Async Stores are:
         - SQLite: "sqlite+aiosqlite:////abs/path/to/file"
           (requires `pip3 install aiosqlite`)
         - PostgreSQL: "postgresql+asyncpg://postgres:PASSWORD@HOST"
           (requires `pip3 install asyncpg[binary]`)
         """
-        (conn_url, table_name) = cls._get_conn_and_table_name(url, table_name)
         engine = create_async_engine(url, echo=echo)
-        if table is None:
-            assert table_name is not None
+        if isinstance(table_name, str):
             async with engine.begin() as conn:
                 table = await conn.run_sync(
                     lambda c: Table(table_name, MetaData(), autoload_with=c)
                 )
-        else:
-            if table_name is not None and table.name != table_name:
-                metadata = table.metadata
-                old_table = table
-                table = Table(table_name, metadata, *(c.copy() for c in old_table.columns),
-                              *(c.copy() for c in old_table.constraints))
-                metadata.remove(old_table)
+        elif isinstance(table_name, Table):
+            table = table_name
             def create_table(conn: Connection):
-                if not inspect(conn).has_table(table.name):
+                if not inspect(conn).has_table(table_name.name):
                     table.create(conn)
             async with engine.begin() as conn:
                 await conn.run_sync(create_table)
+        else:
+            raise ValueError(f"Invalid table value type {get_type_name(table_name)}")
         # for col in table.c:
         #     print("   ", repr(col))
-        return cls(conn_url, table, _engine=engine, echo=echo, **kwargs)
+        return cls(url, table, _engine=engine, echo=echo, **kwargs)
     def substore(self, name: str, *args: str):
         raise NotImplementedError
     async def finalize(self, depth: int=0):
