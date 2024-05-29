@@ -4,7 +4,7 @@ from concurrent.futures import Executor
 from contextlib import AbstractAsyncContextManager
 from typing import Concatenate, ParamSpec, TypeVar
 
-from ..typing import MISSING, BlobTypes, FridBeing, FridSeqVT, FridTypeName, FridTypeSize, FridValue
+from ..typing import MISSING, BlobTypes, FridBeing, FridTypeName, FridTypeSize, FridValue
 from ..autils import collect_async_iterable
 from . import utils
 from .store import AsyncStore, ValueStore
@@ -37,8 +37,7 @@ class ValueProxyStore(ValueStore):
         return self._store.put_frid(key, val, flags)
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
         return self._store.del_frid(key, sel)
-    def get_bulk(self, keys: Iterable[VStoreKey],
-                        /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+    def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridValue|_T]:
         return self._store.get_bulk(keys, alt)
     def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         return self._store.put_bulk(data, flags)
@@ -80,7 +79,7 @@ class AsyncProxyStore(AsyncStore):
     async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
         return await self._store.del_frid(key, sel)
     async def get_bulk(self, keys: Iterable[VStoreKey],
-                        /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+                       /, alt: _T=MISSING) -> list[FridValue|_T]:
         return await self._store.get_bulk(keys, alt)
     async def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         return await self._store.put_bulk(data, flags)
@@ -144,7 +143,7 @@ class ValueProxyAsyncStore(AsyncStore):
     async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
         return await self._asyncrun(self._store.del_frid, key, sel)
     async def get_bulk(self, keys: Iterable[VStoreKey],
-                        /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+                       /, alt: _T=MISSING) -> list[FridValue|_T]:
         return await self._asyncrun(self._store.get_bulk, keys, alt)
     async def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         return await self._asyncrun(self._store.put_bulk, data, flags)
@@ -206,7 +205,7 @@ class AsyncProxyValueStore(ValueStore):
         return self._loop.run_until_complete(self._store.put_frid(key, val, flags))
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
         return self._loop.run_until_complete(self._store.del_frid(key, sel))
-    def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+    def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridValue|_T]:
         return self._loop.run_until_complete(self._store.get_bulk(keys, alt))
     def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
         return self._loop.run_until_complete(self._store.put_bulk(data, flags))

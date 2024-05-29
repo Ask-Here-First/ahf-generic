@@ -8,7 +8,7 @@ import redis
 from redis import asyncio as async_redis
 
 from ..typing import MISSING, FridBeing, FridTypeName, MissingType
-from ..typing import FridArray, FridSeqVT, FridTypeSize, FridValue, StrKeyMap
+from ..typing import FridArray, FridTypeSize, FridValue, StrKeyMap
 from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap, is_list_like
 from ..strops import escape_control_chars, revive_control_chars
 from ..helper import frid_merge, frid_type_size
@@ -313,7 +313,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
                 return self.del_dict(key, sel)
             raise ValueError(f"Invalid selector type {type(sel)}: {sel}")  # pragma: no cover
         return bool(self._check_type(self._redis.delete(redis_name), int, 0))
-    def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+    def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridValue|_T]:
         redis_keys = self._key_list(keys)
         data = self._redis.mget(redis_keys)
         if not isinstance(data, Iterable):
@@ -561,7 +561,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
             raise ValueError(f"Invalid selector type {type(sel)}: {sel}")  # pragma: no cover
         return bool(self._check_type(await self._aredis.delete(redis_name), int, 0))
     async def get_bulk(self, keys: Iterable[VStoreKey],
-                        /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+                       /, alt: _T=MISSING) -> list[FridValue|_T]:
         redis_keys = self._key_list(keys)
         data = await self._aredis.mget(redis_keys)
         if not isinstance(data, Iterable):

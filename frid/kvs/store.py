@@ -6,8 +6,7 @@ from contextlib import AbstractContextManager, AbstractAsyncContextManager
 from typing import TypeVar, overload
 
 
-from ..typing import MISSING, BlobTypes, FridTypeName, FridTypeSize
-from ..typing import FridSeqVT, FridValue, MissingType
+from ..typing import MISSING, BlobTypes, FridTypeName, FridTypeSize, FridValue, MissingType
 from ..guards import as_kv_pairs
 from . import utils
 from .utils import KeySearch, VSPutFlag, VSListSel, VSDictSel, VStoreKey, VStoreSel, BulkInput
@@ -71,7 +70,7 @@ class _BaseStore(ABC):
         - Returns true iff the storage changes.
         """
         raise NotImplementedError  # pragma: no cover
-    def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+    def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridValue|_T]:
         """Returns the data associated with a list of keys in the store."""
         raise NotImplementedError  # pragma: no cover
     def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
@@ -138,7 +137,7 @@ class ValueStore(_BaseStore):
         raise NotImplementedError  # pragma: no cover
     def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         raise NotImplementedError  # pragma: no cover
-    def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+    def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridValue|_T]:
         with self.get_lock():
             return [v if (v := self.get_frid(k)) is not MISSING else alt for k in keys]
     def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
@@ -218,7 +217,7 @@ class AsyncStore(_BaseStore):
     async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         raise NotImplementedError  # pragma: no cover
     async def get_bulk(self, keys: Iterable[VStoreKey],
-                       /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+                       /, alt: _T=MISSING) -> list[FridValue|_T]:
         async with self.get_lock():
             return [v if (v := await self.get_frid(k)) is not MISSING else alt for k in keys]
     async def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:

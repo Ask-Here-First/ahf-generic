@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine, AsyncConnec
 from sqlalchemy import types
 
 from ..typing import (
-    MISSING, BlobTypes, DateTypes, FridArray, FridBeing, FridSeqVT,
+    MISSING, BlobTypes, DateTypes, FridArray, FridBeing,
     FridTypeName, FridTypeSize, FridValue, MissingType, StrKeyMap
 )
 from ..guards import as_kv_pairs, is_frid_array, is_text_list_like
@@ -713,7 +713,7 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
                 return self._del_frid_result(conn.execute(upd_cmd), True)
         return False
 
-    def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+    def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridValue|_T]:
         cmd = self._get_bulk_select(keys)
         with self._engine.begin() as conn:
             return self._get_bulk_result(conn.execute(cmd), keys, alt)
@@ -820,7 +820,7 @@ class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
         return False
 
     async def get_bulk(self, keys: Iterable[VStoreKey],
-                       /, alt: _T=MISSING) -> list[FridSeqVT|_T]:
+                       /, alt: _T=MISSING) -> list[FridValue|_T]:
         cmd = self._get_bulk_select(keys)
         async with self._engine.begin() as conn:
             return self._get_bulk_result(await conn.execute(cmd), keys, alt)
