@@ -7,7 +7,7 @@ from .typing import (
     FridMixin, FridPrime, FridSeqVT, FridValue, FridNameArgs, StrKeyMap, ValueArgs
 )
 from .guards import (
-    is_dict_like, is_frid_identifier, is_frid_prime, is_frid_quote_free,  is_quote_free_char
+    is_frid_identifier, is_frid_prime, is_frid_quote_free, is_frid_skmap,  is_quote_free_char
 )
 from .errors import FridError
 from .strops import escape_control_chars, str_find_any, StringEscapeDecode
@@ -486,7 +486,7 @@ class FridLoader:
         # Convert into a set if non-empty and all values are PRESENT
         if out and all(v is PRESENT for v in out.values()):
             return (index, set(out.keys()))
-        if not is_dict_like(out):
+        if not is_frid_skmap(out):
             self.error(index, f"Not a set but keys are not all string: {path=}")
         # Now we check if this is a mixin
         if self.escape_seq:
