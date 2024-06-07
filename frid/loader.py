@@ -116,7 +116,11 @@ class FridLoader:
         )
 
     def error(self, index: int, error: str|BaseException) -> NoReturn:
-        """Raise an ParseError at the current `index` with the given `error`."""
+        """Raise an FridParseError at the current `index` with the given `error`."""
+        if index >= self.length:
+            if isinstance(error, BaseException):
+                raise FridTruncError(self.buffer, index, str(error)) from error
+            raise FridTruncError(self.buffer, index, error)
         if isinstance(error, BaseException):
             raise FridParseError(self.buffer, index, str(error)) from error
         raise FridParseError(self.buffer, index, error)
@@ -134,8 +138,8 @@ class FridLoader:
         """
         tot_len = self.length + self.offset
         buf_end = self.offset + len(self.buffer)
-        raise FridTruncError(
-            self.buffer, index, f"Stream ends at {index} when parsing {path=}; "
+        self.error(
+            self.length, f"Stream ends at ${self.length} when parsing {path=} at {index}; "
             f"Total length: {tot_len}, Buffer {self.offset}-{buf_end}"
         )
 
@@ -288,7 +292,7 @@ class FridLoader:
         while len(self.buffer) < min(index + len(prefix), self.length):
             index = self.fetch(index, path)
         if not self.buffer.startswith(prefix, index):
-            self.error(index, f"Stream ends while expecting '{prefix}'")
+            self.error(self.length, f"Stream ends while expecting '{prefix}' at {index}")
         return index + len(prefix)
 
     def scan_prime_data(self, index: int, path: str, /, empty: Any='',
