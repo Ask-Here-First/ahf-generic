@@ -27,8 +27,8 @@ from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode
 from .strops import escape_control_chars, revive_control_chars, str_transform, str_find_any
 from .helper import Comparator, Substitute, get_func_name, get_qual_name, get_type_name
-from .dumper import dump_args_into_str, dump_into_tio, dump_into_str, frid_redact
-from .loader import ParseError, load_from_str, load_from_tio
+from .dumper import dump_args_str, dump_frid_tio, dump_frid_str, frid_redact
+from .loader import FridParseError, load_frid_str, load_frid_tio
 
 class TestChrono(unittest.TestCase):
     def test_parse(self):
@@ -382,7 +382,7 @@ class TestLoaderAndDumper(unittest.TestCase):
         prev_value = ...
         for i, (s, t) in enumerate(cases.items()):
             try:
-                v = load_from_str(s, json_level=json_level)
+                v = load_frid_str(s, json_level=json_level)
                 if callable(t):
                     self.assertTrue(t(v), f"[{i}] {s} ==> {t} ({json_level=})")
                     continue
@@ -391,7 +391,7 @@ class TestLoaderAndDumper(unittest.TestCase):
                 if t == prev_value:
                     continue
                 assert not isinstance(t, FridBeing)
-                self.assertEqual(s, dump_into_str(t, json_level=json_level),
+                self.assertEqual(s, dump_frid_str(t, json_level=json_level),
                                 f"[{i}] {s} <== {t} ({json_level=})")
             except Exception:
                 print(f"\nError @ [{i}] {s} <=> {t} ({json_level=})", file=sys.stderr)
@@ -408,9 +408,9 @@ class TestLoaderAndDumper(unittest.TestCase):
         self._do_test_positive(self.frid_json5_cases, 0)
         self._do_test_positive(self.frid_json5_cases, 5)
         self._do_test_positive(self.frid_only_cases, 0)
-        self.assertEqual(dump_into_str(math.nan), "+-")
-        self.assertEqual(dump_into_str(-math.nan), "-+")
-        self.assertEqual(dump_into_str(math.nan, json_level=5), "NaN")
+        self.assertEqual(dump_frid_str(math.nan), "+-")
+        self.assertEqual(dump_frid_str(-math.nan), "-+")
+        self.assertEqual(dump_frid_str(math.nan, json_level=5), "NaN")
 
     def test_random(self):
         def_seed = 0
@@ -421,7 +421,7 @@ class TestLoaderAndDumper(unittest.TestCase):
         if seed is None:
             seed = def_seed
         else:
-            seed = load_from_str(seed)
+            seed = load_frid_str(seed)
             assert isinstance(seed, int|float|bytes|str)
         tree = int(os.getenv('FRID_RANDOM_TREE', def_tree))
 
@@ -449,33 +449,33 @@ class TestLoaderAndDumper(unittest.TestCase):
             # Test with only JSON compatible values
             data = frid_random(rng, tree, for_json=1)
             text = json.dumps(data)
-            self.assertEqual(data, load_from_str(text, json_level=1), msg="Loading JSON")
-            self.assertEqual(data, load_from_str(text, json_level=5), msg="Loading JSON5")
+            self.assertEqual(data, load_frid_str(text, json_level=1), msg="Loading JSON")
+            self.assertEqual(data, load_frid_str(text, json_level=5), msg="Loading JSON5")
             for json_level in (0, 1, 5):
-                s = dump_into_str(data, json_level=json_level, **dump_args)
-                self.assertEqual(data, load_from_str(s, json_level=json_level, **load_args),
+                s = dump_frid_str(data, json_level=json_level, **dump_args)
+                self.assertEqual(data, load_frid_str(s, json_level=json_level, **load_args),
                                  msg=f"{json_level=} {len(s)=}")
             # Test with only JSON-5 compatible values
             data = frid_random(rng, tree, for_json=5)
             for json_level in (0, 5):
-                s = dump_into_str(data, json_level=json_level, **dump_args)
-                self.assertEqual(data, load_from_str(s, json_level=json_level, **load_args),
+                s = dump_frid_str(data, json_level=json_level, **dump_args)
+                self.assertEqual(data, load_frid_str(s, json_level=json_level, **load_args),
                                  msg=f"{json_level=} {len(s)=}")
             # Test with only all possible frid values
             json_level = rng.choice([0, 1, 5])
             for escape_seq in ('~', "#!"):
                 data = frid_random(rng, tree, for_json=0)
-                s = dump_into_str(data, json_level=json_level,
+                s = dump_frid_str(data, json_level=json_level,
                                   escape_seq=escape_seq, **dump_args)
-                self.assertEqual(data, load_from_str(
+                self.assertEqual(data, load_frid_str(
                     s, json_level=1, escape_seq=escape_seq, **load_args
                 ), msg=f"{len(s)=}")
                 t = io.StringIO()
-                dump_into_tio(data, t, json_level=json_level,
+                dump_frid_tio(data, t, json_level=json_level,
                               escape_seq=escape_seq, **dump_args)
                 self.assertEqual(s, t.getvalue())
                 t = io.StringIO(s)
-                self.assertEqual(data, load_from_tio(
+                self.assertEqual(data, load_frid_tio(
                     t, page=rng.randint(1, 5), json_level=1, escape_seq=escape_seq, **load_args
                 ), msg=f"{len(s)=}")
 
@@ -500,8 +500,8 @@ class TestLoaderAndDumper(unittest.TestCase):
     def test_negative_load(self):
         # print(f"Running {len(positive_testcases)} negative testcases...")
         for i, k in enumerate(self.negative_load_cases):
-            with self.assertRaises(ParseError, msg=f"[{i}]: {k}"):
-                load_from_str(k)
+            with self.assertRaises(FridParseError, msg=f"[{i}]: {k}"):
+                load_frid_str(k)
 
 
     negative_json_dump_cases = [
@@ -510,7 +510,7 @@ class TestLoaderAndDumper(unittest.TestCase):
     def test_negative_json_dump(self):
         for i, k in enumerate(self.negative_json_dump_cases):
             with self.assertRaises(ValueError, msg=f"[{i}]: {k}"):
-                dump_into_str(k, json_level=True)
+                dump_frid_str(k, json_level=True)
 
     comment_cases = {
         "\n123": 123, "\n[\n123,\n\n 456,]": [123, 456],
@@ -520,7 +520,7 @@ class TestLoaderAndDumper(unittest.TestCase):
 
     def test_comments(self):
         for i, (k, v) in enumerate(self.comment_cases.items()):
-            w = load_from_str(k, comments=[("#", "\n"), ("//", "\n"), ("/*", "*/")])
+            w = load_frid_str(k, comments=[("#", "\n"), ("//", "\n"), ("/*", "*/")])
             self.assertEqual(v, w, msg=f"[{i}]: {k}")
 
     class TestMixinClass(FridMixin):
@@ -531,7 +531,7 @@ class TestLoaderAndDumper(unittest.TestCase):
         def frid_repr(self) -> FridNameArgs:
             return FridNameArgs(get_type_name(self), self._args, self._kwds)
         def __repr__(self):
-            return dump_args_into_str(self.frid_repr())
+            return dump_args_str(self.frid_repr())
         def __eq__(self, other):
             if self is other:
                 return True
@@ -557,33 +557,33 @@ class TestLoaderAndDumper(unittest.TestCase):
     def test_mixins(self):
         test = self.TestMixinClass()
         frid = "TestMixinClass()"
-        self.assertEqual(dump_into_str(test), frid)
-        self.assertEqual(load_from_str(frid, frid_mixin=[self.TestMixinClass]), test)
+        self.assertEqual(dump_frid_str(test), frid)
+        self.assertEqual(load_frid_str(frid, frid_mixin=[self.TestMixinClass]), test)
         json = '"#!TestMixinClass()"'
-        self.assertEqual(dump_into_str(test, json_level=1, escape_seq="#!"), json)
-        self.assertEqual(load_from_str(
+        self.assertEqual(dump_frid_str(test, json_level=1, escape_seq="#!"), json)
+        self.assertEqual(load_frid_str(
             json, frid_mixin=[self.TestMixinClass], json_level=1, escape_seq="#!"
         ), test)
 
         test = self.TestMixinClass("Test", a=3)
         frid = "TestMixinClass(Test, a=3)"
-        self.assertEqual(dump_into_str(test), frid)
-        self.assertEqual(load_from_str(frid, frid_mixin=[self.TestMixinClass]), test)
+        self.assertEqual(dump_frid_str(test), frid)
+        self.assertEqual(load_frid_str(frid, frid_mixin=[self.TestMixinClass]), test)
         json = """{"": ["#!TestMixinClass", "Test"], "a": 3}"""
-        self.assertEqual(dump_into_str(test, json_level=1, escape_seq="#!"), json)
-        self.assertEqual(load_from_str(
+        self.assertEqual(dump_frid_str(test, json_level=1, escape_seq="#!"), json)
+        self.assertEqual(load_frid_str(
             json, frid_mixin=[self.TestMixinClass], json_level=1, escape_seq="#!"
         ), test)
 
         test = self.TestMixinClass2("1", "Test", opt2=2, a=3)
         frid = "TestMixinClass2(Test, a=3)"
         mixin_list = [ValueArgs(self.TestMixinClass2, "1", opt2=2)]
-        self.assertEqual(dump_into_str(test, mixin_args=mixin_list), frid)
-        self.assertEqual(load_from_str(frid, frid_mixin=mixin_list), test)
+        self.assertEqual(dump_frid_str(test, mixin_args=mixin_list), frid)
+        self.assertEqual(load_frid_str(frid, frid_mixin=mixin_list), test)
         json = """{"": ["#!TestMixinClass2", "Test"], "a": 3}"""
-        self.assertEqual(dump_into_str(test, mixin_args=mixin_list,
+        self.assertEqual(dump_frid_str(test, mixin_args=mixin_list,
                                        json_level=1, escape_seq="#!"), json)
-        self.assertEqual(load_from_str(
+        self.assertEqual(load_frid_str(
             json, frid_mixin=mixin_list, json_level=1, escape_seq="#!"
         ), test)
 

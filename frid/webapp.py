@@ -6,8 +6,8 @@ from urllib.parse import unquote
 from .typing import BlobTypes, FridValue
 from .errors import FridError
 from .guards import is_frid_value
-from .loader import load_from_str
-from .dumper import dump_into_str
+from .loader import load_frid_str
+from .dumper import dump_frid_str
 
 
 DEF_ESCAPE_SEQ = os.getenv('FRID_ESCAPE_SEQ', "#!")
@@ -48,7 +48,7 @@ def parse_http_query(qs: str) -> tuple[list[tuple[str,str]|str],dict[str,FridVal
         key = unquote(k)
         qsargs.append((key, value))
         try:
-            kwargs[key] = load_from_str(value)
+            kwargs[key] = load_frid_str(value)
         except Exception:
             kwargs[key] = value
     return (qsargs, kwargs)
@@ -146,7 +146,7 @@ class HttpMixin:
                         except Exception:
                             pass
                     elif mime_type == FRID_MIME_TYPE:
-                        http_data = load_from_str(rawdata.decode(encoding))
+                        http_data = load_frid_str(rawdata.decode(encoding))
                         mime_type = 'frid'
         return cls(*args, http_head=http_head, mime_type=mime_type, http_body=rawdata,
                    http_data=http_data, **kwargs)
@@ -164,7 +164,7 @@ class HttpMixin:
                 if prefix:
                     yield prefix + b'\n'
             elif is_frid_value(item):
-                yield prefix + b"data: " + dump_into_str(
+                yield prefix + b"data: " + dump_frid_str(
                     item, json_level=5, escape_seq=DEF_ESCAPE_SEQ
                 ).encode() + b"\n\n"
             else:
@@ -212,10 +212,10 @@ class HttpMixin:
                 body = json.dumps(self.http_data).encode() # TODO do escape
                 mime_type = self.mime_type
             elif self.mime_type == 'frid':
-                body = dump_into_str(self.http_data).encode()
+                body = dump_frid_str(self.http_data).encode()
                 mime_type = self.mime_type
             else:
-                body = dump_into_str(self.http_data, json_level=1,
+                body = dump_frid_str(self.http_data, json_level=1,
                                      escape_seq=DEF_ESCAPE_SEQ).encode()
                 mime_type = 'json'
             self.http_body = body

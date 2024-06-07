@@ -7,7 +7,7 @@ from .typing import FridArray, FridMapVT, FridSeqVT, FridValue, StrKeyMap
 from .chrono import dateonly, timeonly, datetime
 from .guards import is_list_like
 from .strops import str_transform
-from .dumper import dump_into_str
+from .dumper import dump_frid_str
 
 P = ParamSpec('P')
 T = TypeVar('T')
@@ -110,7 +110,7 @@ class Substitute:
             return data
         if isinstance(data, FridBeing):
             return self.present if data else self.missing
-        return dump_into_str(data)
+        return dump_frid_str(data)
 
     def evaluate(self, expr: str, values: StrKeyMap) -> FridValue|FridBeing:
         """Evaluate an expression against the values."""

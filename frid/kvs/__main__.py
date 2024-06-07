@@ -21,7 +21,7 @@ import os, sys, random, asyncio, unittest
 from concurrent.futures import ThreadPoolExecutor
 
 from ..typing import MISSING
-from ..loader import load_from_str
+from ..loader import load_frid_str
 from ..random import frid_random
 from .store import VSPutFlag, ValueStore
 from .basic import MemoryValueStore
@@ -364,7 +364,7 @@ else:
                 pass
 
         def test_dbsql_value_store(self):
-            echo = bool(load_from_str(os.getenv("DBSQL_ECHO", '-')))
+            echo = bool(load_frid_str(os.getenv("DBSQL_ECHO", '-')))
             (dburl, dbfile, table1, table2) = self.create_tables(False, echo=echo)
 
             # Single frid columm
@@ -421,7 +421,7 @@ else:
             self.remove_tables(dburl, dbfile, table1.name, table2.name, False, echo=echo)
 
         def test_dbsql_async_store(self):
-            echo = bool(load_from_str(os.getenv("DBSQL_ECHO", '-')))
+            echo = bool(load_frid_str(os.getenv("DBSQL_ECHO", '-')))
             (dburl, dbfile, table1, table2) = self.create_tables(True, echo=echo)
 
             loop = asyncio.new_event_loop()

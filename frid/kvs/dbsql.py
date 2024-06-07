@@ -18,8 +18,8 @@ from ..typing import (
 from ..guards import as_kv_pairs, is_frid_array, is_text_list_like
 from ..chrono import datetime, dateonly, timeonly
 from ..helper import frid_merge, frid_type_size, get_type_name
-from ..dumper import dump_into_str
-from ..loader import load_from_str
+from ..dumper import dump_frid_str
+from ..loader import load_frid_str
 from .store import AsyncStore, ValueStore
 from .utils import (
     BulkInput, KeySearch, VSPutFlag, VStoreKey, VStoreSel, is_dict_sel, is_list_sel,
@@ -277,7 +277,7 @@ class _SqlBaseStore:
             if not val:
                 return out
         if self._frid_column is not None:
-            out[self._frid_column.name] = dump_into_str(val)
+            out[self._frid_column.name] = dump_frid_str(val)
             return out
         raise ValueError(f"No column to store data of type {type(val)}")
     def _extract_row_value(
@@ -312,7 +312,7 @@ class _SqlBaseStore:
                 continue
             if self._frid_column is not None and col.name == self._frid_column.name:
                 if val and isinstance(val, str):
-                    frid_val = load_from_str(val)
+                    frid_val = load_frid_str(val)
                 else:
                     error(f"Data in column {col.name} is not types.String: {type(val)}")
                 continue

@@ -15,8 +15,8 @@ from ..chrono import parse_datetime, strfr_datetime, datetime, timezone
 from ..guards import is_frid_array, is_frid_skmap
 from ..helper import frid_merge, frid_type_size
 from ..strops import escape_control_chars, revive_control_chars
-from ..dumper import dump_into_str
-from ..loader import load_from_str
+from ..dumper import dump_frid_str
+from ..loader import load_frid_str
 from .store import AsyncStore, ValueStore
 from .utils import KeySearch, VSPutFlag, VStoreKey, VStoreSel, frid_delete, frid_select, list_concat, match_key
 
@@ -379,7 +379,7 @@ class BinaryStoreMixin:
         """Encodes general frid-supported data.
         - This method is used no specific encoding is specified.
         """
-        return dump_into_str(data).encode()
+        return dump_frid_str(data).encode()
     def _encode_blob(self, data: BlobTypes, /) -> bytes:
         """Encodes blob (binary data)."""
         return bytes(data)
@@ -388,7 +388,7 @@ class BinaryStoreMixin:
         return data.encode()
     def _encode_list(self, data: FridArray, /) -> bytes:
         """Encodes a list as lines."""
-        out: list[bytes] = [dump_into_str(item).encode() for item in data]
+        out: list[bytes] = [dump_frid_str(item).encode() for item in data]
         out.append(b'')
         return b'\n'.join(out)
     def _encode_dict(self, data: StrKeyMap, /) -> bytes:
@@ -400,7 +400,7 @@ class BinaryStoreMixin:
         out: list[bytes] = []
         for k, v in data.items():
             line = escape_control_chars(k, '\x7f')
-            line += "\t" + (v.strfr() if isinstance(v, FridBeing) else dump_into_str(v))
+            line += "\t" + (v.strfr() if isinstance(v, FridBeing) else dump_frid_str(v))
             out.append(line.encode())
         out.append(b'')
         return b'\n'.join(out)
@@ -429,7 +429,7 @@ class BinaryStoreMixin:
         raise ValueError(f"Invalid byte encoding of {len(val)} bytes")
     def _decode_frid(self, val: bytes, /) -> FridValue:
         """Decode the value as the generic frid representation."""
-        return load_from_str(val.decode())
+        return load_frid_str(val.decode())
     def _decode_text(self, val: bytes, /) -> str:
         """Decode the value as the string representation."""
         return val.decode()
@@ -438,7 +438,7 @@ class BinaryStoreMixin:
         return val
     def _decode_list(self, val: bytes, /) -> FridArray:
         """Decode the value as the representation for a list."""
-        return [load_from_str(line.decode()) for line in val.splitlines()]
+        return [load_frid_str(line.decode()) for line in val.splitlines()]
     def _decode_dict(self, val: bytes, /) -> StrKeyMap:
         """Decode the value as the representation for a dict."""
         out = {}
@@ -448,7 +448,7 @@ class BinaryStoreMixin:
             if tab_str:
                 being = FridBeing.parse(val_str)
                 if being is None:
-                    out[key] = load_from_str(val_str)
+                    out[key] = load_frid_str(val_str)
                 elif being:
                     out[key] = PRESENT
                 else:

@@ -2,7 +2,7 @@ import asyncio
 from urllib.parse import unquote
 
 from ..typing import FridNameArgs
-from ..loader import load_from_str
+from ..loader import load_frid_str
 from .store import ValueStore, AsyncStore
 from .proxy import ValueProxyStore, AsyncProxyStore, AsyncProxyValueStore, ValueProxyAsyncStore
 from .utils import VStoreKey, VStoreSel, VSPutFlag
@@ -38,9 +38,9 @@ def _split_url_varargs(url: str) -> FridNameArgs:
     for item in frag.split('&'):
         (key, sep, val) = item.partition('=')
         if sep:
-            kwds[unquote(key)] = load_from_str(unquote(val))
+            kwds[unquote(key)] = load_frid_str(unquote(val))
         else:
-            args.append(load_from_str(unquote(key)))
+            args.append(load_frid_str(unquote(key)))
     return FridNameArgs(url, args, kwds)
 
 def create_value_store(url: str, *args, **kwargs) -> ValueStore|None:

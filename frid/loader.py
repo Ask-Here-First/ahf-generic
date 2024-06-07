@@ -19,7 +19,7 @@ ALLOWED_QUOTES = "'`\""
 
 T = TypeVar('T')
 
-class ParseError(FridError):
+class FridParseError(FridError):
     def __init__(self, s: str, index: int, *args, **kwargs):
         super().__init__(*args, **kwargs)
         note = s[max(index-16, 0):index] + '\u274e' + s[index:(index+16)]
@@ -31,6 +31,9 @@ class ParseError(FridError):
         if not self.notes:
             return s
         return s + " => " + " | ".join(self.notes)
+
+class FridTruncError(FridParseError):
+    pass
 
 class DummyMixin(FridMixin):
     def __init__(self, name: str, args: list[FridSeqVT]|None=None,
@@ -115,8 +118,8 @@ class FridLoader:
     def error(self, index: int, error: str|BaseException) -> NoReturn:
         """Raise an ParseError at the current `index` with the given `error`."""
         if isinstance(error, BaseException):
-            raise ParseError(self.buffer, index, str(error)) from error
-        raise ParseError(self.buffer, index, error)
+            raise FridParseError(self.buffer, index, str(error)) from error
+        raise FridParseError(self.buffer, index, error)
 
     def fetch(self, index: int, path: str, /) -> int:
         """Fetchs more data into the buffer from the back stream.
@@ -127,11 +130,14 @@ class FridLoader:
         so the updated index may be smaller than the input.
         Also self.anchor may also be changed if not None. Bytes after anchor
         or index, whichever is smaller, are preserved.
+        By default this function raise an IndexError to
         """
         tot_len = self.length + self.offset
         buf_end = self.offset + len(self.buffer)
-        self.error(index, f"Stream ends at {index} when parsing {path=}; "
-                   f"Total length: {tot_len}, Buffer {self.offset}-{buf_end}")
+        raise FridTruncError(
+            self.buffer, index, f"Stream ends at {index} when parsing {path=}; "
+            f"Total length: {tot_len}, Buffer {self.offset}-{buf_end}"
+        )
 
     def parse_prime_str(self, s: str, default: T, /) -> FridPrime|T:
         """Parses unquoted string or non-string prime types.
@@ -564,7 +570,7 @@ class FridLoader:
                 index = self.skip_prefix_str(index, path, ')')
                 return (index, self.construct_mixin(self.anchor, path, name, args, kwds))
             return (index, value)
-        except ParseError:
+        except FridParseError:
             index = self.anchor
             if self.parse_misc:
                 (index, value) = self.scan_data_until(index, path, ",)]}")
@@ -573,17 +579,28 @@ class FridLoader:
         finally:
             self.anchor = None
 
-    def load(self, start: int=0, path: str='',
-             type: Literal['list','dict']|None=None) -> FridValue:
+    def scan(self, start: int=0, path: str='',
+             type: Literal['list','dict']|None=None) -> tuple[int,FridValue]:
         match type:
             case None:
                 (index, value) = self.scan_frid_value(start, path)
+                if isinstance(value, FridBeing):
+                    self.error(index, "PRESENT or MISSING is only supported for map values")
             case 'list':
                 (index, value) = self.scan_naked_list(start, path)
             case 'dict':
                 (index, value) = self.scan_naked_dict(start, path)
             case _:
                 raise ValueError(f"Invalid input {type}")
+        # Skip to the end of the line (multiple spaces HT CR chars, and one of LF, FF, VT)
+        while index < len(self.buffer) and self.buffer[index] in ' \t\r':
+            index += 1
+        if index < len(self.buffer) and self.buffer[index] in '\n\v\f':
+            index += 1
+        return (index, value)
+    def load(self, start: int=0, path: str='',
+             type: Literal['list','dict']|None=None) -> FridValue:
+        (index, value) = self.scan(start, path, type)
         if index < 0:
             self.error(0, f"Failed to parse data: {path=}")
         if index < self.length:
@@ -623,8 +640,15 @@ class FridTextIOLoader(FridLoader):
         return index
 
 
-def load_from_str(s: str, *args, **kwargs) -> FridValue:
+def load_frid_str(s: str, *args, **kwargs) -> FridValue:
     return FridLoader(s, *args, **kwargs).load()
 
-def load_from_tio(t: TextIO, *args, **kwargs) -> FridValue:
+def load_frid_tio(t: TextIO, *args, **kwargs) -> FridValue:
     return FridTextIOLoader(t, *args, **kwargs).load()
+
+def scan_frid_str(s: str, start: int, *args, **kwargs) -> tuple[FridValue,int]:
+    """Note: this function will raise TruncError if the string ends prematurely.
+    For other parsing issues, a regular ParseError is returned.
+    """
+    (index, value) = FridLoader(s, *args, **kwargs).scan(start)
+    return (value, index)

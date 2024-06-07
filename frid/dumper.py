@@ -321,22 +321,22 @@ class FridStringDumper(PPToStringMixin, FridDumper):
 class FridTextIODumper(PPToTextIOMixin, FridDumper):
     pass
 
-def dump_into_str(data: FridValue, /, *args, **kwargs) -> str:
+def dump_frid_str(data: FridValue, /, *args, **kwargs) -> str:
     dumper = FridStringDumper(*args, **kwargs)
     dumper.print_frid_value(data)
     return str(dumper)
 
-def dump_into_tio(data: FridValue, /, file: TextIO, *args, **kwargs) -> TextIO:
+def dump_frid_tio(data: FridValue, /, file: TextIO, *args, **kwargs) -> TextIO:
     dumper = FridTextIODumper(file, *args, **kwargs)
     dumper.print_frid_value(data)
     return file
 
-def dump_args_into_str(named_args: FridNameArgs, *args, **kwargs) -> str:
+def dump_args_str(named_args: FridNameArgs, *args, **kwargs) -> str:
     dumper = FridStringDumper(*args, **kwargs)
     dumper.print_named_args(named_args, '')
     return str(dumper)
 
-def dump_args_into_tio(named_args: FridNameArgs, /, file: TextIO, *args, **kwargs) -> TextIO:
+def dump_args_tio(named_args: FridNameArgs, /, file: TextIO, *args, **kwargs) -> TextIO:
     dumper = FridTextIODumper(file, *args, **kwargs)
     dumper.print_named_args(named_args, '')
     return file
