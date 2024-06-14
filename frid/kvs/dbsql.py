@@ -512,9 +512,10 @@ class _SqlBaseStore:
             if self._map_key_col is not None:
                 if not val:
                     return []
-                existing = set()
                 if datarows and flags & VSPutFlag.KEEP_BOTH:
-                    existing.union(row[0] for row in datarows if row[0] is not None)
+                    existing = set(row[0] for row in datarows if row[0] is not None)
+                else:
+                    existing = set()
                 return [
                     self._make_insert_cmd(key, v, {self._map_key_col.name: k})
                     for k, v in val.items()

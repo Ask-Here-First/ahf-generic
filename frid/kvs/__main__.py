@@ -156,6 +156,8 @@ class _VStoreTestBase(unittest.TestCase):
         self.assertEqual(store.get_meta("key0"), {"key0": ('dict', 2)})
         self.assertTrue(store.del_frid("key0", ["n2"]))
         self.assertEqual(store.get_dict("key0"), {"n0": "value00"})
+        self.assertTrue(store.put_frid("key0", {"n1": "value01"}))
+        self.assertEqual(store.get_dict("key0"), {"n1": "value01"})
         self.assertTrue(store.del_frid("key0"))
         self.assertFalse(store.put_frid("key0", {"n0": "value0"}, VSPutFlag.NO_CREATE))
         self.assertTrue(store.put_frid("key0", {"n0": "value0"}))
@@ -164,6 +166,14 @@ class _VStoreTestBase(unittest.TestCase):
         self.assertEqual(store.get_dict("key0"), {"n0": "value0"})
         self.assertTrue(store.put_frid("key0", {"n0": "value1"}, VSPutFlag.NO_CREATE))
         self.assertEqual(store.get_dict("key0"), {"n0": "value1"})
+        self.assertTrue(store.put_frid("key0", {"n0": "value02"}, VSPutFlag.KEEP_BOTH))
+        self.assertEqual(store.get_dict("key0"), {"n0": "value02"})
+        self.assertTrue(store.put_frid("key0", {"n0": "value03", "n1": "value10"},
+                                       VSPutFlag.KEEP_BOTH))
+        self.assertEqual(store.get_dict("key0"), {"n0": "value03", "n1": "value10"})
+        self.assertTrue(store.put_frid("key0", {"n1": "value11"},
+                                       VSPutFlag.KEEP_BOTH))
+        self.assertEqual(store.get_dict("key0"), {"n0": "value03", "n1": "value11"})
         self.assertTrue(store.del_frid("key0"))
         self.assertFalse(store.get_dict("key0"))
 
@@ -318,6 +328,7 @@ else:
                 Column('n1', LargeBinary, nullable=True),
                 Column('mapkey', String, nullable=True),
                 Column('seqind', Integer, nullable=True),
+                 # Use UniqueConstrait because key cannot be null
                 UniqueConstraint('id', 'mapkey', 'seqind'),
             )
             if echo:
@@ -405,11 +416,11 @@ else:
             self.do_test_store(store, exact=True)
             store.finalize()
 
-            # Multirow for sequence
+            # Multirow for sequence and mapping
             store = DbsqlValueStore.from_url(
                 dburl, table2, echo=echo,
                 key_fields='id', frid_field='frid',
-                seq_subkey='seqind', map_subkey='mapkey'
+                seq_subkey='seqind', map_subkey='mapkey',
             )
             self.assertTrue(store._frid_column is not None
                             and store._frid_column.name == 'frid')
