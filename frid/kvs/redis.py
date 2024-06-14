@@ -234,21 +234,21 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         ):
             if not encoded_val:
                 return False
+            self._redis.hset(redis_name, mapping=encoded_val)
+            return bool(encoded_val)  # Note result contains only the number of entries added
+        with self.get_lock(redis_name):
+            if self._redis.exists(redis_name):
+                if flags & VSPutFlag.NO_CHANGE:
+                    return False
+                self._redis.delete(redis_name)
+                retval = True
+            else:
+                if flags & VSPutFlag.NO_CREATE:
+                    return False
+                retval = False
+            if not encoded_val:
+                return retval
             result = self._redis.hset(redis_name, mapping=encoded_val)
-        else:
-            with self.get_lock(redis_name):
-                if self._redis.exists(redis_name):
-                    if flags & VSPutFlag.NO_CHANGE:
-                        return False
-                    self._redis.delete(redis_name)
-                    retval = True
-                else:
-                    if flags & VSPutFlag.NO_CREATE:
-                        return False
-                    retval = False
-                if not encoded_val:
-                    return retval
-                result = self._redis.hset(redis_name, mapping=encoded_val)
         return bool(self._check_type(result, int, 0))
     def put_frid(self, key: VStoreKey, val: FridValue, /, flags=VSPutFlag.UNCHECKED) -> bool:
         if is_frid_array(val):
@@ -478,21 +478,21 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         ):
             if not encoded_val:
                 return False
-            result = await self._aredis.hset(redis_name, mapping=encoded_val)  # type: ignore
-        else:
-            async with self.get_lock(redis_name):
-                if await self._aredis.exists(redis_name):
-                    if flags & VSPutFlag.NO_CHANGE:
-                        return False
-                    await self._aredis.delete(redis_name)
-                    retval = True
-                else:
-                    if flags & VSPutFlag.NO_CREATE:
-                        return False
-                    retval = False
-                if not encoded_val:
-                    return retval
-                result = await self._aredis.hset(redis_name, mapping=encoded_val) # type: ignore
+            await self._aredis.hset(redis_name, mapping=encoded_val)  # type: ignore
+            return bool(encoded_val)  # Note result contains only the number of entries added
+        async with self.get_lock(redis_name):
+            if await self._aredis.exists(redis_name):
+                if flags & VSPutFlag.NO_CHANGE:
+                    return False
+                await self._aredis.delete(redis_name)
+                retval = True
+            else:
+                if flags & VSPutFlag.NO_CREATE:
+                    return False
+                retval = False
+            if not encoded_val:
+                return retval
+            result = await self._aredis.hset(redis_name, mapping=encoded_val) # type: ignore
         return bool(self._check_type(result, int, 0))
     async def put_frid(self, key: VStoreKey, val: FridValue,
                         /, flags=VSPutFlag.UNCHECKED) -> bool:
