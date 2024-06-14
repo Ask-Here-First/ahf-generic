@@ -84,7 +84,7 @@ class _SimpleBaseStore(Generic[_E]):
         old_data = old if isinstance(old, FridBeing) else self._decode(old)
         assert old_data is not PRESENT
         # TODO: frid_merge() to accept more merge flags
-        new_data = frid_merge(old_data, new)
+        new_data = frid_merge(old_data, new, depth=0)
         if new_data is old_data:
             return PRESENT
         return self._encode(new_data)

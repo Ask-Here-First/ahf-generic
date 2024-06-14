@@ -262,7 +262,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
            with self.get_lock():
                data: bytes|None = self._redis.get(redis_name) # type: ignore
                return self._check_bool(self._redis.set(redis_name, self._encode(
-                   frid_merge(self._decode(data), val) if data is not None else val
+                   frid_merge(self._decode(data), val, depth=0) if data is not None else val
                ), nx=nx, xx=xx))
         return self._check_bool(self._redis.set(
             redis_name, self._encode(val), nx=nx, xx=xx
@@ -507,7 +507,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
            async with self.get_lock():
                data = await self._aredis.get(redis_name)
                return self._check_bool(await self._aredis.set(redis_name, self._encode(
-                   frid_merge(self._decode(data), val) if data is not None else val
+                   frid_merge(self._decode(data), val, depth=0) if data is not None else val
                ), nx=nx, xx=xx))
         return self._check_bool(await self._aredis.set(
             redis_name, self._encode(val), nx=nx, xx=xx

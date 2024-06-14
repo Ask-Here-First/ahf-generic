@@ -483,7 +483,7 @@ class _SqlBaseStore:
             if self._map_key_col is not None:
                 existing = set(row[0] for row in datarows)
                 return [
-                    self._make_update_cmd(k, v, self._map_key_col == k)
+                    self._make_update_cmd(key, v, self._map_key_col == k)
                     for k, v in val.items()
                     if k in existing and not isinstance(v, FridBeing)
                 ]
@@ -495,7 +495,7 @@ class _SqlBaseStore:
         assert len(datarows) == 1
         (row_key, data) = self._extract_row_value(datarows[0], None)
         assert row_key is None
-        val = frid_merge(data, val)
+        val = frid_merge(data, val, depth=0)
         return [self._make_update_cmd(key, val)]
     def _put_frid_insert(self, key: VStoreKey, val: FridValue, /, flags: VSPutFlag,
                          datarows: Sequence[Row]|None) -> list[Insert]:

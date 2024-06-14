@@ -184,7 +184,7 @@ class Substitute:
             return self.present if result else self.missing
         return result
 
-def frid_merge(old: T|MissingType, new: T) -> T:
+def frid_merge(old: T|MissingType, new: T, *, depth: int=16) -> T:
     if old is MISSING:
         return new
     if isinstance(new, bool):
@@ -198,7 +198,8 @@ def frid_merge(old: T|MissingType, new: T) -> T:
             d = dict(old)
             for k, v in new.items():
                 old_v = d.get(k, MISSING)
-                v = frid_merge(old_v, v)
+                if depth > 0:
+                    v = frid_merge(old_v, v, depth=(depth - 1))
                 if v is not MISSING:
                     d[k] = v
             return cast(T, d)
