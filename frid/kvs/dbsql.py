@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterable, Collection, Iterable, Mapping, Sequence
 from logging import error
-from typing import TypeGuard, TypeVar
+from typing import Any, TypeGuard, TypeVar
 
 from sqlalchemy import (
     Engine,  Connection, MetaData, Table, Row, Column, ColumnElement, CursorResult,
@@ -33,6 +33,9 @@ ParTypes = Mapping[str,FridValue]|Sequence[Mapping[str,FridValue]]|None
 _T = TypeVar('_T')
 
 class _SqlBaseStore:
+    # https://docs.sqlalchemy.org/en/21/core/pooling.html#disconnect-handling-pessimistic
+    # Also see https://stackoverflow.com/questions/55457069
+    engine_args = {'pool_pre_ping': True, 'pool_recycle': 300}
     def __init__(
             self, table: Table,
             *, key_fields: Sequence[str]|str|None=None, val_fields: Sequence[str]|str|None=None,
@@ -640,18 +643,21 @@ class _SqlBaseStore:
 
 class DbsqlValueStore(_SqlBaseStore, ValueStore):
     def __init__(self, conn_url: str, table: Table, /,
-                 *, echo=False, _engine: Engine|None=None, **kwargs):
-        self._engine = create_engine(conn_url, echo=echo) if _engine is None else _engine
+                 *, engine_args: Mapping[str,Any]|None=None, _engine: Engine|None=None,
+                 **kwargs):
+        eng_args = dict_concat(self.engine_args, engine_args)
+        self._engine = create_engine(conn_url, **eng_args) if _engine is None else _engine
         super().__init__(table=table, **kwargs)
 
     @classmethod
-    def from_url(cls, url: str, table: Table|str, /, *, echo=False, **kwargs):
+    def from_url(cls, url: str, table: Table|str, /,
+                 *, engine_args: Mapping[str,Any]|None=None, **kwargs):
         """The exmples for URL format for SQL Value Stores are:
         - SQLite: "sqlite+pysqlite:////abs/path/to/file"
         - PostgreSQL: "postgresql+psycopg://postgres:PASSWORD@HOST"
           (requires `pip3 install psycopg[binary]`)
         """
-        engine = create_engine(url, echo=echo)
+        engine = create_engine(url, **dict_concat(cls.engine_args, engine_args))
         if isinstance(table, str):
             table = Table(table, MetaData(), autoload_with=engine)
         elif isinstance(table, Table):
@@ -661,7 +667,7 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
             raise ValueError(f"Invalid table value type {get_type_name(table)}")
         # for col in table.c:
         #     print("   ", repr(col))
-        return cls(url, table, _engine=engine, echo=echo, **kwargs)
+        return cls(url, table, _engine=engine, engine_args=engine_args, **kwargs)
     def substore(self, name: str, *args: str):
         raise NotImplementedError
     def finalize(self, depth: int=0):
@@ -737,18 +743,21 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
 
 class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
     def __init__(self, conn_url: str, table: Table, /,
-                 *, echo=False, _engine: AsyncEngine|None=None, **kwargs):
-        self._engine = create_async_engine(conn_url, echo=echo) if _engine is None else _engine
+                 *, engine_args: Mapping[str,Any]|None=None, _engine: AsyncEngine|None=None,
+                 **kwargs):
+        eng_args = dict_concat(self.engine_args, engine_args)
+        self._engine = create_async_engine(conn_url, **eng_args) if _engine is None else _engine
         super().__init__(table, **kwargs)
     @classmethod
-    async def from_url(cls, url: str, table_name: Table|str, /, *, echo=False, **kwargs):
+    async def from_url(cls, url: str, table_name: Table|str, /,
+                       *, engine_args: Mapping[str,Any]|None=None, **kwargs):
         """The exmples for URL format for SQL Async Stores are:
         - SQLite: "sqlite+aiosqlite:////abs/path/to/file"
           (requires `pip3 install aiosqlite`)
         - PostgreSQL: "postgresql+asyncpg://postgres:PASSWORD@HOST"
           (requires `pip3 install asyncpg[binary]`)
         """
-        engine = create_async_engine(url, echo=echo)
+        engine = create_async_engine(url, **dict_concat(cls.engine_args, engine_args))
         if isinstance(table_name, str):
             async with engine.begin() as conn:
                 table = await conn.run_sync(
@@ -765,7 +774,7 @@ class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
             raise ValueError(f"Invalid table value type {get_type_name(table_name)}")
         # for col in table.c:
         #     print("   ", repr(col))
-        return cls(url, table, _engine=engine, echo=echo, **kwargs)
+        return cls(url, table, _engine=engine, engine_args=engine_args, **kwargs)
     def substore(self, name: str, *args: str):
         raise NotImplementedError
     async def finalize(self, depth: int=0):

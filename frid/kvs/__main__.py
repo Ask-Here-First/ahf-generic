@@ -380,7 +380,7 @@ else:
 
             # Single frid columm
             store = DbsqlValueStore.from_url(
-                dburl, table1, echo=echo, frid_field=True,
+                dburl, table1, engine_args={'echo': echo}, frid_field=True,
                 col_values={'text': "(UNUSED)", 'blob': b"(UNUSED)"}
             )
             self.assertTrue(store._frid_column is not None
@@ -392,7 +392,7 @@ else:
 
             # Separate text columm
             store = DbsqlValueStore.from_url(
-                dburl, table1.name, echo=echo, frid_field=True,
+                dburl, table1.name, engine_args={'echo': echo}, frid_field=True,
                 text_field='text', col_values={'blob': b"(UNUSED)"}
             )
             self.assertTrue(store._frid_column is not None
@@ -405,7 +405,7 @@ else:
 
             # Separate blob columm
             store = DbsqlValueStore.from_url(
-                dburl, table1, echo=echo, frid_field=True,
+                dburl, table1, engine_args={'echo': echo}, frid_field=True,
                 blob_field='blob', col_values={'text': "(UNUSED)"}
             )
             self.assertTrue(store._frid_column is not None
@@ -418,7 +418,7 @@ else:
 
             # Multirow for sequence and mapping
             store = DbsqlValueStore.from_url(
-                dburl, table2, echo=echo,
+                dburl, table2, engine_args={'echo': echo},
                 key_fields='id', frid_field='frid',
                 seq_subkey='seqind', map_subkey='mapkey',
             )
@@ -439,7 +439,7 @@ else:
             try:
                 # Single frid columm
                 store = loop.run_until_complete(DbsqlAsyncStore.from_url(
-                    dburl, table1, echo=echo, frid_field=True,
+                    dburl, table1, engine_args={'echo': echo}, frid_field=True,
                     col_values={'text': "(UNUSED)", 'blob': b"(UNUSED)"}
                 ))
                 self.assertTrue(store._frid_column is not None
@@ -452,7 +452,7 @@ else:
 
                 # Separate text columm
                 store = loop.run_until_complete(DbsqlAsyncStore.from_url(
-                    dburl, table1.name, echo=echo, frid_field=True,
+                    dburl, table1.name, engine_args={'echo': echo}, frid_field=True,
                     text_field='text', col_values={'blob': b"(UNUSED)"}
                 ))
                 self.assertTrue(store._frid_column is not None
@@ -466,7 +466,7 @@ else:
 
                 # Separate blob columm
                 store = loop.run_until_complete(DbsqlAsyncStore.from_url(
-                    dburl, table1, echo=echo, frid_field=True,
+                    dburl, table1, engine_args={'echo': echo}, frid_field=True,
                     blob_field='blob', col_values={'text': "(UNUSED)"}
                 ))
                 self.assertTrue(store._frid_column is not None
@@ -480,8 +480,8 @@ else:
 
                 # Multirow for sequence
                 store = loop.run_until_complete(DbsqlAsyncStore.from_url(
-                    dburl, table2, echo=echo, key_fields='id', frid_field='frid',
-                    seq_subkey='seqind', map_subkey='mapkey'
+                    dburl, table2, engine_args={'echo': echo}, key_fields='id',
+                    frid_field='frid', seq_subkey='seqind', map_subkey='mapkey'
                 ))
                 self.assertTrue(store._frid_column is not None
                                 and store._frid_column.name == 'frid')
