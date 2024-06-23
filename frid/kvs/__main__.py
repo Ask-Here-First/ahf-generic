@@ -10,7 +10,7 @@ time DBSQL_ECHO=+ DBSQL_VALUE_STORE_TEST_URL='postgresql+psycopg://postgres:PASS
     python3 -m unittest frid.kvs.__main__.VStoreTestDbsql.test_dbsql_value_store
 ```
 
-To run AsyncStore against PostgreSQL (with dependencies `sqlalchemy asyncpg[binary]`):
+To run AsyncStore against PostgreSQL (with dependencies `sqlalchemy asyncpg`):
 ```
 time DBSQL_ECHO=+ DBSQL_ASYNC_STORE_TEST_URL='postgresql+asyncpg://postgres:PASSWORD@HOSTNAME' \
     python3 -m unittest frid.kvs.__main__.VStoreTestDbsql.test_dbsql_async_store

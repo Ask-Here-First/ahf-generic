@@ -755,7 +755,7 @@ class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
         - SQLite: "sqlite+aiosqlite:////abs/path/to/file"
           (requires `pip3 install aiosqlite`)
         - PostgreSQL: "postgresql+asyncpg://postgres:PASSWORD@HOST"
-          (requires `pip3 install asyncpg[binary]`)
+          (requires `pip3 install asyncpg`)
         """
         engine = create_async_engine(url, **dict_concat(cls.engine_args, engine_args))
         if isinstance(table_name, str):
