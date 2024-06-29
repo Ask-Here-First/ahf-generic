@@ -6,7 +6,7 @@ from typing import Any, TypeGuard, TypeVar
 from sqlalchemy import (
     Engine, Connection, MetaData, Table, Row, Column, ColumnElement, CursorResult,
     Delete, Insert, Select, Update, Null, delete, insert, select, update, null,
-    distinct, inspect, create_engine,
+    inspect, create_engine,
 )
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine, AsyncConnection
 from sqlalchemy import types
@@ -356,10 +356,10 @@ class _SqlBaseStore:
     def _get_keys_select(self, pat: KeySearch=None, /) -> Select:
         """Returns the select cmd for get_keys()."""
         if pat is None:
-            return select(distinct(*self._key_columns))
+            return select(*self._key_columns).distinct()
         if isinstance(pat, str|int):
             pat = (pat,)
-        return select(distinct(*self._key_columns)).where(
+        return select(*self._key_columns).distinct().where(
             *(k == v for k, v in zip(self._key_columns, pat) if v is not None),
             *self._where_conds
         )
