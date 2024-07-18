@@ -108,10 +108,12 @@ async def _timed_aiter_timestamp(
         next_ts += interval
 
 def _timed_aiter_fix_timedelta(time: datetime|timedelta|float|None, base_time: datetime,
-                               default: datetime) -> datetime:
+                               default: datetime|timedelta|float) -> datetime:
     if time is None:
-        return default
+        time = default
     if isinstance(time, datetime):
+        if time.tzinfo is None and base_time.tzinfo is not None:
+            return time.replace(tzinfo=base_time.tzinfo)
         return time
     if isinstance(time, timedelta):
         return base_time + time
@@ -126,7 +128,12 @@ async def _timed_aiter_timedelta(
         *, max_count: int=0, factory: Callable[[int],_T]|None=None, default: _T=None,
 ) -> AsyncGenerator[_T,None]:
     assert interval.total_seconds() > 0
-    now = datetime.now()
+    tzinfo = None
+    if isinstance(init_time, datetime) and init_time is not None:
+        tzinfo = init_time.tzinfo
+    if isinstance(stop_time, datetime) and stop_time is not None:
+        tzinfo = stop_time.tzinfo
+    now = datetime.now(tzinfo)
     init_time = _timed_aiter_fix_timedelta(init_time, now, now)
     stop_time = _timed_aiter_fix_timedelta(stop_time, now, datetime.max)
     if isinstance(objects, Iterable) and not isinstance(objects, Iterator):
