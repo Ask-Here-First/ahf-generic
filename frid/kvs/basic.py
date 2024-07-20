@@ -185,6 +185,7 @@ class SimpleAsyncStore(_SimpleBaseStore[_E], AsyncStore):
 class MemoryValueStore(SimpleValueStore[FridValue]):
     """Simplest memory based value store with thread locking."""
     URL_SCHEME = 'memory'
+    DATA_SPACE = {}    # This is the global data space for all memory stores
     @dataclass
     class StoreMeta:
         store: dict[str,FridValue] = field(default_factory=dict)
@@ -194,7 +195,7 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
     DataSpaceType = dict[tuple[str,...],StoreMeta]
     def __init__(self, dataspace: DataSpaceType|None=None, namespace: tuple[str,...]=(), /):
         super().__init__()
-        self._storage = dataspace if dataspace is not None else {}
+        self._storage = dataspace if dataspace is not None else self.DATA_SPACE
         self._meta = self._storage.setdefault(namespace, self.StoreMeta())
         self._data = self._meta.store
     def all_data(self) -> Mapping[str,FridValue]:
@@ -203,11 +204,17 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
     @classmethod
     def from_url(cls, url: str, **kwargs) -> 'MemoryValueStore':
         # Allow passing an URL through but the content is not checked
+        # This function allows a path; for example memory:///abc/def means namespace=(abc, def)
         result = urlparse(url)
         if result.scheme != cls.URL_SCHEME:
             raise ValueError("Unsupported URL scheme for memory value store: {result.scheme}")
-        if result.netloc or result.path or result.query or result.fragment:
-            raise ValueError("The URL should just be {cls.URL_SCHEME}://")
+        if (path := result.path.strip('/')):
+            namespace = path.split('/')
+            if (value := kwargs.get('namespace')):
+                namespace.extend(value)
+            kwargs['namespace'] = tuple(namespace)
+        if result.netloc or result.query or result.fragment:
+            raise ValueError("The URL should just be {cls.URL_SCHEME}://[/name/space]")
         return cls(**kwargs)
     def substore(self, name: str, *args: str) -> 'MemoryValueStore':
         return __class__(self._storage, (name, *args))

@@ -5,7 +5,7 @@ from typing import Any, TypeVar, cast, overload
 from logging import error
 
 import redis
-from redis import asyncio as async_redis
+from redis import asyncio as aredis
 
 from ..typing import MISSING, FridBeing, FridTypeName, MissingType
 from ..typing import FridArray, FridTypeSize, FridValue, StrKeyMap
@@ -19,28 +19,29 @@ from .utils import KeySearch, VSDictSel, VSListSel, VStoreSel, BulkInput, VSPutF
 from .utils import match_key
 
 _T = TypeVar('_T')
-_Self = TypeVar('_Self', bound='_RedisBaseStore')  # TODO: remove this in 3.11
 
 class _RedisBaseStore(BinaryStoreMixin):
     NAMESPACE_SEP = '\t'
-    def __init__(self, *, name_prefix: str='', frid_prefix: bytes=b'#!',
+    def __init__(self, name_prefix: str='', *, frid_prefix: bytes=b'#!',
                  text_prefix: bytes|None=b'', blob_prefix: bytes|None=b'#=',
                  **kwargs):
         super().__init__(frid_prefix=frid_prefix, text_prefix=text_prefix,
                          blob_prefix=blob_prefix, **kwargs)
         self._name_prefix = name_prefix
     @classmethod
-    def _update_redis_args(cls, kwargs: dict[str,Any]):
+    def _redis_args(cls, kwargs: dict[str,Any]) -> dict[str,Any]:
         env_set = {
             'FRID_REDIS_HOST': 'host',
             'FRID_REDIS_PORT': 'port',
             'FRID_REDIS_USER': 'username',
             'FRID_REDIS_PASS': 'password',
         }
+        out = {}
         for key, val in env_set.items():
-            data = os.getenv(key)
+            data = kwargs.pop(val, os.getenv(key))
             if data is not None:
-                kwargs[val] = data
+                out[val] = data
+        return out
     @classmethod
     def _build_name_prefix(cls, base: str, name: str, *args: str) -> str:
         prefix = name + cls.NAMESPACE_SEP
@@ -100,18 +101,14 @@ class _RedisBaseStore(BinaryStoreMixin):
 class RedisValueStore(_RedisBaseStore, ValueStore):
     URL_SCHEME = 'redis'
     def __init__(self, *args, _redis: redis.Redis|None=None, **kwargs):
-        super().__init__(**kwargs)
-        if _redis is not None:
-            self._redis = _redis
-        else:
-            self._update_redis_args(kwargs)
-            self._redis = redis.Redis(**kwargs)
+        self._redis = redis.Redis(**self._redis_args(kwargs)) if _redis is None else _redis
+        super().__init__(*args, **kwargs)
     @classmethod
     def from_url(cls, url: str, **kwargs) -> 'RedisValueStore':
         # Allow passing an URL through but the content is not checked
         assert url.startswith('redis://')
-        cls._update_redis_args(kwargs)
-        return cls(_redis=redis.Redis.from_url(url, **kwargs))
+        redis_kwargs = cls._redis_args(kwargs)
+        return cls(_redis=redis.Redis.from_url(url, **redis_kwargs), **kwargs)
     def wipe_all(self) -> int:
         """This is mainly for testing."""
         keys = self._redis.keys(self._name_prefix + "*")
@@ -335,19 +332,15 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         ), int, 0)
 
 class RedisAsyncStore(_RedisBaseStore, AsyncStore):
-    def __init__(self, *, _aredis: async_redis.Redis|None=None, **kwargs):
-        super().__init__(**kwargs)
-        if _aredis is not None:
-            self._aredis = _aredis
-        else:
-            self._update_redis_args(kwargs)
-            self._aredis = async_redis.Redis(**kwargs)
+    def __init__(self, *args, _aredis: aredis.Redis|None=None, **kwargs):
+        self._aredis = aredis.Redis(**self._redis_args(kwargs)) if _aredis is None else _aredis
+        super().__init__(*args, **kwargs)
     @classmethod
     async def from_url(cls, url: str, **kwargs) -> 'RedisAsyncStore':
         # Allow passing an URL through but the content is not checked
         assert url.startswith('redis://')
-        cls._update_redis_args(kwargs)
-        return cls(_aredis=async_redis.Redis.from_url(url, **kwargs))
+        redis_kwargs = cls._redis_args(kwargs)
+        return cls(_aredis=aredis.Redis.from_url(url, **redis_kwargs), **kwargs)
     def substore(self, name: str, *args: str) -> 'RedisAsyncStore':
         return self.__class__(_aredis=self._aredis, name_prefix=self._build_name_prefix(
             self._name_prefix, name, *args

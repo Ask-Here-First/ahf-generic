@@ -10,8 +10,8 @@ from .basic import MemoryValueStore
 from .files import FileIOValueStore
 
 _value_store_constructors: dict[str,type[ValueStore]] = {
-    'memory': MemoryValueStore,
-    'file': FileIOValueStore,
+    MemoryValueStore.URL_SCHEME: MemoryValueStore,
+    FileIOValueStore.URL_SCHEME: FileIOValueStore,
 }
 
 _async_store_constructors: dict[str,type[AsyncStore]] = {
@@ -21,7 +21,9 @@ def _get_scheme(url: str) -> str:
     return url[:url.index('://')]
 
 def is_local_store_url(url: str) -> bool:
-    return any(url.startswith(x) for x in ("file://", "memory://"))
+    return _get_scheme(url) in (
+        MemoryValueStore.URL_SCHEME, FileIOValueStore.URL_SCHEME
+    )
 
 def is_dbsql_store_url(url: str) -> bool:
     scheme = _get_scheme(url)
