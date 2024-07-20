@@ -104,11 +104,11 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         self._redis = redis.Redis(**self._redis_args(kwargs)) if _redis is None else _redis
         super().__init__(*args, **kwargs)
     @classmethod
-    def from_url(cls, url: str, **kwargs) -> 'RedisValueStore':
+    def from_url(cls, url: str, *args, **kwargs) -> 'RedisValueStore':
         # Allow passing an URL through but the content is not checked
         assert url.startswith('redis://')
         redis_kwargs = cls._redis_args(kwargs)
-        return cls(_redis=redis.Redis.from_url(url, **redis_kwargs), **kwargs)
+        return cls(*args, _redis=redis.Redis.from_url(url, **redis_kwargs), **kwargs)
     def wipe_all(self) -> int:
         """This is mainly for testing."""
         keys = self._redis.keys(self._name_prefix + "*")
@@ -336,11 +336,11 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         self._aredis = aredis.Redis(**self._redis_args(kwargs)) if _aredis is None else _aredis
         super().__init__(*args, **kwargs)
     @classmethod
-    async def from_url(cls, url: str, **kwargs) -> 'RedisAsyncStore':
+    async def from_url(cls, url: str, *args, **kwargs) -> 'RedisAsyncStore':
         # Allow passing an URL through but the content is not checked
         assert url.startswith('redis://')
         redis_kwargs = cls._redis_args(kwargs)
-        return cls(_aredis=aredis.Redis.from_url(url, **redis_kwargs), **kwargs)
+        return cls(*args, _aredis=aredis.Redis.from_url(url, **redis_kwargs), **kwargs)
     def substore(self, name: str, *args: str) -> 'RedisAsyncStore':
         return self.__class__(_aredis=self._aredis, name_prefix=self._build_name_prefix(
             self._name_prefix, name, *args
