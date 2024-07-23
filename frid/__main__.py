@@ -605,6 +605,10 @@ class TestLoaderAndDumper(unittest.TestCase):
 
 
 class TestQuantity(unittest.TestCase):
+    @staticmethod
+    def _to_dict(value, **kwargs):
+        return {'': value, **kwargs}
+
     def test_quantity(self):
         self.assertEqual(Quantity("5ft8in").value(), {'ft': 5, 'in': 8})
         self.assertEqual(Quantity("5ft-3in ").value(dict), {'ft': 5, 'in': -3})
@@ -612,12 +616,25 @@ class TestQuantity(unittest.TestCase):
         self.assertEqual(Quantity("5ft+8in").value({'ft': 12, 'in': 1}), 68)
 
         self.assertEqual(Quantity("5ft8", ['ft', '']).value(), {'ft': 5, '': 8})
+        self.assertEqual(Quantity("5ft8", ['ft', '']).value(self._to_dict), {'ft': 5, '': 8})
         self.assertEqual(Quantity("5ft8", {'foot': ['ft', 'feet'], 'inch': ['in', '']}).value(),
                         {'foot': 5, 'inch': 8})
         self.assertEqual(Quantity("5ft8.1").value({'ft': 12}), 68.1)
 
         for s in ("5ft8in", "5ft-8in", "-5ft+8.1in", "-5ft8.0in", "-5ft8", "-5ft+8"):
             self.assertEqual(str(Quantity(s)), s)
+
+    def test_quantity_negative(self):
+        with self.assertRaises(ValueError):
+            Quantity("3ft", ["ft", 'ft'])
+        with self.assertRaises(ValueError):
+            Quantity("3ft", 8) # type: ignore -- negative test with bad data type
+        with self.assertRaises(ValueError):
+            Quantity("3feet2meter", {"foot": ['ft', 'feet']})
+        with self.assertRaises(ValueError):
+            Quantity("3feet2foot", {"foot": ['ft', 'feet']})
+        with self.assertRaises(ValueError):
+            Quantity("                3feet  1inches @                          ")
 
 if __name__ == '__main__':
     if _cov is not None:

@@ -148,8 +148,8 @@ class Quantity:
     @overload
     def value(self, scaling: Mapping[str,float], /) -> float: ...
     @overload
-    def value(self, scaling: Callable[...,_T]) -> _T: ...
-    def value(self, scaling: Mapping[str,float]|Callable|None=None):
+    def value(self, scaling: Callable[...,_T], /) -> _T: ...
+    def value(self, scaling: Mapping[str,float]|Callable|None=None, /):
         """Converts the quality to a single value according to the scaling.
         - If `scaling` is not given, just return the data as is (a mapping).
         - If `scaling` is a map mapping a unit string to a float or int value,
