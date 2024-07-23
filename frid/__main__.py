@@ -29,6 +29,7 @@ from .strops import escape_control_chars, revive_control_chars, str_transform, s
 from .helper import Comparator, Substitute, get_func_name, get_qual_name, get_type_name
 from .dumper import dump_args_str, dump_frid_tio, dump_frid_str, frid_redact
 from .loader import FridParseError, load_frid_str, load_frid_tio
+from .number import Quantity
 
 class TestChrono(unittest.TestCase):
     def test_parse(self):
@@ -602,6 +603,21 @@ class TestLoaderAndDumper(unittest.TestCase):
             'a': PRESENT, 'b': [3], 'c': [], 'd': PRESENT, 'e': PRESENT,
         })
 
+
+class TestQuantity(unittest.TestCase):
+    def test_quantity(self):
+        self.assertEqual(Quantity("5ft8in").value(), {'ft': 5, 'in': 8})
+        self.assertEqual(Quantity("5ft-3in ").value(dict), {'ft': 5, 'in': -3})
+        self.assertEqual(Quantity("-5ft8.1in").value(), {'ft': -5, 'in': -8.1})
+        self.assertEqual(Quantity("5ft+8in").value({'ft': 12, 'in': 1}), 68)
+
+        self.assertEqual(Quantity("5ft8", ['ft', '']).value(), {'ft': 5, '': 8})
+        self.assertEqual(Quantity("5ft8", {'foot': ['ft', 'feet'], 'inch': ['in', '']}).value(),
+                        {'foot': 5, 'inch': 8})
+        self.assertEqual(Quantity("5ft8.1").value({'ft': 12}), 68.1)
+
+        for s in ("5ft8in", "5ft-8in", "-5ft+8.1in", "-5ft8.0in", "-5ft8", "-5ft+8"):
+            self.assertEqual(str(Quantity(s)), s)
 
 if __name__ == '__main__':
     if _cov is not None:
