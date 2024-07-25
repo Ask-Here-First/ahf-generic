@@ -2,7 +2,7 @@ import math, base64
 from collections.abc import Callable, Iterable, Mapping, Sequence, Set
 from typing import Any, Literal, TextIO, overload
 
-from .typing import MISSING, PRESENT, FridBeing, BlobTypes, FridNameArgs, ValueArgs
+from .typing import MISSING, PRESENT, FridBasic, FridBeing, BlobTypes, FridNameArgs, ValueArgs
 from .typing import FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
 from .chrono import DateTypes, strfr_datetime, timeonly, datetime, dateonly
 from .guards import is_frid_identifier, is_frid_quote_free, is_list_like
@@ -171,6 +171,8 @@ class FridDumper(PrettyPrint):
             if self.print_blob is not None and (out := self.print_blob(data)) is not None:
                 return self._maybe_quoted(".." + out, path)
             return self.blob_to_str(data, path)
+        if isinstance(data, FridBasic):
+            return data.frid_repr()
         if self.json_level or self.json_level == '':
             return None
         # If if a string has non-ascii with ascii_only configfation, quotes are needed
@@ -382,6 +384,8 @@ def frid_redact(data, depth: int=16) -> FridValue|FridBeing:
         return 't'
     if isinstance(data, datetime|dateonly):
         return 'd'
+    if isinstance(data, FridBasic):
+        return data.__class__.__name__
     if isinstance(data, FridMixin):
         return data.frid_keys()[0]
     if isinstance(data, FridBeing):

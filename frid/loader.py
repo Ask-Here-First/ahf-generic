@@ -3,7 +3,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence, Set
 from typing import  Any, Literal, NoReturn, TextIO, TypeVar, cast
 
 from .typing import (
-    PRESENT, BlobTypes, DateTypes, FridArray, FridBeing, FridMapVT,
+    PRESENT, BlobTypes, DateTypes, FridArray, FridBasic, FridBeing, FridMapVT,
     FridMixin, FridPrime, FridSeqVT, FridValue, FridNameArgs, StrKeyMap, ValueArgs
 )
 from .guards import (
@@ -80,6 +80,7 @@ class FridLoader:
             self, buffer: str|None=None, length: int|None=None, offset: int=0, /,
             *, json_level: Literal[0,1,5]=0, escape_seq: str|None=None,
             comments: Sequence[tuple[str,str]]=(),
+            frid_basic: Iterator[type[FridBasic]]|None=None,
             frid_mixin: Mapping[str,MixinTypeSpec]|Iterator[MixinTypeSpec]|None=None,
             parse_real: Callable[[str],int|float|None]|None=None,
             parse_date: Callable[[str],DateTypes|None]|None=None,
@@ -103,6 +104,7 @@ class FridLoader:
         self.parse_expr = parse_expr
         self.parse_misc = parse_misc
         self.frid_mixin: dict[str,MixinTypeSpec] = {}
+        self.frid_basic = list(frid_basic) if frid_basic else None
         if isinstance(frid_mixin, Mapping):
             self.frid_mixin.update(frid_mixin)
         elif frid_mixin is not None:
@@ -224,6 +226,14 @@ class FridLoader:
                 return float(s)
             except Exception:
                 pass
+        if self.frid_basic:
+            for t in self.frid_basic:
+                try:
+                    result = t.frid_from(s)
+                except Exception:
+                    pass
+                if result is not None:
+                    return result
         return default
 
     def peek_fixed_size(self, index: int, path: str, nchars: int) -> str:
