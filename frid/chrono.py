@@ -159,6 +159,8 @@ class DateTimeDiff(Quantity):
             'm': ['minute', 'minutes', 'min', 'mins'],
             's': ['second', 'seconds', 'sec', 'secs'],
         })
+    def strfr(self, *, sign: bool=True) -> str:
+        return super().strfr(sign=sign)  # Make sure start with a sign
     @classmethod
     def to_timedelta(cls, data: Mapping[str,float]) -> tuple[timedelta,int]:
         """Converts the datetime difference to timedelta.
@@ -224,13 +226,39 @@ class DateTimeDiff(Quantity):
         return self._add_months(date_time, months) + delta
 
 class DateTimeSpec(FridMixin):
+    """The relative datetime format.
+
+    There are three types of relative times that this class supports
+    1. Partial absolute time: one or more of (year, month, day, hour, minute, second, msec)
+       is set.
+    2. Relative time offset: using DateTimeDiff above.
+    3. Weekday-relative time: specify the relative weekend (Monday to Friday).
+    When applied to an absolute date/time/datetime, the three types of the relative times
+    are applied in the order as above.
+    """
+    WEEKDAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
+
     def __init__(
-            self, delta: str|float|None=None,
+            self, s1: str|float|DateTimeDiff|None=None, s2: str|float|None=None,
             /, *, year: int|None=None, month: int|None=None, day: int|None=None,
             hour: int|None=None, minute: int|None=None, second: int|None=None,
             microsecond: int|None=None, weekday: int|None=None, wd_dir: int=0,
     ):
-        self.delta = DateTimeDiff(delta) if delta is not None else None
+        self.delta = None
+        self.weekday = None
+        for s in (s1, s2):
+            if not s:
+                continue
+            if isinstance(s, DateTimeDiff):
+                assert self.delta is None
+                self.delta = s
+            elif isinstance(s, str) and s[0].isalpha():
+                assert self.weekday is None
+                (self.weekday, self.wd_dir) = self.parse_weekday_str(s.strip())
+            elif isinstance(s, str|float):
+                self.delta = DateTimeDiff(s)
+            else:
+                raise ValueError(f"Invalid input type: {type(s)}")
         self.year = year
         self.month = month
         self.day = day
@@ -238,14 +266,33 @@ class DateTimeSpec(FridMixin):
         self.minute = minute
         self.second = second
         self.microsecond = microsecond
-        self.weekday = weekday
-        self.wd_dir = wd_dir
+        if self.weekday is not None:
+            self.weekday = weekday
+            self.wd_dir = wd_dir
     def frid_repr(self) -> FridNameArgs:
         return FridNameArgs(self.__class__.__name__, [self.delta], {
             'year': self.year, 'month': self.month, 'day': self.day,
             'hour': self.hour, 'minute': self.minute, 'second': self.second,
             'microsecond': self.microsecond, 'weekday': self.weekday, 'wd_dir': self.wd_dir,
         })
+    @classmethod
+    def parse_weekday_str(cls, s: str) -> tuple[int,int]:
+        assert len(s) >= 3, "The weekday spec is in the format of DDD[+-[N]]"
+        weekday = cls.WEEKDAYS.index(s[:3])
+        i = 3
+        # Skip all remaining letters
+        while i < len(s) and s[i].isalpha():
+            i += 1
+        if i >= len(s):
+            return (weekday, 0)
+        match s[i]:
+            case '+':
+                wd_dir = 1 if i + 1 == len(s) else int(s[(i+1):])
+            case '-':
+                wd_dir = -1 if i + 1 == len(s) else -int(s[(i+1):])
+            case _:
+                raise ValueError(f"Invalid weekday format: {s}")
+        return (weekday, wd_dir)
     def _get_carry_by_dir(self, value: int, base: int, dir: Literal[0,1,-1]) -> Literal[0,1,-1]:
         if dir > 0:
             if value < base:

@@ -119,7 +119,7 @@ class Quantity(FridBasic):
     def __str__(self):
         return self.strfr()
 
-    def strfr(self) -> str:
+    def strfr(self, *, sign: bool=False) -> str:
         """String formated representation -- a normalized representation that can be parsed."""
         negated = False
         out = []
@@ -146,6 +146,8 @@ class Quantity(FridBasic):
             elif negated:
                 out.append('+')
             out.append(s)
+        if sign and out and out[0] and out[0][0] not in "+-":
+            return '+' + ''.join(out)
         return ''.join(out)
 
     @overload
