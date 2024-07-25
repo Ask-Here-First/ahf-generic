@@ -47,9 +47,9 @@ class FridBasic(ABC):
         """Convert the data to string representation"""
         return self.__str__()
     @classmethod
-    def frid_from(cls: type[_B], s: str, /) -> _B|None:
+    def frid_from(cls: type[_B], s: str, /, *args, **kwargs) -> _B|None:
         """Construct from string reprentation"""
-        return cls(s) # type: ignore
+        return cls(s, *args, **kwargs) # type: ignore
 
 class FridMixin(ABC):
     """The abstract base frid class to be loadable and dumpable.

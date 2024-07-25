@@ -44,6 +44,7 @@ class DummyMixin(FridMixin):
     def frid_repr(self) -> FridNameArgs:
         return FridNameArgs(self.name, self.args or (), self.kwds or {})
 
+BasicTypeSpec = type[FridBasic]|ValueArgs[type[FridBasic]]
 MixinTypeSpec = type[FridMixin]|ValueArgs[type[FridMixin]]
 
 class FridLoader:
@@ -80,7 +81,7 @@ class FridLoader:
             self, buffer: str|None=None, length: int|None=None, offset: int=0, /,
             *, json_level: Literal[0,1,5]=0, escape_seq: str|None=None,
             comments: Sequence[tuple[str,str]]=(),
-            frid_basic: Iterator[type[FridBasic]]|None=None,
+            frid_basic: Iterator[BasicTypeSpec]|None=None,
             frid_mixin: Mapping[str,MixinTypeSpec]|Iterator[MixinTypeSpec]|None=None,
             parse_real: Callable[[str],int|float|None]|None=None,
             parse_date: Callable[[str],DateTypes|None]|None=None,
@@ -103,8 +104,8 @@ class FridLoader:
         self.parse_blob = parse_blob
         self.parse_expr = parse_expr
         self.parse_misc = parse_misc
-        self.frid_mixin: dict[str,MixinTypeSpec] = {}
         self.frid_basic = list(frid_basic) if frid_basic else None
+        self.frid_mixin: dict[str,MixinTypeSpec] = {}
         if isinstance(frid_mixin, Mapping):
             self.frid_mixin.update(frid_mixin)
         elif frid_mixin is not None:
@@ -229,7 +230,10 @@ class FridLoader:
         if self.frid_basic:
             for t in self.frid_basic:
                 try:
-                    result = t.frid_from(s)
+                    if isinstance(t, ValueArgs):
+                        result = t.data.frid_from(s, *t.args, **t.kwds)
+                    else:
+                        result = t.frid_from(s)
                 except Exception:
                     continue
                 if result is not None:
