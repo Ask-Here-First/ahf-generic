@@ -231,7 +231,7 @@ class FridLoader:
                 try:
                     result = t.frid_from(s)
                 except Exception:
-                    pass
+                    continue
                 if result is not None:
                     return result
         return default
