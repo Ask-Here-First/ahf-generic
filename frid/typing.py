@@ -11,6 +11,7 @@ DateTypes = dateonly|timeonly|datetime   # Note that datetime in Python is deriv
 # FRID types follow (Flexibly represented inteactive data)
 
 _T = TypeVar('_T')
+_B = TypeVar('_B', bound='FridBasic')
 _M = TypeVar('_M', bound='FridMixin')
 
 class FridBeing(Enum):
@@ -40,6 +41,15 @@ PresentType = Literal[FridBeing.PRESENT]
 MissingType = Literal[FridBeing.MISSING]
 PRESENT: PresentType = FridBeing.PRESENT
 MISSING: MissingType = FridBeing.MISSING
+
+class FridBasic(ABC):
+    def frid_repr(self) -> str:
+        """Convert the data to string representation"""
+        return self.__str__()
+    @classmethod
+    def frid_from(cls: type[_B], s: str, /) -> _B|None:
+        """Construct from string reprentation"""
+        return cls(s) # type: ignore
 
 class FridMixin(ABC):
     """The abstract base frid class to be loadable and dumpable.
@@ -74,7 +84,7 @@ class FridMixin(ABC):
         raise NotImplementedError
 
 # The Prime types must all be immutable and hashable
-FridPrime = str|float|int|bool|BlobTypes|DateTypes|None
+FridPrime = str|float|int|bool|BlobTypes|DateTypes|FridBasic|None
 FridExtra = FridMixin|Set[FridPrime]  # Only set of primes, no other
 FridMapVT = Mapping|Sequence|FridPrime|FridExtra|FridBeing  # Allow PRESENT/MISSING for dict
 StrKeyMap = Mapping[str,FridMapVT]

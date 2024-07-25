@@ -2,9 +2,11 @@ import re
 from collections.abc import Mapping, Iterable, Callable
 from typing import NoReturn, TypeVar, overload
 
+from .typing import FridBasic
+
 _T = TypeVar('_T')
 
-class Quantity:
+class Quantity(FridBasic):
     """Data for a dimensional quantity with value-unit pairs.
 
     The constructor accepts a string as input and parse it into a dictionary
@@ -28,7 +30,7 @@ class Quantity:
       or a mapping with canonical unit as keys and list of aliases as values.
       By default, all units are accepted as different units.
     """
-    def __init__(self, s: str,
+    def __init__(self, s: str|float,
                  /, units: Mapping[str,Iterable[str]|None]|Iterable[str]|None=None):
         if units is None:
             alias = None
@@ -48,7 +50,10 @@ class Quantity:
                 alias[v] = v
         else:
             raise ValueError(f"Invalid type for units: {type(units)}")
-        self._data = self.parse(s, alias)
+        if isinstance(s, int|float):
+            self._data = {('' if alias is None else alias['']): s}
+        else:
+            self._data = self.parse(s, alias)
 
     @staticmethod
     def _make_error(s: str, p: int, msg: str) -> NoReturn:
