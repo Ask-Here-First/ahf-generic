@@ -624,6 +624,13 @@ class TestQuantity(unittest.TestCase):
         for s in ("5ft8in", "5ft-8in", "-5ft+8.1in", "-5ft8.0in", "-5ft8", "-5ft+8"):
             self.assertEqual(str(Quantity(s)), s)
 
+    def test_quantity_ops(self):
+        self.assertFalse(Quantity(""))
+        self.assertTrue(Quantity("5ft"))
+        self.assertEqual(Quantity("5ft8in"), Quantity("8in5ft"))
+        self.assertEqual(Quantity("5ft8in") + Quantity("1ft2in"), Quantity("6ft10in"))
+        self.assertEqual(Quantity("5ft8in") - Quantity("1ft2in"), Quantity("4ft6in"))
+
     def test_quantity_negative(self):
         with self.assertRaises(ValueError):
             Quantity("3ft", ["ft", 'ft'])

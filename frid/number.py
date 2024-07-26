@@ -3,6 +3,7 @@ from collections.abc import Mapping, Iterable, Callable
 from typing import NoReturn, TypeVar, overload
 
 from .typing import FridBasic
+from .guards import is_dict_like
 
 _T = TypeVar('_T')
 
@@ -25,13 +26,25 @@ class Quantity(FridBasic):
     - Only last pair can have an empty-string unit (i.e., string may ends with
       a number).
 
-    Construct arguments:
+    Constructor arguments:
+    - The first positional argument is either a string (parsed), a float
+      (handled as a single quantity item with empty unit), and a map
+      (it is copy is used directly as internal data structure)
     - `units`: a list of string for allowed units (including an emptry string),
       or a mapping with canonical unit as keys and list of aliases as values.
       By default, all units are accepted as different units.
+
+    Operations:
+    - Empty quantity (with zero number-unit pairs) is boolean false; otherwise it is true.
+    - Two quantities are equal only if each number-unit pair are equal.
+    - Quantities can be added and subtracted.
     """
-    def __init__(self, s: str|float,
+    def __init__(self, s: str|float|Mapping[str,float],
                  /, units: Mapping[str,Iterable[str]|None]|Iterable[str]|None=None):
+        if isinstance(s, Mapping):
+            assert is_dict_like(s, lambda x: isinstance(x, (float, int)))
+            self._data = dict(s)
+            return
         if units is None:
             alias = None
         elif isinstance(units, Mapping):
@@ -116,8 +129,40 @@ class Quantity(FridBasic):
             cls._make_error(s, pos, f"Trailing text of {len(s) - pos} chars")
         return out
 
+    def __bool__(self):
+        return bool(self._data)
     def __str__(self):
         return self.strfr()
+    def __eq__(self, other):
+        if self is other:
+            return True
+        keys = set(self._data.keys())
+        keys.union(other._data.keys())
+        return all(self._data.get(k, 0) == other._data.get(k, 0) for k in keys)
+    def __iadd__(self, other):
+        if not isinstance(other, Quantity):
+            return NotImplemented
+        for u, v in other._data.items():
+            if v == 0:
+                continue
+            self._data[u] = self._data.get(u, 0) + v
+        return self
+    def __add__(self, other):
+        out = self.__class__(self._data)
+        out.__iadd__(other)
+        return out
+    def __isub__(self, other):
+        if not isinstance(other, Quantity):
+            return NotImplemented
+        for u, v in other._data.items():
+            if v == 0:
+                continue
+            self._data[u] = self._data.get(u, 0) - v
+        return self
+    def __sub__(self, other):
+        out = Quantity(self._data)
+        out.__isub__(other)
+        return out
 
     def strfr(self, *, sign: bool=False) -> str:
         """String formated representation -- a normalized representation that can be parsed."""

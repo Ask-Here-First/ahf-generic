@@ -159,6 +159,16 @@ class DateTimeDiff(Quantity):
             'm': ['minute', 'minutes', 'min', 'mins'],
             's': ['second', 'seconds', 'sec', 'secs'],
         })
+    def __radd__(self, other):
+        if isinstance(other, DateTimeDiff):
+            return self.add_to_timediff(other)
+        if isinstance(other, datetime):
+            return self.add_to_datetime(other)
+        if isinstance(other, dateonly):
+            return self.add_to_dateonly(other)
+        if isinstance(other, timeonly):
+            return self.add_to_timeonly(other)
+        return NotImplemented
     def strfr(self, *, sign: bool=True) -> str:
         return super().strfr(sign=sign)  # Make sure start with a sign
     @classmethod
@@ -204,6 +214,9 @@ class DateTimeDiff(Quantity):
         # Doing the following to avoid the problem that the day is not allowed for the month
         return dateonly(year, month, 1) + timedelta(days=(base.day - 1))
 
+    def add_to_timediff(self, time_diff: 'DateTimeDiff') -> 'DateTimeDiff':
+        """Add the date time diff to other date time diff."""
+        return super().__add__(time_diff)
     def add_to_timeonly(self, base_time: timeonly) -> tuple[timeonly,int]:
         """Add the date time diff to the time given by Python time.
         - Returns a tuple: the new time and the offset in terms number of days.
@@ -226,7 +239,7 @@ class DateTimeDiff(Quantity):
         return self._add_months(date_time, months) + delta
 
 class DateTimeSpec(FridMixin):
-    """The relative datetime format.
+    """The relative datetime specification.
 
     There are three types of relative times that this class supports
     1. Partial absolute time: one or more of (year, month, day, hour, minute, second, msec)
@@ -269,6 +282,14 @@ class DateTimeSpec(FridMixin):
         if self.weekday is not None:
             self.weekday = weekday
             self.wd_dir = wd_dir
+    def __radd__(self, other):
+        if isinstance(other, datetime):
+            return self.add_to_datetime(other)
+        if isinstance(other, dateonly):
+            return self.add_to_dateonly(other)
+        if isinstance(other, timeonly):
+            return self.add_to_timeonly(other)
+        return NotImplemented
     def frid_repr(self) -> FridNameArgs:
         return FridNameArgs(self.__class__.__name__, [self.delta], {
             'year': self.year, 'month': self.month, 'day': self.day,
@@ -277,6 +298,7 @@ class DateTimeSpec(FridMixin):
         })
     @classmethod
     def parse_weekday_str(cls, s: str) -> tuple[int,int]:
+        """Parse the weekday string in the format like `FRI`, 'TUE-`, and `SUN+2`."""
         assert len(s) >= 3, "The weekday spec is in the format of DDD[+-[N]]"
         weekday = cls.WEEKDAYS.index(s[:3])
         i = 3
@@ -294,6 +316,10 @@ class DateTimeSpec(FridMixin):
                 raise ValueError(f"Invalid weekday format: {s}")
         return (weekday, wd_dir)
     def _get_carry_by_dir(self, value: int, base: int, dir: Literal[0,1,-1]) -> Literal[0,1,-1]:
+        """Check `value` against `base` to decide a carry of 1 or -1 (borrow) is needed.
+        - `dir`: >0 (<0) if the `value` must be no less (more) than `base`.
+        - Returns 0 if no carry, 1 if it has a carry, or -1 if it requires to borrow.
+        """
         if dir > 0:
             if value < base:
                 return 1
@@ -303,6 +329,7 @@ class DateTimeSpec(FridMixin):
         return 0
     def _replace_timeonly(self, base_time: timeonly,
                           time_dir: Literal[0,1,-1]=0) -> tuple[timeonly,Literal[0,1,-1]]:
+        """Replaces the fields in `base_time` with partial absolute time fields in self."""
         hour = base_time.hour if self.hour is None else self.hour
         minute = base_time.minute if self.minute is None else self.minute
         second = base_time.second if self.second is None else self.second
@@ -319,6 +346,7 @@ class DateTimeSpec(FridMixin):
                 second += self._get_carry_by_dir(msec, base_time.microsecond, time_dir)
         return (timeonly(hour, minute, second, tzinfo=base_time.tzinfo), carry)
     def _replace_dateonly(self, base_date: dateonly, date_dir: Literal[0,1,-1]=0) -> dateonly:
+        """Replaces the fields in `base_date` with partial absolute time fields in self."""
         year = base_date.year if self.year is None else self.year
         month = base_date.month if self.month is None else self.month
         day = base_date.day if self.day is None else self.day
@@ -329,6 +357,7 @@ class DateTimeSpec(FridMixin):
                 month += self._get_carry_by_dir(day, base_date.day, date_dir)
         return dateonly(year, month, day)
     def _replace_datetime(self, date_time: datetime, dt_dir: Literal[0,1,-1]) -> datetime:
+        """Replaces the fields in `date_time` with partial absolute time fields in self."""
         tm_dir = dt_dir if self.year is None and self.month is None and self.day is None else 0
         (time, carry) = self._replace_timeonly(date_time.time(), tm_dir)
         date = self._replace_dateonly(date_time.date(), dt_dir)
@@ -336,6 +365,9 @@ class DateTimeSpec(FridMixin):
             date += timedelta(days=carry)
         return datetime.combine(date, time)
     def _find_rel_weekday(self, base_date: dateonly):
+        """Finds the relative weekday based on `base_date`.
+        - This method uses `self.weekday`, and `self.wd_dir`.
+        """
         if self.weekday is None:
             return base_date
         days = self.weekday - base_date.weekday()  # 0 is Monday and 6 is Sunday
@@ -344,19 +376,32 @@ class DateTimeSpec(FridMixin):
         elif self.wd_dir < 0:
             days = 7 * (self.wd_dir + int(days <= 0))
         return base_date + timedelta(days=days)
-    def add_to_timeonly(self, time: timeonly, dt_dir: Literal[0,1,-1]) -> tuple[timeonly,int]:
-        (time, carry1) = self._replace_timeonly(time)
+    def add_to_timeonly(self, base_time: timeonly,
+                        dt_dir: Literal[0,1,-1]=0) -> tuple[timeonly,int]:
+        """Adds this relative time to the absolute `base_time`.
+        - `dt_dir`: 1 to look forward only, and -1 to look backward only.
+        - Returns the sum and the extra offset in the number of days.
+        """
+        (time, carry1) = self._replace_timeonly(base_time, dt_dir)
         if self.delta is None:
             return (time, carry1)
         (time, carry2) = self.delta.add_to_timeonly(time)
         return (time, carry1 + carry2)
-    def add_to_dateonly(self, base_date: dateonly, dt_dir: Literal[0,1,-1]) -> dateonly:
+    def add_to_dateonly(self, base_date: dateonly, dt_dir: Literal[0,1,-1]=0) -> dateonly:
+        """Adds this relative time to the absolute `base_date`.
+        - `dt_dir`: 1 to look forward only, and -1 to look backward only.
+        - Returns the sum and the extra offset in the number of days.
+        """
         date = self._replace_dateonly(base_date, dt_dir)
         if self.delta is None:
             return date
         date = self.delta.add_to_dateonly(date)
         return self._find_rel_weekday(date)
-    def add_to_datetime(self, date_time: datetime, dt_dir: Literal[0,1,-1]) -> datetime:
+    def add_to_datetime(self, date_time: datetime, dt_dir: Literal[0,1,-1]=0) -> datetime:
+        """Adds this relative time to the absolute `date_time`.
+        - `dt_dir`: 1 to look forward only, and -1 to look backward only.
+        - Returns the sum and the extra offset in the number of days.
+        """
         out = self._replace_datetime(date_time, dt_dir)
         if self.delta is None:
             return out

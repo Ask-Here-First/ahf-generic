@@ -87,8 +87,18 @@ def is_dict_like(
 @overload
 def is_dict_like(
         data, /, vtype: Callable[[Any],TypeGuard[V]], ktype: type[K]=str,
-        *, allow_none: Literal[True]|bool
+        *, allow_none: Literal[True]
 ) -> TypeGuard[Mapping[K,V|None]]: ...
+@overload
+def is_dict_like(
+        data, /, vtype: Callable[[Any],bool], ktype: type[K]=str,
+        *, allow_none: Literal[False]=False
+) -> TypeGuard[Mapping[K,Any]]: ...
+@overload
+def is_dict_like(
+        data, /, vtype: Callable[[Any],bool], ktype: type[K]=str,
+        *, allow_none: Literal[True]|bool
+) -> TypeGuard[Mapping[K,Any]]: ...
 def is_dict_like(
         data, /, vtype: Callable[[Any],bool]|type|None=None,
         ktype: type=str, *, allow_none=False
