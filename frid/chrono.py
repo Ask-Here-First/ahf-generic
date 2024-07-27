@@ -1,5 +1,5 @@
 import re, math
-from datetime import timezone, timedelta
+from datetime import timezone, timedelta, tzinfo
 from typing import Literal, Mapping, overload
 
 from frid.typing import FridNameArgs
@@ -123,7 +123,7 @@ def timeonly_to_seconds(time: timeonly) -> float:
         return out
     return out + (time.microsecond / 1E6)
 
-def seconds_to_timeonly(sec: float, tzinfo: timezone|None=None) -> tuple[timeonly,int]:
+def seconds_to_timeonly(sec: float, tzinfo: tzinfo|None=None) -> tuple[timeonly,int]:
     """Converts the number of seconds since the midnight to a time object.
     - `tzinfo` is the timezone to construct the time object.
     - Returns a pair of the time object and the offset in terms the number of days.
@@ -225,7 +225,7 @@ class DateTimeDiff(Quantity):
         """
         (delta, months) = self.to_timedelta(self.value())
         (time, days) = seconds_to_timeonly(
-            timeonly_to_seconds(base_time) + delta.total_seconds()
+            timeonly_to_seconds(base_time) + delta.total_seconds(), base_time.tzinfo
         )
         # The offset of months will be truncated into days to avoid changing the time
         return (time, days + int(months * self.DAYS_PER_MONTH))
@@ -309,6 +309,11 @@ class DateTimeSpec(FridMixin):
         if weekday is not None:
             self.weekday = weekday
             self.wd_dir = wd_dir
+    def __bool__(self):
+        return (self.delta is not None and bool(self.delta)) or not all(x is None for x in (
+            self.year, self.month, self.day, self.weekday,
+            self.hour, self.minute, self.second, self.microsecond,
+        ))
     def __radd__(self, other):
         if isinstance(other, datetime):
             return self.add_to_datetime(other)
@@ -361,17 +366,23 @@ class DateTimeSpec(FridMixin):
         minute = base_time.minute if self.minute is None else self.minute
         second = base_time.second if self.second is None else self.second
         msec = base_time.microsecond if self.microsecond is None else self.microsecond
-        carry = 0
-        if time_dir:
-            if self.hour is not None:
-                carry = self._get_carry_by_dir(hour, base_time.hour, time_dir)
-            elif self.minute is not None:
-                hour += self._get_carry_by_dir(minute, base_time.minute, time_dir)
-            elif self.second is not None:
-                minute += self._get_carry_by_dir(second, base_time.second, time_dir)
-            elif self.microsecond is not None:
-                second += self._get_carry_by_dir(msec, base_time.microsecond, time_dir)
-        return (timeonly(hour, minute, second, tzinfo=base_time.tzinfo), carry)
+        time = timeonly(hour, minute, second, msec, tzinfo=base_time.tzinfo)
+        if not time_dir:
+            return (time, 0)
+        if self.hour is not None:
+            carry = self._get_carry_by_dir(hour, base_time.hour, time_dir)
+            return (time, carry)
+        if self.minute is not None:
+            delta = 3600 * self._get_carry_by_dir(minute, base_time.minute, time_dir)
+        elif self.second is not None:
+            delta = 60 * self._get_carry_by_dir(second, base_time.second, time_dir)
+        elif self.microsecond is not None:
+            delta = self._get_carry_by_dir(msec, base_time.microsecond, time_dir)
+        else:
+            return (time, 0)
+        (time, carry) = seconds_to_timeonly(timeonly_to_seconds(time) + delta, time.tzinfo)
+        assert carry in (0, 1, -1)
+        return (time, carry)
     def _replace_dateonly(self, base_date: dateonly, date_dir: Literal[0,1,-1]=0) -> dateonly:
         """Replaces the fields in `base_date` with partial absolute time fields in self."""
         year = base_date.year if self.year is None else self.year
@@ -382,7 +393,9 @@ class DateTimeSpec(FridMixin):
                 year += self._get_carry_by_dir(month, base_date.month, date_dir)
             elif self.day is not None:
                 month += self._get_carry_by_dir(day, base_date.day, date_dir)
-        return dateonly(year, month, day)
+        if day <= 28:
+            return dateonly(year, month, day)
+        return dateonly(year, month, 1) + timedelta(day - 1)
     def _replace_datetime(self, date_time: datetime, dt_dir: Literal[0,1,-1]) -> datetime:
         """Replaces the fields in `date_time` with partial absolute time fields in self."""
         tm_dir = dt_dir if self.year is None and self.month is None and self.day is None else 0
@@ -435,4 +448,4 @@ class DateTimeSpec(FridMixin):
         new_date = self._find_rel_weekday(date)
         if new_date == date:
             return out
-        return datetime.combine(date, out.time())
+        return datetime.combine(new_date, out.time())

@@ -106,15 +106,42 @@ class TestChrono(unittest.TestCase):
             assert object() + DateTimeDiff("1d")
 
     def test_datetimespec(self):
+        self.assertFalse(DateTimeSpec())
+        self.assertTrue(DateTimeSpec("+1s"))
+        self.assertTrue(DateTimeSpec(hour=4))
+        self.assertTrue(DateTimeSpec("TUE"))
         self.assertEqual(dateonly(2020, 2, 4) + DateTimeSpec("+1m3h"), dateonly(2020, 2, 4))
+        self.assertEqual(timeonly(10, 2, 4) + DateTimeSpec(), timeonly(10, 2, 4))
         self.assertEqual(timeonly(10, 2, 4) + DateTimeSpec("+1m3h"), timeonly(13, 3, 4))
         self.assertEqual(datetime(2020, 2, 4) + DateTimeSpec("+1m3h"),
                          datetime(2020, 2, 4, 3, 1))
         self.assertEqual(datetime(2020, 2, 4, 10, 55, 3) + DateTimeSpec(
             - DateTimeDiff("-1mo1d"), month=6, time="03:05:20"
         ), datetime(2020, 7, 5, 3, 5, 20))
+        self.assertEqual(DateTimeSpec(month=5).add_to_dateonly(dateonly(2024, 7, 1), 1),
+                         dateonly(2025, 5, 1))
+        self.assertEqual(DateTimeSpec(month=5).add_to_dateonly(dateonly(2024, 7, 1), -1),
+                         dateonly(2024, 5, 1))
+        self.assertEqual(DateTimeSpec(month=6).add_to_dateonly(dateonly(2024, 5, 31), 1),
+                         dateonly(2024, 7, 1))
+        self.assertEqual(DateTimeSpec(month=6).add_to_dateonly(dateonly(2024, 5, 31), -1),
+                         dateonly(2023, 7, 1))
+        self.assertEqual(DateTimeSpec(day=29).add_to_dateonly(dateonly(2023, 3, 28), -1),
+                         dateonly(2023, 3, 1))
+        self.assertEqual(DateTimeSpec(minute=5).add_to_timeonly(timeonly(20, 30, 40), 1),
+                         (timeonly(21, 5, 40), 0))
+        self.assertEqual(DateTimeSpec(minute=30).add_to_timeonly(timeonly(20, 30, 40), -1),
+                         (timeonly(20, 30, 40), 0))
+        self.assertEqual(DateTimeSpec(minute=30).add_to_timeonly(timeonly(0, 10, 40), -1),
+                         (timeonly(23, 30, 40), -1))
+        self.assertEqual(DateTimeSpec(second=30).add_to_timeonly(timeonly(23, 59, 59), 1),
+                         (timeonly(0, 0, 30), 1))
+        self.assertEqual(DateTimeSpec(microsecond=0).add_to_timeonly(timeonly(23, 59, 59, 1), 1),
+                         (timeonly(0, 0, 0), 1))
+        self.assertEqual(DateTimeSpec(month=10).add_to_timeonly(timeonly(12, 34, 56, 7890), -1),
+                         (timeonly(12, 34, 56, 7890), 0))
         # 2024-07-25 is a Thursay
-        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("FRI"), dateonly(2024, 7, 26))
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("FRIDAY"), dateonly(2024, 7, 26))
         self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("THU"), dateonly(2024, 7, 25))
         self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("WED"), dateonly(2024, 7, 24))
         self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("FRI+"), dateonly(2024, 7, 26))
@@ -129,6 +156,22 @@ class TestChrono(unittest.TestCase):
         self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("FRI-1"), dateonly(2024, 7, 19))
         self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("THU-1"), dateonly(2024, 7, 25))
         self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("WED-2"), dateonly(2024, 7, 17))
+        # Mixed
+        self.assertEqual(dateonly(2024, 1, 1) + DateTimeSpec("+2d", month=7, day=23, weekday=2),
+                         dateonly(2024, 7, 24))
+        self.assertEqual(timeonly(20, 30, 40) + DateTimeSpec("-2m", hour=4, second=20),
+                         timeonly(4, 28, 20))
+        self.assertEqual(DateTimeSpec(hour=8, minute=9).add_to_datetime(
+            datetime(2020, 1, 1, 10, 20, 30), 1
+        ), datetime(2020, 1, 2, 8, 9, 30))
+        self.assertEqual(datetime(2020, 3, 4, 5, 6, 7, 800000)
+                         + DateTimeSpec("-20h", year=2024, minute=9, microsecond=20),
+                         datetime(2024, 3, 3, 9, 9, 7, 20))
+        self.assertEqual(datetime(2020, 4, 5, 6, 7, 8, 999999)
+                         + DateTimeSpec("FRI-", "+0.1s", date="2024-07-25"),
+                         datetime(2024, 7, 19, 6, 7, 9, 99999))
+        with self.assertRaises(TypeError):
+            assert object() + DateTimeSpec()
 
 class TestStrops(unittest.TestCase):
     def test_str_find_any(self):
