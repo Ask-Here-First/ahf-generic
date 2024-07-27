@@ -22,7 +22,7 @@ except ImportError:
     _cov = None
 
 from .typing import MISSING, PRESENT, FridBeing, FridMixin, FridValue, FridNameArgs, StrKeyMap, ValueArgs
-from .chrono import parse_datetime, parse_timeonly, strfr_datetime
+from .chrono import DateTimeDiff, parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode
 from .strops import escape_control_chars, revive_control_chars, str_transform, str_find_any
@@ -84,6 +84,26 @@ class TestChrono(unittest.TestCase):
                          strfr_datetime(datetime.fromtimestamp(0, timezone.utc)))
         with self.assertRaises(ValueError):
             strfr_datetime(timeonly(11, 22, 33), precision=-3)
+
+    def test_datetimediff(self):
+        self.assertEqual(DateTimeDiff("1m3h") + DateTimeDiff("+2m4d"), DateTimeDiff("+3m3h4d"))
+        self.assertEqual(str(DateTimeDiff("1year2month3days4hours5minutes6.3125seconds")),
+                         "+1yr2mo3d4h5m6.3125s")
+        self.assertEqual(dateonly(2020, 1, 3) + DateTimeDiff("+1yr1mo"), dateonly(2021, 2, 3))
+        self.assertEqual(dateonly(2020, 1, 3) + DateTimeDiff("+1.0yr1.2mo"), dateonly(2021, 2, 9))
+        self.assertEqual(dateonly(2020, 1, 3) - DateTimeDiff("+1yr1mo"), dateonly(2018, 12, 3))
+        self.assertEqual(dateonly(2020, 1, 3) + DateTimeDiff("-4d"), dateonly(2019, 12, 30))
+        self.assertEqual(dateonly(2020, 5, 30) + DateTimeDiff("+3d20mo"), dateonly(2022, 2, 2))
+        self.assertEqual(timeonly(12, 34, 56) + DateTimeDiff("+1h10m10s"), timeonly(13, 45, 6))
+        self.assertEqual(timeonly(2, 4, 6) - DateTimeDiff("+10m"), timeonly(1, 54, 6))
+        self.assertEqual(
+            DateTimeDiff("0.000001s").add_to_timeonly(timeonly(23, 59, 59, 999999)),
+            (timeonly(0, 0, 0), 1)
+        )
+        self.assertEqual(datetime(2020, 5, 30, 22, 50, 10) + DateTimeDiff("1mo1d1h15m55.7s"),
+                         datetime(2020, 7, 2, 0, 6, 5, 700000))
+        with self.assertRaises(TypeError):
+            assert object() + DateTimeDiff("1d")
 
 class TestStrops(unittest.TestCase):
     def test_str_find_any(self):

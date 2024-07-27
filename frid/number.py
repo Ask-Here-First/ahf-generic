@@ -136,9 +136,15 @@ class Quantity(FridBasic):
     def __eq__(self, other):
         if self is other:
             return True
+        if not isinstance(other, Quantity):
+            return NotImplemented
         keys = set(self._data.keys())
         keys.union(other._data.keys())
         return all(self._data.get(k, 0) == other._data.get(k, 0) for k in keys)
+    def __pos__(self):
+        return self
+    def __neg__(self):
+        return self.__class__({u: -v for u, v in self._data.items()})
     def __iadd__(self, other):
         if not isinstance(other, Quantity):
             return NotImplemented

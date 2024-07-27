@@ -128,8 +128,8 @@ def seconds_to_timeonly(sec: float, tzinfo: timezone|None=None) -> tuple[timeonl
     - `tzinfo` is the timezone to construct the time object.
     - Returns a pair of the time object and the offset in terms the number of days.
     """
-    (sec, f) = math.modf(sec)
-    msec = int(f * 1E6)
+    (frec, sec) = math.modf(sec)
+    msec = int(frec * 1E6)
     (minute, second) = divmod(int(sec), 60)
     (hour, minute) = divmod(minute, 60)
     (days, hour) = divmod(hour, 24)
@@ -152,7 +152,7 @@ class DateTimeDiff(Quantity):
     def __init__(self, s: str|float, /):
         super().__init__(s, {
             'yr': ['year', 'years', 'yrs'],
-            'mo': ['month', 'months', 'mos'],
+            'mo': ['month', 'months', 'mon', 'mons', 'mos'],
             'w': ['week', 'weeks', 'wk', 'wks'],
             'd': ['day', 'days'],
             'h': ['hour', 'hours', 'hr', 'hrs'],
@@ -167,8 +167,10 @@ class DateTimeDiff(Quantity):
         if isinstance(other, dateonly):
             return self.add_to_dateonly(other)
         if isinstance(other, timeonly):
-            return self.add_to_timeonly(other)
+            return self.add_to_timeonly(other)[0]
         return NotImplemented
+    def __rsub__(self, other):
+        return self.__neg__().__radd__(other)
     def strfr(self, *, sign: bool=True) -> str:
         return super().strfr(sign=sign)  # Make sure start with a sign
     @classmethod
@@ -185,16 +187,15 @@ class DateTimeDiff(Quantity):
         """
         args = {}
         for u, n in cls.TIME_DELTA_NAMES.items():
-            if u == 's' or 'u' not in data:
-                continue
-            args[n] = data[u]
-        days = data.get('d', 0)
+            if u in data:
+                args[n] = data[u]
+        days = args.pop('days', 0)
         year = data.get('yr', 0)
         if isinstance(year, float):
             i = int(year)  # Round towards zero
             days += (year - i) * cls.DAYS_PER_YEAR
             year = i
-        month = data.get('month', 0)
+        month = data.get('mo', 0)
         if isinstance(month, float):
             i = int(month) # Round towards zero
             days += (month - i) * cls.DAYS_PER_MONTH
@@ -209,10 +210,11 @@ class DateTimeDiff(Quantity):
         if not months:
             return base
         month = base.month + months
-        (y, month) = divmod(month, 12)
+        (y, month) = divmod(month - 1, 12)
         year = base.year + y
+        month += 1
         # Doing the following to avoid the problem that the day is not allowed for the month
-        return dateonly(year, month, 1) + timedelta(days=(base.day - 1))
+        return base.replace(year=year, month=month, day=1) + timedelta(days=(base.day - 1))
 
     def add_to_timediff(self, time_diff: 'DateTimeDiff') -> 'DateTimeDiff':
         """Add the date time diff to other date time diff."""
@@ -288,7 +290,7 @@ class DateTimeSpec(FridMixin):
         if isinstance(other, dateonly):
             return self.add_to_dateonly(other)
         if isinstance(other, timeonly):
-            return self.add_to_timeonly(other)
+            return self.add_to_timeonly(other)[0]
         return NotImplemented
     def frid_repr(self) -> FridNameArgs:
         return FridNameArgs(self.__class__.__name__, [self.delta], {
