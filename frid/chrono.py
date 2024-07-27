@@ -250,6 +250,8 @@ class DateTimeSpec(FridMixin):
     3. Weekday-relative time: specify the relative weekend (Monday to Friday).
     When applied to an absolute date/time/datetime, the three types of the relative times
     are applied in the order as above.
+
+    Note that this class do not handle timezone.
     """
     WEEKDAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
 
@@ -258,9 +260,11 @@ class DateTimeSpec(FridMixin):
             /, *, year: int|None=None, month: int|None=None, day: int|None=None,
             hour: int|None=None, minute: int|None=None, second: int|None=None,
             microsecond: int|None=None, weekday: int|None=None, wd_dir: int=0,
+            date: str|dateonly|None=None, time: str|timeonly|None=None,
     ):
         self.delta = None
         self.weekday = None
+        self.wd_dir = 0
         for s in (s1, s2):
             if not s:
                 continue
@@ -274,6 +278,27 @@ class DateTimeSpec(FridMixin):
                 self.delta = DateTimeDiff(s)
             else:
                 raise ValueError(f"Invalid input type: {type(s)}")
+        if date is not None:
+            if isinstance(date, str):
+                date = dateonly.fromisoformat(date)
+            if year is None:
+                year = date.year
+            if month is None:
+                month = date.month
+            if day is None:
+                day = date.day
+        if time is not None:
+            if isinstance(time, str):
+                time = parse_timeonly(time)
+            if time is not None:
+                if hour is None:
+                    hour = time.hour
+                if minute is None:
+                    minute = time.minute
+                if second is None:
+                    second = time.second
+                if microsecond is None:
+                    microsecond = time.microsecond
         self.year = year
         self.month = month
         self.day = day
@@ -281,7 +306,7 @@ class DateTimeSpec(FridMixin):
         self.minute = minute
         self.second = second
         self.microsecond = microsecond
-        if self.weekday is not None:
+        if weekday is not None:
             self.weekday = weekday
             self.wd_dir = wd_dir
     def __radd__(self, other):
@@ -302,7 +327,7 @@ class DateTimeSpec(FridMixin):
     def parse_weekday_str(cls, s: str) -> tuple[int,int]:
         """Parse the weekday string in the format like `FRI`, 'TUE-`, and `SUN+2`."""
         assert len(s) >= 3, "The weekday spec is in the format of DDD[+-[N]]"
-        weekday = cls.WEEKDAYS.index(s[:3])
+        weekday = cls.WEEKDAYS.index(s[:3].upper())
         i = 3
         # Skip all remaining letters
         while i < len(s) and s[i].isalpha():
@@ -374,9 +399,9 @@ class DateTimeSpec(FridMixin):
             return base_date
         days = self.weekday - base_date.weekday()  # 0 is Monday and 6 is Sunday
         if self.wd_dir > 0:
-            days = 7 * (self.wd_dir - int(days >= 0))
+            days += 7 * (self.wd_dir - int(days >= 0))
         elif self.wd_dir < 0:
-            days = 7 * (self.wd_dir + int(days <= 0))
+            days += 7 * (self.wd_dir + int(days <= 0))
         return base_date + timedelta(days=days)
     def add_to_timeonly(self, base_time: timeonly,
                         dt_dir: Literal[0,1,-1]=0) -> tuple[timeonly,int]:
@@ -395,9 +420,8 @@ class DateTimeSpec(FridMixin):
         - Returns the sum and the extra offset in the number of days.
         """
         date = self._replace_dateonly(base_date, dt_dir)
-        if self.delta is None:
-            return date
-        date = self.delta.add_to_dateonly(date)
+        if self.delta is not None:
+            date = self.delta.add_to_dateonly(date)
         return self._find_rel_weekday(date)
     def add_to_datetime(self, date_time: datetime, dt_dir: Literal[0,1,-1]=0) -> datetime:
         """Adds this relative time to the absolute `date_time`.
@@ -405,9 +429,8 @@ class DateTimeSpec(FridMixin):
         - Returns the sum and the extra offset in the number of days.
         """
         out = self._replace_datetime(date_time, dt_dir)
-        if self.delta is None:
-            return out
-        out = self.delta.add_to_datetime(out)
+        if self.delta is not None:
+            out = self.delta.add_to_datetime(out)
         date = out.date()
         new_date = self._find_rel_weekday(date)
         if new_date == date:

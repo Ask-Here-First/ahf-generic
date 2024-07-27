@@ -22,7 +22,7 @@ except ImportError:
     _cov = None
 
 from .typing import MISSING, PRESENT, FridBeing, FridMixin, FridValue, FridNameArgs, StrKeyMap, ValueArgs
-from .chrono import DateTimeDiff, parse_datetime, parse_timeonly, strfr_datetime
+from .chrono import DateTimeDiff, DateTimeSpec, parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode
 from .strops import escape_control_chars, revive_control_chars, str_transform, str_find_any
@@ -104,6 +104,31 @@ class TestChrono(unittest.TestCase):
                          datetime(2020, 7, 2, 0, 6, 5, 700000))
         with self.assertRaises(TypeError):
             assert object() + DateTimeDiff("1d")
+
+    def test_datetimespec(self):
+        self.assertEqual(dateonly(2020, 2, 4) + DateTimeSpec("+1m3h"), dateonly(2020, 2, 4))
+        self.assertEqual(timeonly(10, 2, 4) + DateTimeSpec("+1m3h"), timeonly(13, 3, 4))
+        self.assertEqual(datetime(2020, 2, 4) + DateTimeSpec("+1m3h"),
+                         datetime(2020, 2, 4, 3, 1))
+        self.assertEqual(datetime(2020, 2, 4, 10, 55, 3) + DateTimeSpec(
+            - DateTimeDiff("-1mo1d"), month=6, time="03:05:20"
+        ), datetime(2020, 7, 5, 3, 5, 20))
+        # 2024-07-25 is a Thursay
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("FRI"), dateonly(2024, 7, 26))
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("THU"), dateonly(2024, 7, 25))
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("WED"), dateonly(2024, 7, 24))
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("FRI+"), dateonly(2024, 7, 26))
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("THU+"), dateonly(2024, 7, 25))
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("WED+"), dateonly(2024, 7, 31))
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("FRI-"), dateonly(2024, 7, 19))
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("THU-"), dateonly(2024, 7, 25))
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("WED-"), dateonly(2024, 7, 24))
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("FRI+1"), dateonly(2024, 7, 26))
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("THU+1"), dateonly(2024, 7, 25))
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("WED+2"), dateonly(2024, 8, 7))
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("FRI-1"), dateonly(2024, 7, 19))
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("THU-1"), dateonly(2024, 7, 25))
+        self.assertEqual(dateonly(2024, 7, 25) + DateTimeSpec("WED-2"), dateonly(2024, 7, 17))
 
 class TestStrops(unittest.TestCase):
     def test_str_find_any(self):
