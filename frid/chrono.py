@@ -323,11 +323,25 @@ class DateTimeSpec(FridMixin):
             return self.add_to_timeonly(other)[0]
         return NotImplemented
     def frid_repr(self) -> FridNameArgs:
-        return FridNameArgs(self.__class__.__name__, [self.delta], {
-            'year': self.year, 'month': self.month, 'day': self.day,
-            'hour': self.hour, 'minute': self.minute, 'second': self.second,
-            'microsecond': self.microsecond, 'weekday': self.weekday, 'wd_dir': self.wd_dir,
-        })
+        args = []
+        if self.delta is not None:
+            args.append(self.delta)
+        if self.weekday is not None:
+            wd_str = self.WEEKDAYS[self.weekday]
+            if self.wd_dir > 0:
+                wd_str += "+"
+                if self.wd_dir > 1:
+                    wd_str += str(self.wd_dir)
+            elif self.wd_dir < 0:
+                wd_str += '-'
+                if self.wd_dir < -1:
+                    wd_str += str(-self.wd_dir)
+            args.append(wd_str)
+        return FridNameArgs(self.__class__.__name__, args, {k: v for k, v in dict(
+            year=self.year, month=self.month, day=self.day,
+            hour=self.hour, minute=self.minute, second=self.second,
+            microsecond=self.microsecond,
+        ).items() if v is not None})
     @classmethod
     def parse_weekday_str(cls, s: str) -> tuple[int,int]:
         """Parse the weekday string in the format like `FRI`, 'TUE-`, and `SUN+2`."""

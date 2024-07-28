@@ -86,6 +86,15 @@ class TestChrono(unittest.TestCase):
             strfr_datetime(timeonly(11, 22, 33), precision=-3)
 
     def test_datetimediff(self):
+        self.assertEqual(dump_frid_str(DateTimeSpec("MON")), "DateTimeSpec(MON)")
+        self.assertEqual(dump_frid_str(DateTimeSpec("TUE+1", "2mo")),
+                         "DateTimeSpec(+2mo, TUE+)")
+        self.assertEqual(dump_frid_str(DateTimeSpec("1h3m", "WED-", month=2)),
+                         "DateTimeSpec(+1h3m, WED-, month=2)")
+        self.assertEqual(dump_frid_str(DateTimeSpec("+1h3m", "THU+2", day=2)),
+                         "DateTimeSpec(+1h3m, THU+2, day=2)")
+        self.assertEqual(dump_frid_str(DateTimeSpec("SUN-4", "")),
+                         "DateTimeSpec(SUN-4)")
         self.assertEqual(DateTimeDiff("1m3h") + DateTimeDiff("+2m4d"), DateTimeDiff("+3m3h4d"))
         self.assertEqual(str(DateTimeDiff("1year2month3days4hours5minutes6.3125seconds")),
                          "+1yr2mo3d4h5m6.3125s")
