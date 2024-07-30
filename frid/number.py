@@ -90,7 +90,7 @@ class Quantity(FridBasic):
         r = format(v, ".15f").rstrip('0')
         return r + '0' if r.endswith('.') else r
 
-    item_re = re.compile(r"\s*([+-]?)\s*(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?")
+    item_re = re.compile(r"\s*([+-]?)\s*(\d+(?:\.\d+)?)\s*((?:[^\W\d]|%$)+)?")
     @classmethod
     def parse(cls, s: str, /, alias: Mapping[str,str]|None=None) -> dict[str,float]:
         """Parses a string and returns a dictionary mapping units to its values.

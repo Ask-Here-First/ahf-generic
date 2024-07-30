@@ -1,4 +1,5 @@
-from abc import ABC, abstractmethod
+from abc import ABC
+from dataclasses import asdict, is_dataclass
 from datetime import date as dateonly, time as timeonly, datetime
 from collections.abc import Mapping, Sequence, Set
 from enum import Enum
@@ -43,8 +44,25 @@ PRESENT: PresentType = FridBeing.PRESENT
 MISSING: MissingType = FridBeing.MISSING
 
 class FridBasic(ABC):
+    """The abstract base class that handles some basic datatypes in string format.
+    - The constructor must at least accept a single string-formated positional argument.
+    - If the constractor raises an exception then the format is not accepted.
+    - When a string is parsed and a list of FridBasic data types are given
+      as options, their constructors will be tried one by one until the one
+      raises no exception.
+    - The directed class should overwrite either frid_repr() to return a string,
+      or overwrite __str__() because frid_repr() calls __str__() by default.
+    Note that the string representaion here if rather limited:
+    - The entire string should contain only quote free characters (letters,
+      numbers, and +-._ and a few other, see is_quote_free_char()).
+    - It must not be a quote-free string (otherwise it is handled as a string).
+    - It must not be parsed as first-order pri, like constants, numbers,
+    datetimes, blobs, etc.
+    - The main purpose is to allow user-defined numerical types, such as
+      complex numbers, fractional numbers, dimensional quantities, etc.
+    """
     def frid_repr(self) -> str:
-        """Convert the data to string representation"""
+        """Convert the data to string representation."""
         return self.__str__()
     @classmethod
     def frid_from(cls: type[_B], s: str, /, *args, **kwargs) -> _B|None:
@@ -76,11 +94,15 @@ class FridMixin(ABC):
         assert data.name in cls.frid_keys()
         return cls(*data.args, **data.kwds)
 
-    @abstractmethod
     def frid_repr(self) -> 'FridNameArgs':
         """Converts an instance to a triplet of name, a list of positional values,
         and a dict of keyword values.
+
+        The default implementation handles dataclasses derived from this Mixin,
+        but raises a NotImplementedError for other types of classes.
         """
+        if is_dataclass(self):
+            return FridNameArgs(self.__class__.__name__, (), asdict(self))
         raise NotImplementedError
 
 # The Prime types must all be immutable and hashable
