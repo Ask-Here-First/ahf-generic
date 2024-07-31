@@ -253,9 +253,9 @@ class AsyncStore(_BaseStore):
     @overload
     async def get_list(self, key: VStoreKey, sel: int, /, alt: _T=None) -> FridValue|_T: ...
     @overload
-    async def get_list(self, key: VStoreKey, sel: slice|tuple[int,int]|None,
+    async def get_list(self, key: VStoreKey, sel: slice|tuple[int,int]|None=None,
                         /, alt: _T=None) -> list[FridValue]|_T: ...
-    async def get_list(self, key: VStoreKey, sel: VSListSel,
+    async def get_list(self, key: VStoreKey, sel: VSListSel=None,
                        /, alt: _T=None) -> list[FridValue]|FridValue|_T:
         data = await self.get_frid(key, sel, dtype='list')
         if data is MISSING:
