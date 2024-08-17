@@ -6,9 +6,9 @@ from logging import error
 from typing import BinaryIO, ParamSpec, TypeVar
 from urllib.parse import quote, unquote, urlparse
 
-
 from ..typing import MISSING, PRESENT, BlobTypes, FridBeing, FridTypeSize, MissingType
 from ..helper import frid_type_size
+from ..osutil import url_path_to_os_path
 from .utils import KeySearch, VSPutFlag, VStoreKey, list_concat, match_key
 from .basic import ModFunc, SimpleValueStore, StreamStoreMixin
 
@@ -192,7 +192,7 @@ class FileIOValueStore(StreamValueStore):
     def __init__(self, root: os.PathLike|str, /, **kwargs):
         super().__init__(**kwargs)
         if isinstance(root, str) and root.startswith("file://"):
-            root = root[7:]
+            root = url_path_to_os_path(root[7:])
         self._root = os.path.abspath(root)
         if not os.path.isdir(self._root):
             os.makedirs(self._root, exist_ok=True)
@@ -203,7 +203,7 @@ class FileIOValueStore(StreamValueStore):
         if result.scheme != cls.URL_SCHEME:
             raise ValueError("Unsupported URL scheme for memory value store: {result.scheme}")
         if result.netloc or result.query or result.fragment:
-            raise ValueError("The URL should just be {cls.URL_SCHEME}:///[PATH]")
+            raise ValueError(f"The URL should just be {cls.URL_SCHEME}:///[PATH]")
         return cls(result.path, **kwargs)
     def substore(self, name: str, *args: str):
         root = os.path.join(self._root, self._encode_name(name) + self.SUBSTORE_EXT,
