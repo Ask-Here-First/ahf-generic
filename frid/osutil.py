@@ -1,7 +1,7 @@
 import os, sys
 from urllib.parse import quote, unquote
 
-def sys_path_to_os_path(path: os.PathLike|str) -> str:
+def os_path_to_url_path(path: os.PathLike|str) -> str:
     """Convert OS path to URL path (URL encoded, using / as separator)."""
     if not isinstance(path, str):
         path = str(path)
