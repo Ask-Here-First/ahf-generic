@@ -81,7 +81,7 @@ class StreamValueStore(StreamStoreMixin, SimpleValueStore):
                     return False
                 return h.put(blob)
         except Exception:
-            error(f"Failed to put the value for the key '{key}'")
+            error(f"Failed to put the value for the key path '{key}'", exc_info=True)
             return False
     def _rmw(self, key: str, mod: ModFunc[bytes,_P],
              /, flags: VSPutFlag, *args: _P.args, **kwargs: _P.kwargs) -> bool:
@@ -139,6 +139,7 @@ class FileIOAgent(AbstractStreamAgent):
             os.replace(self.tmp_path, self.kvs_path)
         else:
             os.unlink(self.tmp_path)  # Remove the temp file
+        assert not os.path.exists(self.tmp_path)
 
     def get(self, index: int=0, until: int=0) -> bytes|None:
         if not self.has_data:
@@ -204,7 +205,7 @@ class FileIOValueStore(StreamValueStore):
             raise ValueError("Unsupported URL scheme for memory value store: {result.scheme}")
         if result.netloc or result.query or result.fragment:
             raise ValueError(f"The URL should just be {cls.URL_SCHEME}:///[PATH]")
-        return cls(result.path, **kwargs)
+        return cls(url_path_to_os_path(result.path), **kwargs)
     def substore(self, name: str, *args: str):
         root = os.path.join(self._root, self._encode_name(name) + self.SUBSTORE_EXT,
                             *(self._encode_name(x) + self.SUBSTORE_EXT for x in args))
@@ -331,8 +332,8 @@ class FileIOValueStore(StreamValueStore):
                 case 'nt':
                     # For Windows, since rename will fail when destination exists,
                     # We do that first. If the old path is missing we create the
-                    # new path, but chak the existence of the old path again to
-                    # make sure that it is still missing.
+                    # new path, but then check the existence of the old path again
+                    # to make sure that it is still missing.
                     try:
                         os.rename(old_path, new_path)
                     except FileNotFoundError:
@@ -347,6 +348,7 @@ class FileIOValueStore(StreamValueStore):
                                 return f
                             f.close()
                             os.unlink(new_path)
+                            assert not os.path.exists(new_path)
                             continue # Try again without waiting
                 case _:
                     raise SystemError(f"Unsupported operating system {os.name}")
@@ -366,12 +368,14 @@ class FileIOValueStore(StreamValueStore):
                 if mode & OpenMode.NO_CHANGE:
                     # Replace the file back
                     os.replace(tmp_path, kvs_path)
+                    assert not os.path.exists(tmp_path)
                     raise FileExistsError(kvs_path)
             else:
                 # The value does not exist
                 if mode & OpenMode.NO_CREATE:
                     file.close()
                     os.unlink(tmp_path)
+                    assert not os.path.exists(tmp_path)
                     raise FileNotFoundError(kvs_path)
         if file is not None:
             return FileIOAgent(file, kvs_path, tmp_path, False)
@@ -384,8 +388,10 @@ class FileIOValueStore(StreamValueStore):
             # The value does not exist, just close and remove the newly created file
             file.close()
             os.unlink(tmp_path)
+            assert not os.path.exists(tmp_path)
             return False
         # The value exists and was renamed. We can delete now.
         # TODO: backup the content to the history here
         os.unlink(tmp_path)
+        assert not os.path.exists(tmp_path)
         return True
