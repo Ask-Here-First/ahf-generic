@@ -228,7 +228,7 @@ class VStoreTestMemoryAndFile(_VStoreTestBase):
         store.finalize()
 
     def test_fileio_store(self):
-        root_dir = "/tmp/VStoreTest"
+        root_dir = os.path.join(os.getenv('TEMP', "/tmp"), "VStoreTest")
         sub_name = "UNITTEST"
         store = FileIOValueStore(root_dir).substore(sub_name)
         sub_root = os.path.join(root_dir, sub_name + FileIOValueStore.SUBSTORE_EXT)

@@ -283,7 +283,7 @@ class FileIOValueStore(StreamValueStore):
             os.makedirs(dir)
         return (path + self.KVS_FILE_EXT, path + self.TMP_FILE_EXT)
 
-    def _get_read_agent(self, kvs_path, tmp_path):
+    def _get_read_agent(self, kvs_path: str, tmp_path: str) -> FileIOAgent:
         count = 300
         while True:
             try:
@@ -296,11 +296,11 @@ class FileIOValueStore(StreamValueStore):
                     time.sleep(0.1)
                 else:
                     raise
-    def _makedir_parent(self, path):
+    def _makedir_parent(self, path: str):
         """Create the parent directory of the path."""
         parent = os.path.dirname(path)
         os.makedirs(parent, exist_ok=True)
-    def _move_or_create(self, old_path, new_path) -> BinaryIO|None:
+    def _move_or_create(self, old_path: str, new_path: str) -> BinaryIO|None:
         """Trying to move the `old_path` to `new_path` atomically.
         - If the `new_path` exists, it will back-off and retry for a period of time.
         - If the `old_path` does not exists, the `new_path` is created
@@ -350,6 +350,8 @@ class FileIOValueStore(StreamValueStore):
                             os.unlink(new_path)
                             assert not os.path.exists(new_path)
                             continue # Try again without waiting
+                    else:
+                        return None
                 case _:
                     raise SystemError(f"Unsupported operating system {os.name}")
             count -= 1
