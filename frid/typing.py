@@ -1,9 +1,9 @@
+import dataclasses
 from abc import ABC
-from dataclasses import asdict, is_dataclass
 from datetime import date as dateonly, time as timeonly, datetime
-from collections.abc import Mapping, Sequence, Set
+from collections.abc import Mapping, Sequence, Set, Callable
 from enum import Enum
-from typing import Generic, Literal, NamedTuple, TypeVar, final
+from typing import Any, Generic, Literal, NamedTuple, TypeGuard, TypeVar, final
 
 # Quick union types used in many places
 BlobTypes = bytes|bytearray|memoryview
@@ -89,20 +89,111 @@ class FridMixin(ABC):
         return [cls.__name__]
 
     @classmethod
-    def frid_from(cls: type[_M], data: 'FridNameArgs') -> _M:
-        """Construct an instance with given name and arguments."""
-        assert data.name in cls.frid_keys()
-        return cls(*data.args, **data.kwds)
+    def frid_from(cls: type[_M], data: 'FridNameArgs|FridArray|StrKeyMap', /, **kwargs) -> _M:
+        """Construct an instance with given name and arguments.
+        - `data`: An array for a positional arguments or a map for keywords
+          arguemtns, or a combination of them in the type of `FridNameArgs`.
+        - `dc_ignore_extra` (only effective for dataclasses): if set, ignore
+          extra positional arguments and non-matching keyward arguments;
+          if set to a callback function, also call this function for each of
+          the ignored arguments with the index or the name of the argument.
+        - `dc_check_values` (only effective for dataclasses): if set, check
+          if the value is a Frid value and is compatible with the dataclass
+          field specification.
+        """
+        if isinstance(data, FridNameArgs):
+            assert data.name in cls.frid_keys()
+            args = data.args
+            kwds = data.kwds
+        elif isinstance(data, Sequence):
+            args = data
+            kwds = {}
+        elif isinstance(data, Mapping):
+            args = ()
+            kwds = data
+        else:
+            raise ValueError(f"Invalid data type {type(data)}")
+        if dataclasses.is_dataclass(cls):
+            (args, kwds) = cls.__dc_check_fields(dataclasses.fields(cls), args, kwds, **kwargs)
+        return cls(*args, **kwds)
 
     def frid_repr(self) -> 'FridNameArgs':
         """Converts an instance to a triplet of name, a list of positional values,
         and a dict of keyword values.
 
         The default implementation handles dataclasses derived from this Mixin,
+        by converting the set of non-default data fields to a dict.
         but raises a NotImplementedError for other types of classes.
         """
-        if is_dataclass(self):
-            return FridNameArgs(self.__class__.__name__, (), asdict(self))
+        if dataclasses.is_dataclass(self):
+            return FridNameArgs(self.__class__.__name__, (),
+                                self.__dc_frid_to_dict(dataclasses.fields(self)))
+        raise NotImplementedError
+
+    @classmethod
+    def __dc_check_fields(
+            cls, fields: Sequence[dataclasses.Field], args: 'FridArray', kwds: 'StrKeyMap',
+            *, dc_check_values: bool=False, dc_ignore_extra: Callable[[str|int],Any]|bool=False
+    ) -> 'tuple[FridArray,StrKeyMap]':
+        """Check positional and keyward argument values in `args` and `kwds` for dataclasses.
+        - `fields`: the dataclass field specifications
+        - Check `frid_from()` for the rest of arguments.
+        """
+        if dc_ignore_extra:
+            if args and (
+                n := next((i for i, f in enumerate(fields) if f.kw_only), len(fields))
+            ) < len(args):
+                if callable(dc_ignore_extra):
+                    for i in range(n, len(args)):
+                        dc_ignore_extra(i)
+                args = args[:n]
+            if kwds and (keys := set(kwds.keys()).difference(f.name for f in fields)):
+                if callable(dc_ignore_extra):
+                    for k in keys:
+                        dc_ignore_extra(k)
+                kwds = {k: v for k, v in kwds.items() if k not in keys}
+        if dc_check_values:
+            for i, v in enumerate(args):
+                f = fields[i]
+                cls.__check_frid_value(i, v)
+                if type(f.type) is type and not isinstance(v, f.type):
+                    raise ValueError(
+                        f"Dataclass {cls.__name__}: field {f.name} is of type {type(v)}; "
+                        f"expecting {f.type} for the positional argument at the index #{i}"
+                    )
+            f_map = {f.name: f for f in fields[len(args):]}
+            for k, v in kwds.items():
+                f = f_map[k]
+                cls.__check_frid_value(k, v)
+                if type(f.type) is type and not isinstance(v, f.type):
+                    raise ValueError(
+                        f"Dataclass {cls.__name__} field {f.name} is of type {type(v)}; "
+                        f"expecting {f.type} for the keyword argument with the key {k}"
+                    )
+        return (args, kwds)
+
+    def __dc_frid_to_dict(self, fields: Sequence[dataclasses.Field], ) -> dict[str,'FridValue']:
+        kwds = {}
+        for f in fields:
+            v = getattr(self, f.name)
+            if f.default is not dataclasses.MISSING and v == f.default:
+                continue
+            if f.default_factory is not dataclasses.MISSING and v == f.default_factory():
+                continue
+            self.__check_frid_value(f.name, v)
+            kwds[f.name] = v
+        return kwds
+
+    @classmethod
+    def __check_frid_value(cls, name: str|int, value):
+        if not cls._is_frid_value(value):
+            raise ValueError(
+                f"Dataclass {cls.__name__}: bad type for the argument {name}: {type(value)}"
+            )
+
+    @staticmethod
+    def _is_frid_value(data) -> TypeGuard['FridValue']:
+        """This method is overwritten when guard.py is loaded"""
         raise NotImplementedError
 
 # The Prime types must all be immutable and hashable

@@ -2,7 +2,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, Literal, TypeGuard, TypeVar, overload
 
 from .typing import (
-    BlobTypes, DateTypes, FridPrime, FridBeing,
+    BlobTypes, DateTypes, FridBasic, FridPrime, FridBeing,
     FridSeqVT, FridMapVT, FridArray, FridMixin, FridValue, StrKeyMap
 )
 
@@ -169,7 +169,7 @@ def as_kv_pairs(
 
 
 def is_frid_prime(data) -> TypeGuard[FridPrime]:
-    return data is None or isinstance(data, str|BlobTypes|DateTypes|int|float|bool)
+    return data is None or isinstance(data, str|BlobTypes|DateTypes|int|float|bool|FridBasic)
 def is_frid_seqvt(data) -> TypeGuard[FridSeqVT]:
     return is_frid_value(data)
 def is_frid_array(data) -> TypeGuard[FridArray]:
@@ -180,7 +180,10 @@ def is_frid_skmap(data) -> TypeGuard[StrKeyMap]:
     return is_dict_like(data, is_frid_mapvt)
 def is_frid_value(data) -> TypeGuard[FridValue]:
     return (is_frid_prime(data) or is_frid_array(data) or is_frid_skmap(data)
-            or isinstance(data, FridMixin))
+            or isinstance(data, FridMixin) or (isinstance(data, set) and all(
+                is_frid_value(v) for v in data
+            )))
+FridMixin._is_frid_value = is_frid_value
 
 def is_identifier_head(c: str) -> bool:
     """Returns if `c` can be first character of an indentifier."""
