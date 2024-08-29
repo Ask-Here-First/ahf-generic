@@ -6,7 +6,7 @@ from .typing import MISSING, PRESENT, FridBasic, FridBeing, BlobTypes, FridNameA
 from .typing import FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
 from .chrono import DateTypes, strfr_datetime, timeonly, datetime, dateonly
 from .guards import is_frid_identifier, is_frid_quote_free, is_list_like
-from .pretty import PPToTextIOMixin, PrettyPrint, PPTokenType, PPToStringMixin
+from .pretty import MultilineFormatMixin, PPToTextIOMixin, PrettyPrint, PPTokenType, PPToStringMixin
 from .strops import StringEscapeEncode
 
 JSON_QUOTED_KEYSET = (
@@ -66,16 +66,6 @@ class FridDumper(PrettyPrint):
             self.se_encoder = StringEscapeEncode(pairs, '\\')
         else:
             self.se_encoder = StringEscapeEncode(pairs, '\\', hex_prefix)
-
-    def print(self, token: str, ttype: PPTokenType, /):
-        """Default token print behavior:
-        - Do not show optional separator.
-        - Add a space after the required seqarator ',:'.
-        """
-        if ttype not in (PPTokenType.OPT_0, PPTokenType.OPT_1):
-            self._print(token)
-        if ttype in (PPTokenType.SEP_0, PPTokenType.SEP_1) and token in ':,':
-            self._print(' ')
 
     def real_to_str(self, data: int|float, path: str, /) -> str:
         """Convert an integer or real number to string."""
@@ -190,7 +180,8 @@ class FridDumper(PrettyPrint):
         self.print(quote + self.se_encoder(data, quote) + quote,
                    PPTokenType.LABEL if as_key else PPTokenType.ENTRY)
 
-    def print_naked_list(self, data: Iterable[FridValue], path: str="", /, sep: str=','):
+    def print_naked_list(self, data: Iterable[FridValue], path: str="",
+                         /, sep: str=',', end_sep=True):
         """Prints a list/array to the stream without opening and closing delimiters."""
         non_empty = False  # Use this flag in case bool(data) data not work
         for i, x in enumerate(data):
@@ -201,7 +192,7 @@ class FridDumper(PrettyPrint):
             else:
                 self.print_frid_value(x, path + '[' + str(i) + ']')
             non_empty = True
-        if non_empty and self.json_level in (0, 5):
+        if end_sep and non_empty and self.json_level in (0, 5):
             self.print(sep[0], PPTokenType.OPT_0)
 
     def _is_unquoted_key(self, key: str):
@@ -219,7 +210,8 @@ class FridDumper(PrettyPrint):
         # Use python identifiers as it is generally more restrictive than JSON5
         return key.isidentifier()
 
-    def print_naked_dict(self, data: StrKeyMap, path: str="", /, sep: str=',:'):
+    def print_naked_dict(self, data: StrKeyMap, path: str="",
+                         /, sep: str=',:', end_sep=True):
         """Prints a map to the stream without opening and closing delimiters."""
         i = 0
         for k, v in data.items():
@@ -241,7 +233,7 @@ class FridDumper(PrettyPrint):
             self.print(sep[1], PPTokenType.SEP_1)
             assert not isinstance(v, FridBeing)
             self.print_frid_value(v, path)
-        if data and self.json_level in (0, 5):
+        if end_sep and data and self.json_level in (0, 5):
             self.print(sep[0], PPTokenType.OPT_0)
 
     def print_named_args(self, name_args: FridNameArgs, path: str, /, sep: str=',:'):
@@ -251,11 +243,13 @@ class FridDumper(PrettyPrint):
             self.print(name_args.name, PPTokenType.ENTRY)
             self.print('(', PPTokenType.START)
             if name_args.args:
-                self.print_naked_list(name_args.args, path, ',')
+                self.print_naked_list(name_args.args, path, ',', end_sep=False)
             if name_args.args and name_args.kwds:
                 self.print(',', PPTokenType.SEP_0)
             if name_args.kwds:
-                self.print_naked_dict(name_args.kwds, path, ',=')
+                self.print_naked_dict(name_args.kwds, path, ',=', end_sep=False)
+            if name_args.args or name_args.kwds:
+                self.print(sep[0], PPTokenType.OPT_0)
             self.print(')', PPTokenType.CLOSE)
             return
         if self.escape_seq is None:
@@ -317,10 +311,10 @@ class FridDumper(PrettyPrint):
         else:
             raise ValueError(f"Invalid type {type(data)} for json={self.json_level} at {path=}")
 
-class FridStringDumper(PPToStringMixin, FridDumper):
+class FridStringDumper(PPToStringMixin, MultilineFormatMixin, FridDumper):
     pass
 
-class FridTextIODumper(PPToTextIOMixin, FridDumper):
+class FridTextIODumper(PPToTextIOMixin, MultilineFormatMixin, FridDumper):
     pass
 
 def dump_frid_str(data: FridValue, /, *args, **kwargs) -> str:

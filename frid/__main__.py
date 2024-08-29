@@ -491,6 +491,13 @@ class TestLoaderAndDumper(unittest.TestCase):
                 assert not isinstance(t, FridBeing)
                 self.assertEqual(s, dump_frid_str(t, json_level=json_level),
                                 f"[{i}] {s} <== {t} ({json_level=})")
+                # With indentation
+                s1 = dump_frid_str(t, json_level=json_level, indent='\t')
+                v = load_frid_str(s1, json_level=json_level)
+                if callable(t):
+                    self.assertTrue(t(v), f"[{i}] {s} ==> {t} ({json_level=})")
+                else:
+                    self.assertEqual(t, v, f"[{i}] {s} ==> {t} ({json_level=})")
             except Exception:
                 print(f"\nError @ [{i}] {s} <=> {t} ({json_level=})", file=sys.stderr)
                 raise
@@ -577,6 +584,12 @@ class TestLoaderAndDumper(unittest.TestCase):
                     t, page=rng.randint(1, 5), json_level=1, escape_seq=escape_seq, **load_args
                 ), msg=f"{len(s)=}")
 
+                # With indentitation and newlines
+                s = dump_frid_str(data, json_level=json_level, indent='\t',
+                                  escape_seq=escape_seq, **dump_args)
+                self.assertEqual(data, load_frid_str(
+                    s, json_level=1, escape_seq=escape_seq, **load_args
+                ), msg=f"{len(s)=}")
 
     negative_load_cases = [
         # Numbers
@@ -684,6 +697,19 @@ class TestLoaderAndDumper(unittest.TestCase):
         self.assertEqual(load_frid_str(
             json, frid_mixin=mixin_list, json_level=1, escape_seq="#!"
         ), test)
+
+    def test_identation(self):
+        data = {'x': ["a", "b", []], 'y': 2, 'z': self.TestMixinClass(3, 4, b=5)}
+        s = ("{\n\tx: [\n\t\ta,\n\t\tb,\n\t\t[\n\t\t]?\n\t],\n"
+             "\ty: 2,\n\tz: TestMixinClass(3, 4, b=5)?\n}\n")
+        self.assertEqual(
+            dump_frid_str(data, indent='\t'),
+            s.replace('?', '')
+        )
+        self.assertEqual(
+            dump_frid_str(data, indent='\t', extra_comma=True),
+            s.replace('?', ',')
+        )
 
     def test_redact(self):
         now = datetime.now()

@@ -467,8 +467,6 @@ class FridLoader:
             (index, key) = self.scan_frid_value(index, path, empty='')
             if not is_frid_prime(key):
                 self.error(index, f"Invalid key type {type(key).__name__} of a map: {path=}")
-            if key in out:
-                self.error(index, f"Existing key '{key}' of a map: {path=}")
             index = self.skip_whitespace(index, path)
             c = self.peek_fixed_size(index, path, 1)
             if c == sep[0]:
@@ -476,6 +474,8 @@ class FridLoader:
                 if key == "":
                     # Not allowing item separator with empty key and no key/value separator
                     self.error(index, f"Missing data before '{sep[0]}'")
+                if key in out:
+                    self.error(index, f"Existing key '{key}' of a map: {path=}")
                 # Using value PRESENT if key is non-empty
                 index = self.skip_fixed_size(index, path, len(c))
                 out[key] = PRESENT
@@ -485,6 +485,8 @@ class FridLoader:
                 if key != "":
                     out[key] = PRESENT
                 break
+            if key in out:
+                self.error(index, f"Existing key '{key}' of a map: {path=}")
             if c != sep[1]:
                 self.error(index, f"Expect '{sep[1]}' after key '{key}' of a map: {path=}")
             # With value, key must be string
