@@ -1,8 +1,9 @@
 from collections.abc import Callable, Mapping, Sequence
 from functools import partial
+from enum import Flag
 from typing import Concatenate, Generic, ParamSpec, TypeVar, cast, overload
 
-from .typing import MISSING, BlobTypes, DateTypes, FridBeing, FridMixin, FridTypeSize, MissingType
+from .typing import MISSING, BlobTypes, DateTypes, FridBasic, FridBeing, FridMixin, FridTypeSize, MissingType
 from .typing import FridArray, FridMapVT, FridSeqVT, FridValue, StrKeyMap
 from .chrono import dateonly, timeonly, datetime
 from .guards import is_list_like
@@ -158,6 +159,8 @@ class Substitute:
         """
         if isinstance(data, str):
             return self.sub_text(data, values)
+        if isinstance(data, BlobTypes):
+            return data
         if isinstance(data, Mapping):
             # We get rid of MISSING here
             return {k: v if isinstance(v, FridBeing) else self.sub_data(v, values)
@@ -184,17 +187,31 @@ class Substitute:
             return self.present if result else self.missing
         return result
 
-def frid_merge(old: T|MissingType, new: T, *, depth: int=16) -> T:
+class MergeFlags(Flag):
+    NONE = 0
+    BOOL = 0x1
+    REAL = 0x2
+    TEXT = 0x4
+    BLOB = 0x8
+    LIST = 0x10
+    DICT = 0x20
+    SET = 0x40
+    LIST_AS_SET = 0x80
+    ALL = BOOL | REAL | TEXT | BLOB | LIST | DICT | SET
+
+def frid_merge(old: T|MissingType, new: T, *, depth: int=16, flags=MergeFlags.ALL) -> T:
     if old is MISSING:
         return new
     if isinstance(new, bool):
-        return bool(old) or new
-    if isinstance(new, int|float):
-        return old + new if isinstance(old, int|float) else new
-    if isinstance(new, Mapping):
-        if not new:
-            return old
-        if isinstance(old, Mapping):
+        if flags & MergeFlags.BOOL:
+            return bool(old) or new
+    elif isinstance(new, int|float):
+        if flags & MergeFlags.REAL and isinstance(old, int|float|bool):
+            return old + new
+    elif isinstance(new, Mapping):
+        if flags & MergeFlags.DICT and isinstance(old, Mapping):
+            if not new:
+                return old
             d = dict(old)
             for k, v in new.items():
                 old_v = d.get(k, MISSING)
@@ -203,28 +220,29 @@ def frid_merge(old: T|MissingType, new: T, *, depth: int=16) -> T:
                 if v is not MISSING:
                     d[k] = v
             return cast(T, d)
-        return new
-    if isinstance(new, str):
-        if not new:
-            return old
-        if isinstance(old, str):
+    elif isinstance(new, str):
+        if flags & MergeFlags.TEXT and isinstance(old, str):
+            if not new:
+                return old
             return old + new
-        return new
-    if isinstance(new, BlobTypes):
-        if not new:
-            return old
-        if isinstance(old, BlobTypes):
+    elif isinstance(new, BlobTypes):
+        if flags & MergeFlags.BLOB and isinstance(old, BlobTypes):
+            if not new:
+                return old
             return bytes(old) + new
-        return new
-    if isinstance(new, Sequence):
-        if not new:
-            return old
-        if isinstance(old, Sequence) and not isinstance(old, str|BlobTypes):
-            x = list(old)
-        else:
-            x = [old]
-        x.extend(new)
-        return cast(T, x)
+    elif isinstance(new, Sequence):
+        if flags & MergeFlags.LIST:
+            if isinstance(old, Sequence) and not isinstance(old, str|BlobTypes):
+                if not new:
+                    return old
+                out = list(old)
+            else:
+                out = [old]
+            if flags & MergeFlags.LIST_AS_SET:
+                out.extend(x for x in new if x not in old)
+            else:
+                out.extend(new)
+            return cast(T, out)
     return new
 
 def frid_type_size(data: FridValue) -> FridTypeSize:
@@ -244,7 +262,7 @@ def frid_type_size(data: FridValue) -> FridTypeSize:
         return ('dict', len(data))
     if isinstance(data, Sequence):
         return ('list', len(data))
-    if isinstance(data, FridMixin):
+    if isinstance(data, FridMixin|FridBasic):
         return ('frid', 0)
     return ('', -1)
 
