@@ -585,10 +585,14 @@ class TestLoaderAndDumper(unittest.TestCase):
                 ), msg=f"{len(s)=}")
 
                 # With indentitation and newlines
-                s = dump_frid_str(data, json_level=json_level, indent='\t',
+                s = dump_frid_str(data, json_level=json_level, indent=4,
                                   escape_seq=escape_seq, **dump_args)
                 self.assertEqual(data, load_frid_str(
-                    s, json_level=1, escape_seq=escape_seq, **load_args
+                    s, json_level=json_level, escape_seq=escape_seq, **load_args
+                ), msg=f"{len(s)=}")
+                t = io.StringIO(s)
+                self.assertEqual(data, load_frid_tio(
+                    t, page=64, json_level=json_level, escape_seq=escape_seq, **load_args
                 ), msg=f"{len(s)=}")
 
     negative_load_cases = [
