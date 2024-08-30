@@ -216,7 +216,7 @@ def frid_merge(old: T|MissingType, new: T, *, depth: int=16, flags=MergeFlags.AL
             for k, v in new.items():
                 old_v = d.get(k, MISSING)
                 if depth > 0:
-                    v = frid_merge(old_v, v, depth=(depth - 1))
+                    v = frid_merge(old_v, v, depth=(depth - 1), flags=flags)
                 if v is not MISSING:
                     d[k] = v
             return cast(T, d)
