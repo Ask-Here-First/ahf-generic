@@ -57,11 +57,12 @@ class PPToTextIOMixin(PrettyPrint):
 
 class MultilineFormatMixin(PrettyPrint):
     def __init__(self, *args, indent: int|str|None=None, extra_comma=False,
-                 newline: str='\n', **kwargs):
+                 newline: str='\n', newline_after: str="{[", **kwargs):
         super().__init__(*args, **kwargs)
         self.indent = ' ' * indent if isinstance(indent, int) else indent
         self.newline = newline
         self.extra_comma = extra_comma
+        self.newline_after = newline_after
         self._level = 0
         self._delta: list[bool] = []
         self._indented_back = False
@@ -77,16 +78,15 @@ class MultilineFormatMixin(PrettyPrint):
         self._start_newline = False
         match ttype:
             case PPTokenType.START:
-                if token in "[{":
+                if token in self.newline_after:
                     self._level += 1
                     self._start_newline = True
                 self._delta.append(self._start_newline)
             case PPTokenType.CLOSE:
-                if token in "}]":
-                    self._level -= 1
                 self._indented_back = self._delta.pop()
                 # Need to recompute the prefix
                 if self._indented_back:
+                    self._level -= 1
                     prefix = self.newline + self.indent * self._level
             case PPTokenType.SEP_0:
                 prefix = ''
