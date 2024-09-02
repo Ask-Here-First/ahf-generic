@@ -500,6 +500,9 @@ class TestLoaderAndDumper(unittest.TestCase):
                 assert not isinstance(t, FridBeing)
                 self.assertEqual(s, dump_frid_str(t, json_level=json_level),
                                 f"[{i}] {s} <== {t} ({json_level=})")
+                # With loose mode
+                v1 = load_frid_str(s, json_level=json_level, loose_mode=True)
+                self.assertEqual(v, v1)
                 # With indentation
                 s1 = dump_frid_str(t, json_level=json_level, indent='\t')
                 v = load_frid_str(s1, json_level=json_level)
@@ -588,20 +591,24 @@ class TestLoaderAndDumper(unittest.TestCase):
                 dump_frid_tio(data, t, json_level=json_level,
                               escape_seq=escape_seq, **dump_args)
                 self.assertEqual(s, t.getvalue())
-                t = io.StringIO(s)
                 self.assertEqual(data, load_frid_tio(
-                    t, page=rng.randint(1, 5), json_level=1, escape_seq=escape_seq, **load_args
+                    io.StringIO(s), page=rng.randint(1, 5), json_level=1, escape_seq=escape_seq,
+                    **load_args
                 ), msg=f"{len(s)=}")
-
+                # With loose mode
+                self.assertEqual(data, load_frid_tio(
+                    io.StringIO(s), page=rng.randint(1, 5), json_level=1, escape_seq=escape_seq,
+                    loose_mode=True, **load_args
+                ), msg=f"{len(s)=}")
                 # With indentitation and newlines
                 s = dump_frid_str(data, json_level=json_level, indent=4,
                                   escape_seq=escape_seq, **dump_args)
                 self.assertEqual(data, load_frid_str(
                     s, json_level=json_level, escape_seq=escape_seq, **load_args
                 ), msg=f"{len(s)=}")
-                t = io.StringIO(s)
                 self.assertEqual(data, load_frid_tio(
-                    t, page=64, json_level=json_level, escape_seq=escape_seq, **load_args
+                    io.StringIO(s), page=64, json_level=json_level, escape_seq=escape_seq,
+                    **load_args
                 ), msg=f"{len(s)=}")
 
     negative_load_cases = [

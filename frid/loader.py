@@ -1,4 +1,5 @@
 import math, base64
+from logging import warning
 from collections.abc import Callable, Iterator, Mapping, Sequence, Set
 from typing import  Any, Literal, NoReturn, TextIO, TypeVar, cast
 
@@ -79,8 +80,8 @@ class FridLoader:
     """
     def __init__(
             self, buffer: str|None=None, length: int|None=None, offset: int=0, /,
-            *, json_level: Literal[0,1,5]=0, escape_seq: str|None=None,
-            comments: Sequence[tuple[str,str]]=(),
+            *, comments: Sequence[tuple[str,str]]=(), json_level: Literal[0,1,5]=0,
+            escape_seq: str|None=None, loose_mode: bool=False,
             frid_basic: Iterator[BasicTypeSpec]|None=None,
             frid_mixin: Mapping[str,MixinTypeSpec]|Iterator[MixinTypeSpec]|None=None,
             parse_real: Callable[[str],int|float|None]|None=None,
@@ -99,6 +100,7 @@ class FridLoader:
         # The following are all constants
         self.json_level = json_level
         self.escape_seq = escape_seq
+        self.loose_mode = loose_mode
         self.parse_real = parse_real
         self.parse_date = parse_date
         self.parse_blob = parse_blob
@@ -118,6 +120,9 @@ class FridLoader:
             '\\', ('x', 'u', 'U')
         )
 
+    def alert(self, index: int, error: str):
+        warning(error + ": " + self.buffer[max(index-32, 0):index]
+                + '\u274e' + self.buffer[index:(index+32)])
     def error(self, index: int, error: str|BaseException) -> NoReturn:
         """Raise an FridParseError at the current `index` with the given `error`."""
         pos = self.offset + index
@@ -317,28 +322,36 @@ class FridLoader:
     def scan_prime_data(self, index: int, path: str, /, empty: Any='',
                         accept=NO_QUOTE_CHARS) -> tuple[int,FridValue]:
         """Scans the unquoted data that are identifier chars plus the est given by `accept`."""
-        while True:
+        # For loose mode, scan to the first , or : or any close delimiters.
+        if self.loose_mode:
             start = index
-            try:
-                while index < self.length:
-                    c = self.buffer[index]
-                    if not is_quote_free_char(c) and c not in accept:
-                        break
-                    index += 1
-                break
-            except IndexError:
-                index = self.fetch(start, path)
-        data = self.buffer[start:index].strip()
+            (index, data) = self.scan_data_until(index, path, ")]},:", True)
+        else:
+            while True:
+                start = index
+                try:
+                    while index < self.length:
+                        c = self.buffer[index]
+                        if not is_quote_free_char(c) and c not in accept:
+                            break
+                        index += 1
+                    break
+                except IndexError:
+                    index = self.fetch(start, path)
+            data = self.buffer[start:index]
+        data = data.strip()
         if not data:
             return (index, empty)
         value = self.parse_prime_str(data, ...)
         if value is ...:
+            if self.loose_mode:
+                return (index, data)
             self.error(start, f"Fail to parse unquoted value {data}")
         return (index, value)
 
     def scan_data_until(
-            self, index: int, path: str, /, char_set: str,
-            *, paired="{}[]()", quotes=ALLOWED_QUOTES, escape='\\'
+            self, index: int, path: str, /, char_set: str, allow_missing: bool=False,
+            *, paired="{}[]()", quotes=ALLOWED_QUOTES, escape='\\',
     ) -> tuple[int,str]:
         while True:
             try:
@@ -348,6 +361,8 @@ class FridLoader:
                     if len(self.buffer) < self.length:
                         index = self.fetch(index, path)
                         continue
+                    if allow_missing:
+                        return (len(self.buffer), self.buffer[index:])
                     self.error(index, f"Fail to find '{char_set}': {path=}")
                 return (ending, self.buffer[index:ending])
             except IndexError:
@@ -453,9 +468,12 @@ class FridLoader:
             (index, token) = self.peek_fixed_size(index, path, 1)
             if token in stop:  # Empty is also a sub-seq
                 break
-            if token != sep[0]:
+            if token == sep[0]:
+                index = self.skip_fixed_size(index, path, 1)
+            elif self.loose_mode and not is_frid_prime(value):
+                self.alert(index, "Loose mode: adding missing ','")
+            else:
                 self.error(index, f"Unexpected '{token}' after list entry #{len(out)}: {path=}")
-            index = self.skip_fixed_size(index, path, 1)
             assert not isinstance(value, FridBeing)
             out.append(value if value is not ... else '')
         # The last entry that is not an empty string will be added to the data.
@@ -506,9 +524,12 @@ class FridLoader:
             (index, token) = self.peek_fixed_size(index, path, 1)
             if token in stop:  # Empty is also a sub-seq
                 break
-            if token != sep[0]:
+            if token == sep[0]:
+                index = self.skip_fixed_size(index, path, 1)
+            elif self.loose_mode and not (is_frid_prime(value) or isinstance(value, FridBeing)):
+                self.alert(index, "Loose mode: adding missing ','")
+            else:
                 self.error(index, f"Expect '{sep[0]}' after the value for '{key}': {path=}")
-            index = self.skip_fixed_size(index, path, len(token))
         # Convert into a set if non-empty and all values are PRESENT
         if out and all(v is PRESENT for v in out.values()):
             return (index, set(out.keys()))
@@ -553,9 +574,12 @@ class FridLoader:
             (index, token) = self.peek_fixed_size(index, path, 1)
             if token in stop:
                 break
-            if token != sep[0]:
+            if token == sep[0]:
+                index = self.skip_fixed_size(index, path, 1)
+            elif self.loose_mode and not is_frid_prime(value):
+                self.alert(index, "Loose mode: adding missing ','")
+            else:
                 self.error(index, f"Expect '{sep[0]}' after the value for '{name}': {path=}")
-            index = self.skip_fixed_size(index, path, 1)
         return (index, args, kwds)
 
     def scan_frid_value(
