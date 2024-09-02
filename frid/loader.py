@@ -605,8 +605,8 @@ class FridLoader:
             self.anchor = None
 
     def scan(self, start: int=0, path: str='',
-             type: Literal['list','dict']|None=None) -> tuple[int,FridValue]:
-        match type:
+             top_dtype: Literal['list','dict']|None=None) -> tuple[int,FridValue]:
+        match top_dtype:
             case None:
                 (index, value) = self.scan_frid_value(start, path)
                 if isinstance(value, FridBeing):
@@ -616,16 +616,15 @@ class FridLoader:
             case 'dict':
                 (index, value) = self.scan_naked_dict(start, path)
             case _:
-                raise ValueError(f"Invalid input {type}")
+                raise ValueError(f"Invalid input {top_dtype}")
         # Skip to the end of the line (multiple spaces HT CR chars, and one of LF, FF, VT)
         while index < len(self.buffer) and self.buffer[index] in ' \t\r':
             index += 1
         if index < len(self.buffer) and self.buffer[index] in '\n\v\f':
             index += 1
         return (index, value)
-    def load(self, start: int=0, path: str='',
-             type: Literal['list','dict']|None=None) -> FridValue:
-        (index, value) = self.scan(start, path, type)
+    def load(self, path: str='', top_dtype: Literal['list','dict']|None=None) -> FridValue:
+        (index, value) = self.scan(0, path, top_dtype)
         if index < 0:
             self.error(0, f"Failed to parse data: {path=}")
         if index < self.length:
@@ -665,15 +664,18 @@ class FridTextIOLoader(FridLoader):
         return index
 
 
-def load_frid_str(s: str, *args, **kwargs) -> FridValue:
-    return FridLoader(s, *args, **kwargs).load()
+def load_frid_str(s: str, *args, init_path: str='',
+                  top_dtype: Literal['list','dict']|None=None, **kwargs) -> FridValue:
+    return FridLoader(s, *args, **kwargs).load(init_path, top_dtype=top_dtype)
 
-def load_frid_tio(t: TextIO, *args, **kwargs) -> FridValue:
-    return FridTextIOLoader(t, *args, **kwargs).load()
+def load_frid_tio(t: TextIO, *args, init_path: str='',
+                  top_dtype: Literal['list','dict']|None=None, **kwargs) -> FridValue:
+    return FridTextIOLoader(t, *args, **kwargs).load(init_path, top_dtype=top_dtype)
 
-def scan_frid_str(s: str, start: int, *args, **kwargs) -> tuple[FridValue,int]:
+def scan_frid_str(s: str, start: int, *args, init_path: str='',
+                  top_dtype: Literal['list','dict']|None=None, **kwargs) -> tuple[FridValue,int]:
     """Note: this function will raise TruncError if the string ends prematurely.
     For other parsing issues, a regular ParseError is returned.
     """
-    (index, value) = FridLoader(s, *args, **kwargs).scan(start)
+    (index, value) = FridLoader(s, *args, **kwargs).scan(start, init_path, top_dtype=top_dtype)
     return (value, index)

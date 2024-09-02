@@ -284,7 +284,7 @@ class FridDumper(PrettyPrint):
             name_args = data.frid_repr()
         self.print_named_args(name_args, path)
 
-    def print_frid_value(self, data: FridValue, path: str='', /):
+    def print_frid_value(self, data: FridValue, path: str='', /, top_delim: bool=True):
         """Print the any value that Frid supports to the stream."""
         s = self.prime_data_to_str(data, path)
         if s is not None:
@@ -292,18 +292,24 @@ class FridDumper(PrettyPrint):
         elif isinstance(data, str):
             self.print_quoted_str(data, path)
         elif isinstance(data, Mapping):
-            self.print('{', PPTokenType.START)
+            if top_delim:
+                self.print('{', PPTokenType.START)
             self.print_naked_dict(data, path)
-            self.print('}', PPTokenType.CLOSE)
+            if top_delim:
+                self.print('}', PPTokenType.CLOSE)
         elif isinstance(data, Set):
             # We won't be able to load empty set back as set
-            self.print('{', PPTokenType.START)
+            if top_delim:
+                self.print('{', PPTokenType.START)
             self.print_naked_list(data, path)
-            self.print('}', PPTokenType.CLOSE)
+            if top_delim:
+                self.print('}', PPTokenType.CLOSE)
         elif isinstance(data, Iterable):
-            self.print('[', PPTokenType.START)
+            if top_delim:
+                self.print('[', PPTokenType.START)
             self.print_naked_list(data, path)
-            self.print(']', PPTokenType.CLOSE)
+            if top_delim:
+                self.print(']', PPTokenType.CLOSE)
         elif isinstance(data, FridMixin):
             self.print_frid_mixin(data, path)
         elif self.print_user is not None and (out := self.print_user(data, path)) is not None:
@@ -317,14 +323,16 @@ class FridStringDumper(PPToStringMixin, MultilineFormatMixin, FridDumper):
 class FridTextIODumper(PPToTextIOMixin, MultilineFormatMixin, FridDumper):
     pass
 
-def dump_frid_str(data: FridValue, /, *args, **kwargs) -> str:
+def dump_frid_str(data: FridValue, /, *args, init_path: str='',
+                  top_delim: bool=True, **kwargs) -> str:
     dumper = FridStringDumper(*args, **kwargs)
-    dumper.print_frid_value(data)
+    dumper.print_frid_value(data, init_path, top_delim=top_delim)
     return str(dumper)
 
-def dump_frid_tio(data: FridValue, /, file: TextIO, *args, **kwargs) -> TextIO:
+def dump_frid_tio(data: FridValue, /, file: TextIO, *args, init_path: str='',
+                  top_delim: bool=True, **kwargs) -> TextIO:
     dumper = FridTextIODumper(file, *args, **kwargs)
-    dumper.print_frid_value(data)
+    dumper.print_frid_value(data, init_path, top_delim=top_delim)
     return file
 
 def dump_args_str(named_args: FridNameArgs, *args, **kwargs) -> str:
