@@ -352,6 +352,8 @@ class FridLoader:
                 return (ending, self.buffer[index:ending])
             except IndexError:
                 index = self.fetch(index, path)
+            except ValueError as exc:
+                self.error(index, exc)
 
     def scan_escape_str(self, index: int, path: str, /, stop: str) -> tuple[int,str]:
         """Scans a text string with escape sequences."""
@@ -577,6 +579,7 @@ class FridLoader:
                 index, path, quotes=ALLOWED_QUOTES, check_mixin=bool(check_mixin)
             )
         if token == '(' and self.parse_expr is not None:
+            index = self.skip_fixed_size(index, path, 1)
             (index, value) = self.scan_data_until(index, path, ')')
             index = self.skip_prefix_str(index, path, ')')
             return (index, self.parse_expr(value, path))
@@ -604,17 +607,17 @@ class FridLoader:
         finally:
             self.anchor = None
 
-    def scan(self, start: int=0, path: str='',
-             top_dtype: Literal['list','dict']|None=None) -> tuple[int,FridValue]:
+    def scan(self, start: int=0, /, path: str='', stop: str='',
+             *, top_dtype: Literal['list','dict']|None=None) -> tuple[int,FridValue]:
         match top_dtype:
             case None:
                 (index, value) = self.scan_frid_value(start, path)
                 if isinstance(value, FridBeing):
                     self.error(index, "PRESENT or MISSING is only supported for map values")
             case 'list':
-                (index, value) = self.scan_naked_list(start, path)
+                (index, value) = self.scan_naked_list(start, path, stop=stop)
             case 'dict':
-                (index, value) = self.scan_naked_dict(start, path)
+                (index, value) = self.scan_naked_dict(start, path, stop=stop)
             case _:
                 raise ValueError(f"Invalid input {top_dtype}")
         # Skip to the end of the line (multiple spaces HT CR chars, and one of LF, FF, VT)
@@ -624,7 +627,7 @@ class FridLoader:
             index += 1
         return (index, value)
     def load(self, path: str='', top_dtype: Literal['list','dict']|None=None) -> FridValue:
-        (index, value) = self.scan(0, path, top_dtype)
+        (index, value) = self.scan(0, path, top_dtype=top_dtype)
         if index < 0:
             self.error(0, f"Failed to parse data: {path=}")
         if index < self.length:
@@ -672,10 +675,12 @@ def load_frid_tio(t: TextIO, *args, init_path: str='',
                   top_dtype: Literal['list','dict']|None=None, **kwargs) -> FridValue:
     return FridTextIOLoader(t, *args, **kwargs).load(init_path, top_dtype=top_dtype)
 
-def scan_frid_str(s: str, start: int, *args, init_path: str='',
+def scan_frid_str(s: str, start: int, *args, init_path: str='', end_chars: str='',
                   top_dtype: Literal['list','dict']|None=None, **kwargs) -> tuple[FridValue,int]:
     """Note: this function will raise TruncError if the string ends prematurely.
     For other parsing issues, a regular ParseError is returned.
     """
-    (index, value) = FridLoader(s, *args, **kwargs).scan(start, init_path, top_dtype=top_dtype)
+    (index, value) = FridLoader(s, *args, **kwargs).scan(
+        start, init_path, end_chars, top_dtype=top_dtype
+    )
     return (value, index)

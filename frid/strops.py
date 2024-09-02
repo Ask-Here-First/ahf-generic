@@ -69,24 +69,26 @@ def _do_find_any_1(s: str, char_set: str, start: int, bound: int,
     index = start
     while index < bound:
         c = s[index]
+        # The char set to be searched may contain any character
+        if not stack and c in char_set:
+            return index
         if (j := opening.find(c)) >= 0:
             stack += closing[j]
         elif (j := closing.find(c)) >= 0:
             if not stack:
-                raise ValueError(f"Unmatched closing {c}")
+                raise ValueError(f"Unmatched closing {c} at index {index}")
             if c != stack[-1]:
-                raise ValueError(f"Unmatched: expect {stack[-1]} but get {c}")
+                raise ValueError(f"Unmatched: expect {stack[-1]} but get {c} at index {index}")
             stack = stack[:-1]
         elif c in quotes:
+            saved_index = index
             index = _do_find_any_0(s, c, index + 1, bound, escape)
             if index < 0:
-                raise ValueError(f"Missing quote {c}")
-            index += 1  # Skip the end quote
+                raise ValueError(f"Missing quote {c} at index {saved_index}")
+            assert s[index] == c
         elif c in escape:
             if not quotes and (stack or not paired):
                 index += 1
-        elif c in char_set and not stack:
-            return index
         index += 1
     if stack:
         raise ValueError(f"Expecting '{stack[::-1]}'")

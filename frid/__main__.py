@@ -198,10 +198,19 @@ class TestStrops(unittest.TestCase):
         self.assertEqual(str_find_any(s, "13", 5, 10), -1)
         self.assertEqual(str_find_any(s, ".", 1-len(s)), 1)
         self.assertEqual(str_find_any(s, "82", -5, -1), -1)
+        self.assertEqual(str_find_any("(')')", ')', 1), 2)
+        self.assertEqual(str_find_any("(')')", ')', 1, quotes="'"), 4)
         t = r"abc([]{}, ([{,;}])) [,]{;} ' ,\,' ,"
         self.assertEqual(str_find_any(
             t, ",;", paired="()[]{}", quotes="'\"", escape='\\'
         ), len(t) - 1)
+        self.assertEqual(str_find_any(
+            t + ")]}", ")]}", paired="()[]{}", quotes="'\"", escape='\\'
+        ), len(t))
+        # Skip a prefix
+        self.assertEqual(str_find_any(
+            "[{(" + t, ",;", 3, paired="()[]{}", quotes="'\"", escape='\\'
+        ), len(t) + 3 - 1)
         self.assertEqual(str_find_any(
             t, ",;", 0, -1, paired="()[]{}", quotes="'\"", escape='\\'
         ), -1)
@@ -632,6 +641,15 @@ class TestLoaderAndDumper(unittest.TestCase):
         "123 # 456": 123, "123 # 456\n": 123, "// abc\n456": 456, "/* abc */ 123": 123,
         "[123, #456,\n789]": [123, 789], "[1,/*1,\n3,*/ 4 // 5,\n # 6\n, 7]": [1,4,7],
     }
+
+    expression_cases = {
+        "()": "", "(())": "()", "(')')": "')'",
+        "{a:(')'), b: (['()[]{}'])}": {'a': "')'", 'b': "['()[]{}']"}
+    }
+    def test_expression(self):
+        for i, (k, v) in enumerate(self.expression_cases.items()):
+            w = load_frid_str(k, parse_expr=lambda x, p: x)
+            self.assertEqual(v, w, msg=f"[{i}]: {k}")
 
     def test_comments(self):
         for i, (k, v) in enumerate(self.comment_cases.items()):
