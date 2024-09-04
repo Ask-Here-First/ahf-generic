@@ -295,8 +295,18 @@ class FridLoader:
                 index = self.fetch(index, path)
         return (index, None, None, None)
 
-    def skip_whitespace(self, index: int, path: str) -> int:
-        """Skips the all following whitespaces."""
+    def skip_characters(self, index: int, path: str, /, char_set: str) -> int:
+        while True:
+            try:
+                while index < self.length and self.buffer[index] in char_set:
+                    index += 1
+                break
+            except IndexError:
+                index = self.fetch(index, path)
+        return index
+
+    def skip_whitespace(self, index: int, path: str, /) -> int:
+        """Skips the all following whitespaces including comments."""
         while True:
             try:
                 while index < self.length and self.buffer[index].isspace():
@@ -612,9 +622,10 @@ class FridLoader:
         self.anchor = index
         try:
             (index, value) = self.scan_prime_data(index, path, empty=empty)
-            index = self.skip_whitespace(index, path)
             if index >= self.length or not isinstance(value, str):
                 return (index, value)
+            offset = index - self.anchor
+            index = self.skip_whitespace(index, path)
             (index, token) = self.peek_fixed_size(index, path, 1)
             if self.frid_mixin and token == '(' and is_frid_identifier(value):
                 index = self.skip_fixed_size(index, path, 1)
@@ -622,7 +633,7 @@ class FridLoader:
                 (index, args, kwds) = self.scan_naked_args(index, path, ')')
                 index = self.skip_prefix_str(index, path, ')')
                 return (index, self.construct_mixin(self.anchor, path, name, args, kwds))
-            return (index, value)
+            return (self.anchor + offset, value)
         except FridParseError:
             index = self.anchor
             if self.parse_misc:
@@ -634,7 +645,7 @@ class FridLoader:
 
     def scan(
             self, start: int=0, /, path: str='', stop: str='',
-            *, top_dtype: Literal['list','dict']|None=None, to_newline: str|bool=False,
+            *, top_dtype: Literal['list','dict']|None=None, until_eol: str|bool=False,
     ) -> tuple[int,FridValue]:
         match top_dtype:
             case None:
@@ -647,15 +658,23 @@ class FridLoader:
                 (index, value) = self.scan_naked_dict(start, path, stop=stop)
             case _:
                 self.error(start, f"Invalid input {top_dtype}")
-        # Skip to the end of the line (multiple spaces HT CR chars, and one of LF, FF, VT)
-        while index < len(self.buffer) and self.buffer[index] in ' \t\r':
-            index += 1
-        (index, _, _, closing) = self.skip_comments(index, path)
-        newlines = to_newline if isinstance(to_newline, str) else '\n\v\f'
-        if index < len(self.buffer) and not (closing and closing[-1] in newlines):
-            if self.buffer[index] in newlines:
-                index += 1
-            elif to_newline:
+        # Skip to the end of the line (newlines in the comments are ignored)
+        newlines = until_eol if isinstance(until_eol, str) else '\n\v\f'
+        on_same_line = True
+        while on_same_line:
+            index = self.skip_characters(index, path, char_set=' \r\t')
+            (index, opening, b, closing) = self.skip_comments(index, path)
+            if opening is None:
+                break
+            on_same_line = not (closing and closing[-1] in newlines)
+        # Check if the following character is a newline if it is still on the same line
+        if index < self.length:
+            if not on_same_line:
+                return (index, value)
+            (index, c) = self.peek_fixed_size(index, path, 1)
+            if c in newlines:
+                index = self.skip_fixed_size(index, path, 1)
+            elif until_eol:
                 self.error(index, "Trailing data at the end of line")
         return (index, value)
     def load(self, path: str='', top_dtype: Literal['list','dict']|None=None) -> FridValue:
@@ -674,9 +693,18 @@ def load_frid_str(s: str, *args, init_path: str='',
                   top_dtype: Literal['list','dict']|None=None, **kwargs) -> FridValue:
     return FridLoader(s, *args, **kwargs).load(init_path, top_dtype=top_dtype)
 
-def load_frid_tio(t: TextIO, *args, init_path: str='',
-                  top_dtype: Literal['list','dict']|None=None, **kwargs) -> FridValue:
-    return FridTextIOLoader(t, *args, **kwargs).load(init_path, top_dtype=top_dtype)
+def scan_frid_str(
+        s: str, start: int, *args, init_path: str='', end_chars: str='',
+        until_eol: str|bool=False, top_dtype: Literal['list','dict']|None=None, **kwargs
+) -> tuple[FridValue,int]:
+    """Note: this function will raise TruncError if the string ends prematurely.
+    For other parsing issues, a regular ParseError is returned.
+    """
+    (index, value) = FridLoader(s, *args, **kwargs).scan(
+        start, init_path, end_chars, top_dtype=top_dtype, until_eol=until_eol
+    )
+    return (value, index)
+
 
 class FridTextIOLoader(FridLoader):
     def __init__(self, t: TextIO, page: int = 16384, **kwargs):
@@ -687,47 +715,53 @@ class FridTextIOLoader(FridLoader):
     def __bool__(self):
         index = self.skip_whitespace(self.offset, '')
         return index >= self.length
-    def __call__(self, *, init_path: str='', end_chars: str='', to_newline: str|bool=False,
+    def __call__(self, *, init_path: str='', end_chars: str='', until_eol: str|bool=False,
                 top_dtype: Literal['list','dict']|None=None, **kwargs):
         (index, value) = self.scan(self.offset, init_path, end_chars,
-                                   top_dtype=top_dtype, to_newline=to_newline)
+                                   top_dtype=top_dtype, until_eol=until_eol)
         self.offset = index
         return value
-    def fetch(self, index: int, path: str) -> int:
+    def fetch(self, start: int, path: str) -> int:
         if self.file is None:
-            super().fetch(index, path)  # Just raise reaching end exception
-            return index
+            return super().fetch(start, path)  # Just raise reaching end exception
         half_page = self.page >> 1
-        start = index - half_page # Keep the past page
-        if start > half_page:
-            if self.anchor is not None and start > self.anchor:
-                start = self.anchor
-            if start > half_page:
+        index = start
+        old_offset = self.offset
+        new_start = index - half_page # Keep the past page
+        if new_start > half_page:
+            if self.anchor is not None and new_start > self.anchor:
+                new_start = self.anchor
+            if new_start > half_page:
                 # Remove some of the past text
-                self.buffer = self.buffer[start:]
-                self.offset += start
-                index -= start
+                self.buffer = self.buffer[new_start:]
+                self.offset = old_offset + new_start
+                index -= new_start
                 if self.anchor is not None:
-                    self.anchor -= start
+                    self.anchor -= new_start
         data = self.file.read(self.page)
         self.buffer += data
         if len(data) < self.page:
             self.length = len(self.buffer)
             self.file = None
+        # print(f"Loaded {len(data)}B, anchor={self.anchor} offset={old_offset}->{self.offset} "
+        #       f"index={start}->{index} buffer=[{len(self.buffer)}]: "
+        #       f"{self.buffer[:index]}\u2728{self.buffer[index:]}")
         return index
 
-
-def scan_frid_str(
-        s: str, start: int, *args, init_path: str='', end_chars: str='',
-        to_newline: str|bool=False, top_dtype: Literal['list','dict']|None=None, **kwargs
-) -> tuple[FridValue,int]:
-    """Note: this function will raise TruncError if the string ends prematurely.
-    For other parsing issues, a regular ParseError is returned.
+def load_frid_tio(t: TextIO, *args, init_path: str='',
+                  top_dtype: Literal['list','dict']|None=None, **kwargs) -> FridValue:
+    """Loads the frid data from the text I/O stream `t`.
+    - `*args` and `**kwargs` are passed to the constructor of `FridTextIOLoader`.
+    - `init_path` is passed to `FridTextIOLoader.load()` as `path`.
+    - `top_dtype` is passed to `FridTextIOLoader.load()`.
     """
-    (index, value) = FridLoader(s, *args, **kwargs).scan(
-        start, init_path, end_chars, top_dtype=top_dtype, to_newline=to_newline
-    )
-    return (value, index)
+    return FridTextIOLoader(t, *args, **kwargs).load(init_path, top_dtype=top_dtype)
 
 def open_frid_tio(t: TextIO, *args, **kwargs) -> Callable[...,FridValue]:
+    """Scans possibly mutile data from the text I/O stream `t`.
+    - `*args` and `**kwargs` are passed to the constructor of `FridTextIOLoader`.
+    - `init_path` is passed to `FridTextIOLoader.load()` as `path`.
+    - `top_dtype` is passed to `FridTextIOLoader.load()`.
+    Returns an instance of FridTextIOLoader as a functor.
+    """
     return FridTextIOLoader(t, *args, **kwargs)

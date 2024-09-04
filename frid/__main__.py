@@ -1,7 +1,7 @@
-from functools import partial
 import os, io, sys, math, json, base64, unittest, importlib
 from random import Random
-from typing import Literal, cast
+from typing import Any, Literal, cast
+from functools import partial
 
 from .random import frid_random
 
@@ -28,7 +28,7 @@ from .strops import StringEscapeDecode, StringEscapeEncode
 from .strops import escape_control_chars, revive_control_chars, str_transform, str_find_any
 from .helper import Comparator, Substitute, get_func_name, get_qual_name, get_type_name
 from .dumper import dump_args_str, dump_frid_tio, dump_frid_str, frid_redact
-from .loader import FridParseError, load_frid_str, load_frid_tio
+from .loader import FridParseError, load_frid_str, load_frid_tio, open_frid_tio, scan_frid_str
 from .number import Quantity
 
 class TestChrono(unittest.TestCase):
@@ -649,12 +649,6 @@ class TestLoaderAndDumper(unittest.TestCase):
             with self.assertRaises(ValueError, msg=f"[{i}]: {k}"):
                 dump_frid_str(k, json_level=True)
 
-    comment_cases = {
-        "\n123": 123, "\n[\n123,\n\n 456,]": [123, 456],
-        "123 # 456": 123, "123 # 456\n": 123, "// abc\n456": 456, "/* abc */ 123": 123,
-        "[123, #456,\n789]": [123, 789], "[1,/*1,\n3,*/ 4 // 5,\n # 6\n, 7]": [1,4,7],
-    }
-
     expression_cases = {
         "()": "", "(())": "()", "(')')": "')'",
         "{a:(')'), b: (['()[]{}'])}": {'a': "')'", 'b': "['()[]{}']"}
@@ -664,10 +658,40 @@ class TestLoaderAndDumper(unittest.TestCase):
             w = load_frid_str(k, parse_expr=lambda x, p: x)
             self.assertEqual(v, w, msg=f"[{i}]: {k}")
 
+    comment_cases = {
+        "\n123": 123, "\n[\n123,\n\n 456,]": [123, 456],
+        "123 # 456": 123, "123 # 456\n": 123, "// abc\n456": 456, "/* abc */ 123": 123,
+        "[123, #456,\n789]": [123, 789], "[1,/*1,\n3,*/ 4 // 5,\n # 6\n, 7]": [1,4,7],
+    }
     def test_comments(self):
         for i, (k, v) in enumerate(self.comment_cases.items()):
             w = load_frid_str(k, comments=[("#", "\n"), ("//", "\n"), ("/*", "*/")])
             self.assertEqual(v, w, msg=f"[{i}]: {k}")
+
+    scan_cases = {
+        "123\n456": (123, "456"),
+        "123 // 456\n789": (123, "789"),
+        "123 /* 456 */\t\n789": (123, "789"),
+        "123 /* 456 */ 789\n": Exception,
+    }
+    def test_scan(self):
+        kwargs: dict[str,Any] = dict(comments=[("//", "\n"), ("/*", "*/")])
+        for s, t in self.scan_cases.items():
+            if isinstance(t, type) and issubclass(t, BaseException):
+                with self.assertRaises(t):
+                    scan_frid_str(s, 0, until_eol=True, **kwargs)
+                with self.assertRaises(t):
+                    open_frid_tio(io.StringIO(s), **kwargs)(
+                        until_eol=True
+                    )
+                continue
+            assert isinstance(t, tuple)
+            (data, trailing) = t
+            (value, index) = scan_frid_str(s, 0, until_eol=True, **kwargs)
+            self.assertEqual(data, value, f"{s=}")
+            self.assertEqual(s[index:], trailing, f"{s=}")
+            value = open_frid_tio(io.StringIO(s), **kwargs)(until_eol=True)
+            self.assertEqual(data, value, f"{s=}")
 
     class TestMixinClass(FridMixin):
         def __init__(self, *args, **kwds):
