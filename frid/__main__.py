@@ -665,7 +665,7 @@ class TestLoaderAndDumper(unittest.TestCase):
     }
     def test_comments(self):
         for i, (k, v) in enumerate(self.comment_cases.items()):
-            w = load_frid_str(k, comments=[("#", "\n"), ("//", "\n"), ("/*", "*/")])
+            w = load_frid_str(k, comments=["#", "//", ("/*", "*/")])
             self.assertEqual(v, w, msg=f"[{i}]: {k}")
 
     scan_cases = {
@@ -675,7 +675,7 @@ class TestLoaderAndDumper(unittest.TestCase):
         "123 /* 456 */ 789\n": Exception,
     }
     def test_scan(self):
-        kwargs: dict[str,Any] = dict(comments=[("//", "\n"), ("/*", "*/")])
+        kwargs: dict[str,Any] = dict(comments=["//", ("/*", "*/")])
         for s, t in self.scan_cases.items():
             if isinstance(t, type) and issubclass(t, BaseException):
                 with self.assertRaises(t):

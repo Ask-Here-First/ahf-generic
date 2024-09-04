@@ -80,7 +80,8 @@ class FridLoader:
     """
     def __init__(
             self, buffer: str|None=None, length: int|None=None, offset: int=0, /,
-            *, comments: Sequence[tuple[str,str]]=(), json_level: Literal[0,1,5]=0,
+            *, comments: Sequence[tuple[str,str]]=(), newlines: str="\n\v\f",
+            json_level: Literal[0,1,5]=0,
             escape_seq: str|None=None, loose_mode: bool=False,
             frid_basic: Iterator[BasicTypeSpec]|None=None,
             frid_mixin: Mapping[str,MixinTypeSpec]|Iterator[MixinTypeSpec]|None=None,
@@ -94,9 +95,12 @@ class FridLoader:
         self.offset = offset
         self.length = length if length is not None else 1<<62 if buffer is None else len(buffer)
         self.anchor: int|None = None   # A place where the location is marked
-        if not all(opening and closing for opening, closing in comments):
+        if not all(item if isinstance(item, str) else (
+            isinstance(item, tuple) and len(item) == 2 and all(isinstance(x, str) for x in item)
+        ) for item in comments):
             raise ValueError(f"Invalid comments configuration: {comments}")
-        self.comments: Sequence[tuple[str,str]] = comments
+        self.comments: Sequence[tuple[str,str]|str] = comments
+        self.newlines = newlines
         # The following are all constants
         self.json_level = json_level
         self.escape_seq = escape_seq
@@ -272,28 +276,39 @@ class FridLoader:
             self.error(self.length, f"Trying to pass beyound the EOS at {index}: {path=}")
         return index
 
-    def skip_comments(self, index: int, path: str) -> tuple[int,str|None,str|None,str|None]:
+    def skip_comments(self, index: int, path: str) -> tuple[int,str|None]:
         """Skip the comments in pairs."""
         content = []
-        for opening, closing in self.comments:
+        for item in self.comments:
+            if isinstance(item, tuple):
+                (opening, closing) = item
+            else:
+                assert isinstance(item, str)
+                opening = item
+                closing = None
             (index, token) = self.peek_fixed_size(index, path, len(opening))
             if token != opening:
                 continue
             index = self.skip_fixed_size(index, path, len(opening))
             while True:
-                end_idx = self.buffer.find(closing, index)
+                if closing is None:
+                    end_idx = str_find_any(self.buffer, self.newlines, index)
+                else:
+                    end_idx = self.buffer.find(closing, index)
                 if end_idx >= 0:
                     assert end_idx >= index
                     content.append(self.buffer[index:end_idx])
-                    return (end_idx + len(closing), opening, ''.join(content), closing)
+                    if closing is not None:
+                        end_idx += len(closing)
+                    return (end_idx, ''.join(content))
                 if len(self.buffer) >= self.length:
-                    if closing.isspace():
-                        # If the closing is a space (like newline), it is optional at end
-                        return (self.length, opening, ''.join(content), None)
+                    if closing is None:
+                        # If the closing is a newline, it is optional at end
+                        return (self.length,''.join(content))
                     self.error(index, ("Expecting '" + escape_control_chars(closing)
                                        + " after '" + escape_control_chars(opening) + "'"))
                 index = self.fetch(index, path)
-        return (index, None, None, None)
+        return (index, None)
 
     def skip_characters(self, index: int, path: str, /, char_set: str) -> int:
         while True:
@@ -312,7 +327,7 @@ class FridLoader:
                 while index < self.length and self.buffer[index].isspace():
                     index += 1
                 old_pos = self.offset + index
-                (index, *_) = self.skip_comments(index, path)
+                (index, _) = self.skip_comments(index, path)
                 if index >= self.length:
                     return index
                 new_pos = self.offset + index
@@ -660,17 +675,13 @@ class FridLoader:
                 self.error(start, f"Invalid input {top_dtype}")
         # Skip to the end of the line (newlines in the comments are ignored)
         newlines = until_eol if isinstance(until_eol, str) else '\n\v\f'
-        on_same_line = True
-        while on_same_line:
+        while True:
             index = self.skip_characters(index, path, char_set=' \r\t')
-            (index, opening, b, closing) = self.skip_comments(index, path)
-            if opening is None:
+            (index, comments) = self.skip_comments(index, path)
+            if comments is None:
                 break
-            on_same_line = not (closing and closing[-1] in newlines)
-        # Check if the following character is a newline if it is still on the same line
+        # Check if the following character is a newline
         if index < self.length:
-            if not on_same_line:
-                return (index, value)
             (index, c) = self.peek_fixed_size(index, path, 1)
             if c in newlines:
                 index = self.skip_fixed_size(index, path, 1)
