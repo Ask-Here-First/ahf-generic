@@ -289,16 +289,21 @@ class DateTimeSpec(FridMixin):
                 day = date.day
         if time is not None:
             if isinstance(time, str):
+                time = time.lower()
+                if time.startswith('0t'):
+                    time = time[2:]
+                elif time and time[0] == 't':
+                    time = time[1:]
                 time = parse_timeonly(time)
-            if time is not None:
-                if hour is None:
-                    hour = time.hour
-                if minute is None:
-                    minute = time.minute
-                if second is None:
-                    second = time.second
-                if microsecond is None:
-                    microsecond = time.microsecond
+            assert isinstance(time, timeonly)
+            if hour is None:
+                hour = time.hour
+            if minute is None:
+                minute = time.minute
+            if second is None:
+                second = time.second
+            if microsecond is None:
+                microsecond = time.microsecond
         self.year = year
         self.month = month
         self.day = day

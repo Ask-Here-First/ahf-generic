@@ -127,6 +127,12 @@ class TestChrono(unittest.TestCase):
         self.assertEqual(datetime(2020, 2, 4, 10, 55, 3) + DateTimeSpec(
             - DateTimeDiff("-1mo1d"), month=6, time="03:05:20"
         ), datetime(2020, 7, 5, 3, 5, 20))
+        self.assertEqual(datetime(2020, 2, 4, 10, 55, 3) + DateTimeSpec(
+            - DateTimeDiff("-1mo1d"), month=6, time="0T030520", minute=6, microsecond=100
+        ), datetime(2020, 7, 5, 3, 6, 20, 100))
+        self.assertEqual(datetime(2020, 2, 4, 10, 55, 3) + DateTimeSpec(
+            - DateTimeDiff("-1mo1d"), month=6, time="T0305", hour=4, second=7
+        ), datetime(2020, 7, 5, 4, 5, 7))
         self.assertEqual(DateTimeSpec(month=5).add_to_dateonly(dateonly(2024, 7, 1), 1),
                          dateonly(2025, 5, 1))
         self.assertEqual(DateTimeSpec(month=5).add_to_dateonly(dateonly(2024, 7, 1), -1),
