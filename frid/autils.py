@@ -1,4 +1,4 @@
-import time, asyncio
+import math, time, asyncio
 from datetime import datetime, timedelta
 from collections.abc import (
     AsyncGenerator, AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable, Iterator, Sequence
@@ -80,6 +80,7 @@ async def _timed_aiter_timestamp(
         interval: float, objects: Iterable[_T]|None=None,
         /, init_time: float|None=None, stop_time: float|None=None,
         *, max_count: int=0, factory: Callable[[int],_T]|None=None, default: _T=None,
+        skip_past: bool=False,
 ) -> AsyncGenerator[_T,None]:
     assert interval > 0
     now = time.time()
@@ -88,6 +89,8 @@ async def _timed_aiter_timestamp(
     if isinstance(objects, Iterable) and not isinstance(objects, Iterator):
         objects = iter(objects)
     next_ts = init_time
+    if skip_past and now > next_ts:
+        next_ts += math.ceil((now - next_ts) / interval) * interval
     n = 0
     while next_ts <= stop_time:
         t = time.time()
@@ -126,6 +129,7 @@ async def _timed_aiter_timedelta(
         /, init_time: datetime|timedelta|float|None=None,
         stop_time: datetime|timedelta|float|None=None,
         *, max_count: int=0, factory: Callable[[int],_T]|None=None, default: _T=None,
+        skip_past: bool=False,
 ) -> AsyncGenerator[_T,None]:
     assert interval.total_seconds() > 0
     tzinfo = None
@@ -139,6 +143,9 @@ async def _timed_aiter_timedelta(
     if isinstance(objects, Iterable) and not isinstance(objects, Iterator):
         objects = iter(objects)
     next_time = init_time
+    if skip_past:
+        while now > next_time:
+            next_time += interval
     n = 0
     while next_time <= stop_time:
         next_ts = next_time.timestamp()
@@ -163,17 +170,18 @@ def timed_issuing_iterable(
         interval: timedelta|float, objects: Iterable[_T]|None=None,
         /, init_time: datetime|float|None=None, stop_time: datetime|float|None=None,
         *, max_count: int=0, factory: Callable[[int],_T]|None=None, default: _T=None,
+        skip_past: bool=False,
 ) -> AsyncIterator[_T]:
     if isinstance(interval, timedelta):
         assert init_time is None or isinstance(init_time, (datetime, timedelta, int))
         assert stop_time is None or isinstance(stop_time, (datetime, timedelta, int))
         return _timed_aiter_timedelta(
             interval, objects, init_time, stop_time, max_count=max_count,
-            factory=factory, default=default
+            factory=factory, default=default, skip_past=skip_past,
         )
     assert init_time is None or isinstance(init_time, (int,float))
     assert stop_time is None or isinstance(stop_time, (int,float))
     return _timed_aiter_timestamp(
         interval, objects, init_time, stop_time, max_count=max_count,
-        factory=factory, default=default
+        factory=factory, default=default, skip_past=skip_past,
     )
