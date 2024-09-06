@@ -1,9 +1,11 @@
 import math, time, asyncio
 from datetime import datetime, timedelta
 from collections.abc import (
-    AsyncGenerator, AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable, Iterator, Sequence
+    AsyncGenerator, AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable, Iterator
 )
 from typing import TypeVar
+
+from .guards import is_list_like
 
 _T = TypeVar('_T')
 
@@ -49,11 +51,11 @@ async def timeout_multi_callable(
         timeout: float|tuple[float,float], func: Callable[...,Awaitable[_T]], *args, **kwargs,
 ) -> AsyncGenerator[_T,None]:
     """Convert a repeated function generator"""
-    if isinstance(timeout, float):
+    if isinstance(timeout, int|float):
         min_wait = timeout
         max_wait = timeout
     else:
-        assert isinstance(timeout, Sequence) and len(timeout) == 2
+        assert is_list_like(timeout, int|float) and len(timeout) == 2
         (min_wait, max_wait) = timeout
         assert min_wait <= max_wait
     t0 = time.time()
