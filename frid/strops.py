@@ -3,6 +3,15 @@ from collections.abc import Callable, Iterable, Mapping
 
 from frid.guards import as_kv_pairs
 
+def str_split_ex(s, sep: str|None=None, maxsplit: int=-1):
+    """String split extended version.
+    - If the first argument `s` is not string, return as is.
+    - Strip each entry and remove empty entries.
+    """
+    if not isinstance(s, str):
+        return s  # non string is returned at isas is
+    return [t for x in s.split(sep, maxsplit) if (t := x.strip())]
+
 def str_sanitize(s: str, min_redacted_chars: int=8, /, retain: tuple[int,int]|int=4,
                  *, filler: str="....", length: tuple[str,str]|None=(" [", " chars]")) -> str:
     """Redact the content of a string `s` by keeping only the first few and last few chars.
