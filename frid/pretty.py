@@ -57,11 +57,13 @@ class PPToTextIOMixin(PrettyPrint):
 
 class MultilineFormatMixin(PrettyPrint):
     def __init__(self, *args, indent: int|str|None=None, extra_comma=False,
+                 break_quoted: bool=False,
                  newline: str='\n', newline_after: str="{[", **kwargs):
         super().__init__(*args, **kwargs)
         self.indent = ' ' * indent if isinstance(indent, int) else indent
         self.newline = newline
         self.extra_comma = extra_comma
+        self.break_quoted = break_quoted
         self.newline_after = newline_after
         self._level = 0
         self._delta: list[bool] = []
@@ -103,9 +105,41 @@ class MultilineFormatMixin(PrettyPrint):
                     token = ''
             case PPTokenType.OPT_1:
                 token = ''
+            case PPTokenType.ENTRY:
+                if self.break_quoted:
+                    lines = self._split_quoted_lines(token)
+                    if lines is not None:
+                        if not prefix:
+                            prefix = self.newline + self.indent * (self._level + 1)
+                        token = ('"' + prefix + '"').join(lines)
         if prefix:
             self._print(prefix)
         if token:
             self._print(token)
         if self._level <= 0:
             self._print(self.newline)
+    def _split_quoted_lines(self, token: str) -> list[str]|None:
+        """Split quoted multi-line string into multiple strings."""
+        if not token.startswith('"') and not token.endswith('"'):
+            return None
+        lines = []
+        index = 0
+        prev_index = 0
+        while (index := token.find("\\n", index)) >= 0:
+            index += 2
+            # Check if the quoted string is at the end
+            if index >= len(token) or token[index] == '"':
+                continue
+            # Count the number of preceding backslash
+            n = 0
+            while index > n + 2 and token[index-n-3] == '\\':
+                n += 1
+            if n & 1:
+                continue
+            lines.append(token[prev_index:index])
+            prev_index = index
+        if not lines:
+            return None
+        if prev_index < len(token):
+            lines.append(token[prev_index:])
+        return lines

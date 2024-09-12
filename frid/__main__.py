@@ -769,6 +769,14 @@ class TestLoaderAndDumper(unittest.TestCase):
             dump_frid_str(data, indent='\t', extra_comma=True),
             s.replace('?', ',')
         )
+        data = {'a': "abc", 'b': "abc\n", 'c': "abc\ndef", 'd': "abc\ndef\n", 'e': [
+            "abc", "abc\n", "abc\ndef", "abc\ndef\n", "abc\ndef\nghi", "abc\ndef\nghi\n",
+        ]}
+        # With break quotes
+        s = dump_frid_str(data, indent='\t', break_quoted=True)
+        self.assertEqual(data, load_frid_str(s), s)
+        s = dump_frid_str(data, indent='\t', break_quoted=True, extra_comma=True)
+        self.assertEqual(data, load_frid_str(s), s)
 
     def test_redact(self):
         now = datetime.now()
