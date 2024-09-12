@@ -143,6 +143,16 @@ class TestChrono(unittest.TestCase):
                          dateonly(2023, 7, 1))
         self.assertEqual(DateTimeSpec(day=29).add_to_dateonly(dateonly(2023, 3, 28), -1),
                          dateonly(2023, 3, 1))
+        self.assertEqual(DateTimeSpec(week=2).add_to_dateonly(dateonly(2023, 5, 7)),
+                         dateonly(2023, 1, 9))
+        self.assertEqual(DateTimeSpec(week=1, day=3).add_to_dateonly(dateonly(2024, 5, 7)),
+                         dateonly(2024, 1, 3))
+        self.assertEqual(DateTimeSpec(
+            year=2024, month=4, week=1, day=4
+        ).add_to_dateonly(dateonly.today()), dateonly(2024, 4, 4))
+        self.assertEqual(DateTimeSpec(
+            year=2024, month=5, week=2, day=1
+        ).add_to_dateonly(dateonly.today()), dateonly(2024, 5, 13))
         self.assertEqual(DateTimeSpec(minute=5).add_to_timeonly(timeonly(20, 30, 40), 1),
                          (timeonly(21, 5, 40), 0))
         self.assertEqual(DateTimeSpec(minute=30).add_to_timeonly(timeonly(20, 30, 40), -1),

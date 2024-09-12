@@ -255,6 +255,15 @@ class DateTimeSpec(FridMixin):
     When applied to an absolute date/time/datetime, the three types of the relative times
     are applied in the order as above.
 
+    If `week` is set to a positive week number, then the date is determined once
+    the year is determined. It is calculated this way:
+    - If `month` is not given, then the week is the ISO week of the year;
+      the week 1 is the week that Jan 4 falls in.
+    - If `month` is given, the the week is the week number of the month; the
+      week 1 is starting on the first Monday of the month.
+    - For either cases, if the day is not set, then Monday is assumed;
+      otherwise `day` value must be between 1-7 for Monday to Sunday.
+
     Note that this class do not handle timezone.
     """
     WEEKDAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
@@ -263,7 +272,8 @@ class DateTimeSpec(FridMixin):
             self, s1: str|float|DateTimeDiff|None=None, s2: str|float|None=None,
             /, *, year: int|None=None, month: int|None=None, day: int|None=None,
             hour: int|None=None, minute: int|None=None, second: int|None=None,
-            microsecond: int|None=None, weekday: int|None=None, wd_dir: int=0,
+            microsecond: int|None=None,
+            week: int|None=None, weekday: int|None=None, wd_dir: int=0,
             date: str|dateonly|None=None, time: str|timeonly|None=None,
     ):
         self.delta = None
@@ -315,7 +325,10 @@ class DateTimeSpec(FridMixin):
         self.minute = minute
         self.second = second
         self.microsecond = microsecond
+        assert week is None or week > 0
+        self.week = week
         if weekday is not None:
+            assert 0 <= weekday <= 6
             self.weekday = weekday
             self.wd_dir = wd_dir
     def __bool__(self):
@@ -347,7 +360,7 @@ class DateTimeSpec(FridMixin):
                     wd_str += str(-self.wd_dir)
             args.append(wd_str)
         return FridNameArgs(self.__class__.__name__, args, {k: v for k, v in dict(
-            year=self.year, month=self.month, day=self.day,
+            year=self.year, month=self.month, day=self.day, week=self.week,
             hour=self.hour, minute=self.minute, second=self.second,
             microsecond=self.microsecond,
         ).items() if v is not None})
@@ -409,6 +422,21 @@ class DateTimeSpec(FridMixin):
     def _replace_dateonly(self, base_date: dateonly, date_dir: Literal[0,1,-1]=0) -> dateonly:
         """Replaces the fields in `base_date` with partial absolute time fields in self."""
         year = base_date.year if self.year is None else self.year
+        # Once week is set, ignore month or day of the base date
+        if self.week is not None:
+            assert self.day is None or 1 <= self.day <= 7
+            if self.month is None:
+                # Use ISO week of year calendar of month is not set; self.day is day of week
+                return dateonly.fromisocalendar(year, self.week, self.day or 1)
+            # If self.month is, the first week starts on the first Monday of the month
+            first = dateonly(year, self.month, 1)  # The first day of month
+            # If self.week = 1, first.weekday() -> delta function is:
+            #    {Mon: 0, Tue: 6, Wed: 5, Thu: 4 Fri: 3, Sat: 2, Sun: 1}
+            delta = self.week * 7 - (first.weekday() or 7)
+            if self.day is not None:
+                delta += self.day - 1
+            return first + timedelta(days=delta)
+        # If week is not set, use base date's month and day as defaults
         month = base_date.month if self.month is None else self.month
         day = base_date.day if self.day is None else self.day
         if date_dir and self.year is None:
@@ -418,7 +446,7 @@ class DateTimeSpec(FridMixin):
                 month += self._get_carry_by_dir(day, base_date.day, date_dir)
         if day <= 28:
             return dateonly(year, month, day)
-        return dateonly(year, month, 1) + timedelta(day - 1)
+        return dateonly(year, month, 1) + timedelta(days=(day - 1))
     def _replace_datetime(self, date_time: datetime, dt_dir: Literal[0,1,-1]) -> datetime:
         """Replaces the fields in `date_time` with partial absolute time fields in self."""
         tm_dir = dt_dir if self.year is None and self.month is None and self.day is None else 0
