@@ -6,6 +6,7 @@ from frid.typing import FridNameArgs
 
 from .typing import FridMixin, dateonly, timeonly, datetime, DateTypes
 from .number import Quantity
+from .strops import str_find_any
 
 date_only_re_str = r"(\d\d\d\d)-([01]\d)-([0-3]\d)"
 time_zone_re_str = r"[+-](\d\d)(?::?(\d\d))|Z"
@@ -55,9 +56,12 @@ def parse_datetime(s: str) -> DateTypes|None:
             return parse_timeonly(s, m)
         return None
     if date_time_regexp.fullmatch(s):
-        (d_str, _, t_str) = s.partition('T')
+        index = str_find_any(s, "Tt_ ")
+        assert index >= 0
+        d_str = s[:index].rstrip()
+        t_str = s[(index+1):].lstrip()
         t_val = parse_timeonly(t_str)
-        assert t_val is not None
+        assert t_val is not None, f"{t_str=}"
         return datetime.combine(dateonly.fromisoformat(d_str), t_val)
     if date_only_regexp.fullmatch(s):
         return dateonly.fromisoformat(s)
