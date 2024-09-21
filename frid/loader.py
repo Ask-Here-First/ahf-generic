@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence, Set
 from typing import  Any, Literal, NoReturn, TextIO, TypeVar, cast
 
 from .typing import (
-    PRESENT, BlobTypes, DateTypes, FridArray, FridBasic, FridBeing, FridMapVT,
+    PRESENT, MISSING, BlobTypes, DateTypes, FridArray, FridBasic, FridBeing, FridMapVT,
     FridMixin, FridPrime, FridSeqVT, FridValue, FridNameArgs, StrKeyMap, ValueArgs
 )
 from .guards import (
@@ -512,28 +512,37 @@ class FridLoader:
     def scan_naked_dict(self, index: int, path: str,
                         /, stop: str='', sep: str=",:") -> tuple[int,StrKeyMap|Set|FridMixin]:
         out: dict[FridPrime,FridMapVT] = {}
+        empty_entry = False
         while True:
-            (index, key) = self.scan_frid_value(index, path, empty='')
-            if not is_frid_prime(key):
+            # Empty string is represented using MISSING
+            (index, key) = self.scan_frid_value(index, path, empty=MISSING)
+            if key is not MISSING and not is_frid_prime(key):
                 self.error(index, f"Invalid key type {type(key).__name__} of a map: {path=}")
             index = self.skip_whitespace(index, path)
             (index, token) = self.peek_fixed_size(index, path, 1)
             if token == sep[0]:
                 # Seeing item separator without key/value separator
-                if key == "":
-                    # Not allowing item separator with empty key and no key/value separator
-                    self.error(index, f"Missing data before '{sep[0]}'")
-                if key in out:
+                if key is MISSING:
+                    if out or empty_entry:
+                        self.error(index, "An empty key follows other entries")
+                    empty_entry = True
+                elif key in out:
                     self.error(index, f"Existing key '{key}' of a map: {path=}")
                 # Using value PRESENT if key is non-empty
                 index = self.skip_fixed_size(index, path, len(token))
-                out[key] = PRESENT
+                if key is not MISSING:
+                    out[key] = PRESENT
                 continue
             if token in stop:
                 # If stops without key/value separator, add key=PRESENT only for non-empty key
-                if key != "":
+                if key is not MISSING:
                     out[key] = PRESENT
                 break
+            # No key or key/value pairs can follow an empty entry
+            if empty_entry:
+                self.error(index, f"A key '{key}' follows an empty entry")
+            if key is MISSING:
+                key = ''
             if key in out:
                 self.error(index, f"Existing key '{key}' of a map: {path=}")
             if token != sep[1]:
@@ -557,6 +566,9 @@ class FridLoader:
             else:
                 self.error(index, f"Expect '{sep[0]}' after the value for '{key}': {path=}")
         # Convert into a set if non-empty and all values are PRESENT
+        if not out and empty_entry:
+            return (index, set())
+        assert not empty_entry  # Cannot have empty entry following other entries
         if out and all(v is PRESENT for v in out.values()):
             return (index, set(out.keys()))
         if not is_frid_skmap(out):

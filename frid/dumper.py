@@ -298,12 +298,18 @@ class FridDumper(PrettyPrint):
             if top_delim:
                 self.print('}', PPTokenType.CLOSE)
         elif isinstance(data, Set):
+            if self.json_level:
+                raise ValueError(f"Set is not supported with json={self.json_level}")
             # We won't be able to load empty set back as set
-            if top_delim:
-                self.print('{', PPTokenType.START)
-            self.print_naked_list(data, path)
-            if top_delim:
-                self.print('}', PPTokenType.CLOSE)
+            if data:
+                if top_delim:
+                    self.print('{', PPTokenType.START)
+                self.print_naked_list(data, path)
+                if top_delim:
+                    self.print('}', PPTokenType.CLOSE)
+            else:
+                # An empty set is represented by "{,}"
+                self.print('{,}', PPTokenType.ENTRY)
         elif isinstance(data, Iterable):
             if top_delim:
                 self.print('[', PPTokenType.START)
