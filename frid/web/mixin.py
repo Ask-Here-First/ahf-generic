@@ -2,19 +2,20 @@ import os, json
 from collections.abc import AsyncIterable, Iterable, Mapping
 from typing import Any, Literal
 from urllib.parse import unquote
+from email.message import Message
 
-from .typing import BlobTypes, FridValue
-from .errors import FridError
-from .guards import is_frid_value
-from .loader import load_frid_str
-from .dumper import dump_frid_str
+from ..typing import BlobTypes, FridValue
+from ..errors import FridError
+from ..guards import is_frid_value
+from ..loader import load_frid_str
+from ..dumper import dump_frid_str
 
 
 DEF_ESCAPE_SEQ = os.getenv('FRID_ESCAPE_SEQ', "#!")
 FRID_MIME_TYPE = "text/vnd.askherefirst.frid"
 
 ShortMimeType = Literal['text','html','form','blob','json','frid']
-InputHttpHead = Mapping[str|bytes,str|bytes]|Iterable[tuple[str|bytes,str|bytes]]
+InputHttpHead = Mapping[str|bytes,str|bytes]|Iterable[tuple[str|bytes,str|bytes]]|Message
 
 def parse_http_query(qs: str) -> tuple[list[tuple[str,str]|str],dict[str,FridValue]]:
     """Parse the URL query string (or www forms) into key value pairs.
@@ -95,7 +96,7 @@ class HttpMixin:
         - `http_head` the HTTP request headers loaded into a str-to-str dict,
           with all keys in lower cases.
         """
-        items = headers.items() if isinstance(headers, Mapping) else headers
+        items = headers.items() if isinstance(headers, Mapping|Message) else headers
         http_head: dict[str,str] = {}
         for key, val in items:
             # Convert them into string
