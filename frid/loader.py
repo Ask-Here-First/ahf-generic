@@ -1,7 +1,7 @@
 import math, base64
 from logging import warning
 from collections.abc import Callable, Iterator, Mapping, Sequence, Set
-from typing import  Any, Literal, NoReturn, TextIO, TypeVar, cast
+from typing import  Any, Literal, NoReturn, TextIO, TypeVar, cast, overload
 
 from .typing import (
     PRESENT, MISSING, BlobTypes, DateTypes, FridArray, FridBasic, FridBeing, FridMapVT,
@@ -672,8 +672,8 @@ class FridLoader:
 
     def scan(
             self, start: int=0, /, path: str='', stop: str='',
-            *, top_dtype: Literal['list','dict']|None=None, until_eol: str|bool=False,
-    ) -> tuple[int,FridValue]:
+            *, top_dtype: Literal['list','dict','args']|None=None, until_eol: str|bool=False,
+    ) -> tuple[int,FridValue|ValueArgs[str]]:
         match top_dtype:
             case None:
                 (index, value) = self.scan_frid_value(start, path)
@@ -683,6 +683,9 @@ class FridLoader:
                 (index, value) = self.scan_naked_list(start, path, stop=stop)
             case 'dict':
                 (index, value) = self.scan_naked_dict(start, path, stop=stop)
+            case 'args':
+                (index, args, kwds) = self.scan_naked_args(start, path, stop=stop)
+                value = ValueArgs(path, *args, **kwds)
             case _:
                 self.error(start, f"Invalid input {top_dtype}")
         # Skip to the end of the line (newlines in the comments are ignored)
@@ -700,7 +703,8 @@ class FridLoader:
             elif until_eol:
                 self.error(index, "Trailing data at the end of line")
         return (index, value)
-    def load(self, path: str='', top_dtype: Literal['list','dict']|None=None) -> FridValue:
+    def load(self, path: str='',
+             top_dtype: Literal['list','dict','args']|None=None) -> FridValue|ValueArgs[str]:
         (index, value) = self.scan(0, path, top_dtype=top_dtype)
         if index < 0:
             self.error(0, f"Failed to parse data: {path=}")
@@ -712,14 +716,48 @@ class FridLoader:
             self.error(index, "PRESENT or MISSING is only supported for map values")
         return value
 
+@overload
 def load_frid_str(s: str, *args, init_path: str='',
-                  top_dtype: Literal['list','dict']|None=None, **kwargs) -> FridValue:
+                  top_dtype: None=None, **kwargs) -> FridValue: ...
+@overload
+def load_frid_str(s: str, *args, init_path: str='',
+                  top_dtype: Literal['list'], **kwargs) -> FridArray: ...
+@overload
+def load_frid_str(s: str, *args, init_path: str='',
+                  top_dtype: Literal['dict'], **kwargs) -> StrKeyMap: ...
+@overload
+def load_frid_str(s: str, *args, init_path: str='',
+                  top_dtype: Literal['args'], **kwargs) -> ValueArgs[str]: ...
+def load_frid_str(
+        s: str, *args, init_path: str='',
+        top_dtype: Literal['list','dict','args']|None=None, **kwargs
+) -> FridValue|ValueArgs[str]:
     return FridLoader(s, *args, **kwargs).load(init_path, top_dtype=top_dtype)
 
+@overload
 def scan_frid_str(
         s: str, start: int, *args, init_path: str='', end_chars: str='',
-        until_eol: str|bool=False, top_dtype: Literal['list','dict']|None=None, **kwargs
-) -> tuple[FridValue,int]:
+        until_eol: str|bool=False, top_dtype: None=None, **kwargs
+) -> tuple[FridValue,int]: ...
+@overload
+def scan_frid_str(
+        s: str, start: int, *args, init_path: str='', end_chars: str='',
+        until_eol: str|bool=False, top_dtype: Literal['list'], **kwargs
+) -> tuple[FridArray,int]: ...
+@overload
+def scan_frid_str(
+        s: str, start: int, *args, init_path: str='', end_chars: str='',
+        until_eol: str|bool=False, top_dtype: Literal['dict'], **kwargs
+) -> tuple[StrKeyMap,int]: ...
+@overload
+def scan_frid_str(
+        s: str, start: int, *args, init_path: str='', end_chars: str='',
+        until_eol: str|bool=False, top_dtype: Literal['args'], **kwargs
+) -> tuple[ValueArgs[str],int]: ...
+def scan_frid_str(
+        s: str, start: int, *args, init_path: str='', end_chars: str='',
+        until_eol: str|bool=False, top_dtype: Literal['list','dict','args']|None=None, **kwargs
+) -> tuple[FridValue|ValueArgs[str],int]:
     """Note: this function will raise TruncError if the string ends prematurely.
     For other parsing issues, a regular ParseError is returned.
     """
@@ -771,8 +809,22 @@ class FridTextIOLoader(FridLoader):
         #       f"{self.buffer[:index]}\u2728{self.buffer[index:]}")
         return index
 
+@overload
 def load_frid_tio(t: TextIO, *args, init_path: str='',
-                  top_dtype: Literal['list','dict']|None=None, **kwargs) -> FridValue:
+                  top_dtype: None=None, **kwargs) -> FridValue: ...
+@overload
+def load_frid_tio(t: TextIO, *args, init_path: str='',
+                  top_dtype: Literal['list'], **kwargs) -> FridArray: ...
+@overload
+def load_frid_tio(t: TextIO, *args, init_path: str='',
+                  top_dtype: Literal['dict']|None=None, **kwargs) -> StrKeyMap: ...
+@overload
+def load_frid_tio(t: TextIO, *args, init_path: str='',
+                  top_dtype: Literal['args']|None=None, **kwargs) -> ValueArgs[str]: ...
+def load_frid_tio(
+        t: TextIO, *args, init_path: str='',
+        top_dtype: Literal['list','dict','args']|None=None, **kwargs
+) -> FridValue|ValueArgs[str]:
     """Loads the frid data from the text I/O stream `t`.
     - `*args` and `**kwargs` are passed to the constructor of `FridTextIOLoader`.
     - `init_path` is passed to `FridTextIOLoader.load()` as `path`.
@@ -780,8 +832,20 @@ def load_frid_tio(t: TextIO, *args, init_path: str='',
     """
     return FridTextIOLoader(t, *args, **kwargs).load(init_path, top_dtype=top_dtype)
 
-def open_frid_tio(t: TextIO, *args, **kwargs) -> Callable[...,FridValue]:
-    """Scans possibly mutile data from the text I/O stream `t`.
+@overload
+def open_frid_tio(t: TextIO, *args, top_dtype: None=None,
+                  **kwargs) -> Callable[...,FridValue]:...
+@overload
+def open_frid_tio(t: TextIO, *args, top_dtype: Literal['list'],
+                  **kwargs) -> Callable[...,FridArray]:...
+@overload
+def open_frid_tio(t: TextIO, *args, top_dtype: Literal['dict'],
+                  **kwargs) -> Callable[...,StrKeyMap]:...
+@overload
+def open_frid_tio(t: TextIO, *args, top_dtype: Literal['args'],
+                  **kwargs) -> Callable[...,ValueArgs[str]]:...
+def open_frid_tio(t: TextIO, *args, **kwargs) -> Callable[...,FridValue|ValueArgs[str]]:
+    """Scans possibly multiple data from the text I/O stream `t`.
     - `*args` and `**kwargs` are passed to the constructor of `FridTextIOLoader`.
     - `init_path` is passed to `FridTextIOLoader.load()` as `path`.
     - `top_dtype` is passed to `FridTextIOLoader.load()`.
