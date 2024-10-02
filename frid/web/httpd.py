@@ -73,7 +73,7 @@ if __name__ == '__main__':
     class TestHTTPRequestHandler(FridHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=root, manager=manager, **kwargs)
-    import socketserver
-    with socketserver.TCPServer((host, port), TestHTTPRequestHandler) as httpd:
+    from http.server import HTTPServer
+    with HTTPServer((host, port), TestHTTPRequestHandler) as httpd:
         print(f"Starting HTTP server at {host}:{port} ...")
         httpd.serve_forever()
