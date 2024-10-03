@@ -157,15 +157,15 @@ class ApiRouteManager:
         info("Current routes:")
         for k, v in self._registry.items():
             info(f"|   {k or '/'} => {get_type_name(v)}")
-    def create_route(self, method: str, path: str, qstr: str|None) -> ApiRoute:
+    def create_route(self, method: str, path: str, qstr: str|None) -> ApiRoute|HttpError:
         assert isinstance(path, str)
         (prefix, router) = self.fetch_router(path)
         if prefix is None:
-            raise HttpError(404, f"Cannot find the path router for {path}")
+            return HttpError(404, f"Cannot find the path router for {path}")
         suffix = path[len(prefix):] # Should either be empty or starting with '/'
         if not suffix:
             url = path + "/" if qstr is None else path + "/?" + qstr
-            raise HttpError(307, headers={'location': url})
+            return HttpError(307, headers={'location': url})
         # Find the callee
         if callable(router):
             # If the router itself is callable, just call it without action
@@ -179,7 +179,7 @@ class ApiRouteManager:
             # Find the member match the name
             (action, callee, actype) = self.fetch_member(router, method, suffix)
             if callee is None:
-                raise HttpError(405, f"[{prefix}]: cannot find {method} '...{suffix}'")
+                return HttpError(405, f"[{prefix}]: cannot find {method} '.../{suffix}'")
             if action:
                 suffix = suffix[len(action):] # Should still be empty or starting with /
         # Parse the query string

@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterable, Callable
 from http.server import SimpleHTTPRequestHandler
 
-from ..typing import BlobTypes, FridValue
+from ..typing import FridValue
 from .mixin import HttpMixin, HttpError
 from .route import ApiRouteManager
 
@@ -9,6 +9,7 @@ class FridHTTPRequestHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, manager: ApiRouteManager, **kwargs):
         self._manager = manager
         super().__init__(*args, **kwargs)
+        self.protocol_version = "HTTP/1.1"
     def handle_request(self, method: str, on_missing: Callable[[],None]|None=None,
                        with_body: bool=True):
         request = self.get_http_input()
@@ -17,12 +18,11 @@ class FridHTTPRequestHandler(SimpleHTTPRequestHandler):
         else:
             path = self.path
             qstr = None
-        try:
-            route = self._manager.create_route(method, path, qstr)
-        except HttpError as e:
-            if e.ht_status == 404 and on_missing is not None:
+        route = self._manager.create_route(method, path, qstr)
+        if isinstance(route, HttpError):
+            if route.ht_status == 404 and on_missing is not None:
                 return on_missing()
-            raise
+            return route
         assert not isinstance(request.http_data, AsyncIterable)
         return self.send_http_data(route(
             request, peer=self.client_address, path=path, qstr=qstr,
@@ -46,9 +46,6 @@ class FridHTTPRequestHandler(SimpleHTTPRequestHandler):
         self.send_response(data.ht_status)
         for k, v in data.http_head.items():
             self.send_header(k, v)
-        if data.http_body is not None and with_body:
-            assert isinstance(data.http_body, BlobTypes)
-            self.send_header('content-length', str(len(data.http_body)))
         self.end_headers()
         assert not isinstance(data.http_body, AsyncIterable)
         if data.http_body is not None and with_body:

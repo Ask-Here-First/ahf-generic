@@ -55,11 +55,14 @@ class AsgiWebApp(ApiRouteManager):
             else:
                 qstr = scope['query_string'].decode()
                 route = self.create_route(method, path, qstr)
-                result = route(req, peer=scope['client'], path=path, qstr=qstr, asgi=scope)
-                if inspect.isawaitable(result):
-                    result = await result
-                if not isinstance(result, HttpMixin):
-                    result = HttpMixin(http_data=result)
+                if isinstance(route, HttpError):
+                    result = route
+                else:
+                    result = route(req, peer=scope['client'], path=path, qstr=qstr, asgi=scope)
+                    if inspect.isawaitable(result):
+                        result = await result
+                    if not isinstance(result, HttpMixin):
+                        result = HttpMixin(http_data=result)
         self.update_headers(result, req, host=scope['server'],
                             accept_origins=self.accept_origins)
         result.set_response()

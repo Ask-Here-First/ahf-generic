@@ -241,7 +241,16 @@ class HttpMixin:
                 self.http_head['content-type'] = mime_type + ";charset=utf-8"
         # Update the status with 200
         if not self.ht_status:
-            self.ht_status = 204 if body is None else 200
+            self.ht_status = 204 if self.http_body is None else 200
+        # No body or Content-Length if status code is 1xx, 204, 304
+        if self.ht_status < 200 or self.ht_status in (204, 304):
+            self.http_body = None
+            return self
+        if self.http_body is None:
+            self.http_body = b''
+            self.http_head['content-length'] = "0"
+        elif isinstance(self.http_body, BlobTypes):
+            self.http_head['content-length'] = str(len(self.http_body))
         return self
 
 class HttpError(HttpMixin, FridError):
