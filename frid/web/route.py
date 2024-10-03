@@ -1,4 +1,4 @@
-import sys, asyncio, traceback
+import sys, traceback
 from logging import info
 from dataclasses import dataclass
 from collections.abc import AsyncIterable, Mapping, Callable, Sequence
@@ -86,10 +86,8 @@ class ApiRoute:
                 auth = pair[1]
         # with_auth = self._auth_key is None or self._auth_key == auth_key # TODO: change to id
         # Get the the route information
-        if peer is not None and not isinstance(peer, str):
-            peer = peer[0]
             # Read body if needed
-        msg = self._log_string(req, peer)
+        msg = self.get_log_str(req, peer)
         info(msg)
         try:
             assert not isinstance(req.http_data, AsyncIterable)
@@ -100,29 +98,32 @@ class ApiRoute:
             })
         except TypeError as exc:
             traceback.print_exc()
-            return HttpError(404, msg, cause=exc)
-        except HttpError as exc:
-            traceback.print_exc()
-            return exc
-        except asyncio.TimeoutError as exc:
-            traceback.print_exc()
-            return HttpError(503, msg + " timeout", cause=exc)
+            return HttpError(400, "Bad args: " + msg, cause=exc)
         except Exception as exc:
-            status = 500
-            # This part is for backward compatibility
-            for name in ('http_status', 'ht_status', 'http_code'):
-                if hasattr(exc, name):
-                    s = getattr(exc, name)
-                    if isinstance(s, int) and s > 0:
-                        status = s
-                        break
             traceback.print_exc()
-            return HttpError(status, msg + " crashed", cause=exc)
+            return self.to_http_error(exc, req, peer)
+    def to_http_error(self, exc: Exception, req: HttpMixin,
+                      peer: tuple[str,int]|str|None) -> HttpError:
+        if isinstance(exc, HttpError):
+            return exc
+        status = 500
+        # This part is for backward compatibility
+        for name in ('http_status', 'ht_status', 'http_code'):
+            if hasattr(exc, name):
+                s = getattr(exc, name)
+                if isinstance(s, int) and s > 0:
+                    status = s
+                    break
+        return HttpError(status, "Crashed: " + self.get_log_str(req, peer), cause=exc)
     def _get_opargs(self, data: FridValue) -> tuple[FridValue,...]:
         if isinstance(self.actype, bool):
             return (data, *self.vpargs) if self.actype else tuple(self.vpargs)
         return (self.actype, data, *self.vpargs)
-    def _log_string(self, req: HttpMixin, peer: str|None):
+    def get_log_str(self, req: HttpMixin, peer: tuple[str,int]|str|None=None):
+        if peer is None:
+            peer = "??"
+        elif not isinstance(peer, str):
+            peer = peer[0]
         assert is_frid_value(req.http_data)
         return f"[{peer}] ({self.prefix}) {self.method} " + dump_args_str(FridNameArgs(
             self.action or "", self._get_opargs(frid_redact(req.http_data, 0)), self.kwargs

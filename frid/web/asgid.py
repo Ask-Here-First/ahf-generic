@@ -1,4 +1,4 @@
-import sys, time, asyncio, inspect
+import sys, time, asyncio, inspect, traceback
 from logging import info, error
 from collections.abc import AsyncIterable, Iterable, Mapping, Callable, Sequence
 from typing import Literal, TypedDict
@@ -58,9 +58,18 @@ class AsgiWebApp(ApiRouteManager):
                 if isinstance(route, HttpError):
                     result = route
                 else:
-                    result = route(req, peer=scope['client'], path=path, qstr=qstr, asgi=scope)
+                    peer = scope['client']
+                    result = route(req, peer=peer, path=path, qstr=qstr, asgi=scope)
                     if inspect.isawaitable(result):
-                        result = await result
+                        try:
+                            result = await result
+                        except asyncio.TimeoutError as exc:
+                            traceback.print_exc()
+                            msg =  route.get_log_str(req, peer)
+                            result = HttpError(503, "Timeout: " + msg, cause=exc)
+                        except Exception as exc:
+                            traceback.print_exc()
+                            result = route.to_http_error(exc, req, peer)
                     if not isinstance(result, HttpMixin):
                         result = HttpMixin(http_data=result)
         self.update_headers(result, req, host=scope['server'],
