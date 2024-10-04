@@ -1,7 +1,7 @@
 import sys, time, asyncio, inspect, traceback
 from logging import info, error
-from collections.abc import AsyncIterable, Iterable, Mapping, Callable, Sequence
-from typing import Literal, TypedDict
+from collections.abc import AsyncIterable, Iterable, Mapping, Callable
+from typing import Any, Literal, TypedDict
 if sys.version_info >= (3, 11):
     from typing import NotRequired
 else:
@@ -10,8 +10,8 @@ else:
 from ..helper import get_type_name
 from ..strops import escape_control_chars
 from ..typing import FridValue
-from .mixin import HttpError, HttpMixin
-from .route import ApiRouteManager, HTTP_METHODS_WITH_BODY, HTTP_SUPPORTED_METHODS
+from .mixin import HttpError
+from .route import ApiRouteManager, HTTP_METHODS_WITH_BODY
 
 class AsgiScopeType(TypedDict):
     type: Literal['http','websocket']
@@ -31,10 +31,8 @@ class AsgiScopeType(TypedDict):
 class AsgiWebApp(ApiRouteManager):
     """The main ASGi Web App."""
 
-    def __init__(self, *args, accept_origins: Sequence[str]=[],
-                 http_ping_time: float=3.0, **kwargs):
+    def __init__(self, *args, http_ping_time: float=3.0, **kwargs):
         super().__init__(*args, **kwargs)
-        self.accept_origins = accept_origins
         self.http_ping_time = http_ping_time
 
     async def __call__(self, scope: AsgiScopeType, recv: Callable, send: Callable):
@@ -43,57 +41,42 @@ class AsgiWebApp(ApiRouteManager):
             return await self.handle_lifespan(scope, recv, send)
         # Get method and headers and get authrization
         method = scope['method']
-        path = scope['path']
-        if method not in HTTP_SUPPORTED_METHODS:
-            result = HttpError(405, f"Bad method {method}: {method} {path}")
-        elif method == 'OPTIONS':
-            result = self.handle_options(path)
-        else:
-            req = await self.get_request_data(scope, recv)
-            if isinstance(req, HttpError):
-                result = req
-            else:
-                qstr = scope['query_string'].decode()
-                # Note: ASGi cannot distinguish empty query string with and without ?
-                # Hence we assume '?' does not exist if query string is empty
-                route = self.create_route(method, path, qstr or None)
-                if isinstance(route, HttpError):
-                    result = route
-                else:
-                    peer = scope['client']
-                    result = route(req, peer=peer, path=path, qstr=qstr, asgi=scope)
-                    if inspect.isawaitable(result):
-                        try:
-                            result = await result
-                        except asyncio.TimeoutError as exc:
-                            traceback.print_exc()
-                            msg =  route.get_log_str(req, peer)
-                            result = HttpError(503, "Timeout: " + msg, cause=exc)
-                        except Exception as exc:
-                            traceback.print_exc()
-                            result = route.to_http_error(exc, req, peer)
-                    if not isinstance(result, HttpMixin):
-                        result = HttpMixin(http_data=result)
-        self.update_headers(result, req, host=scope['server'],
-                            accept_origins=self.accept_origins)
-        result.set_response()
+        req_data = await self.get_request_data(scope, recv)
+        # Note: ASGi cannot distinguish between empty query string (with ?) and
+        # missing query string (without ?). Assuming missing always.
+        (request, result) = self.handle_request(
+            method, req_data, scope['headers'], peer=scope['client'],
+            path=scope['path'], qstr=(scope['query_string'].decode() or None),
+        )
+        if inspect.isawaitable(result):
+            try:
+                result = await result
+            except asyncio.TimeoutError as exc:
+                traceback.print_exc()
+                # msg =  route.get_log_str(request, peer=scope['client'])
+                result = HttpError(503, f"Timeout: {method} {scope['path']}", cause=exc)
+            except Exception as exc:
+                traceback.print_exc()
+                # result = route.to_http_error(exc, request, peer=scope['client'])
+                result = HttpError(500, f"Crashed: {method} {scope['path']}", cause=exc)
+        response = self.process_result(request, result)
         await send({
             'type': 'http.response.start',
-            'status': result.ht_status,
+            'status': response.ht_status,
             'headers': [(k.encode('utf-8'), v.encode('utf-8'))
-                        for k, v in result.http_head.items()],
+                        for k, v in response.http_head.items()],
         })
-        if method == 'HEAD' or result.http_body is None:
+        if method == 'HEAD' or response.http_body is None:
             return await send({
                 'type': 'http.response.body',
                 'body': b'',
             })
-        if not isinstance(result.http_body, AsyncIterable):
+        if not isinstance(response.http_body, AsyncIterable):
             return await send({
                 'type': 'http.response.body',
-                'body': result.http_body,
+                'body': response.http_body,
             })
-        return await self.exec_async_send(result.http_body, send, recv)
+        return await self.exec_async_send(response.http_body, send, recv)
 
     async def handle_lifespan(self, scope: AsgiScopeType, recv: Callable, send: Callable):
         while True:
@@ -119,7 +102,7 @@ class AsgiWebApp(ApiRouteManager):
                 await send({'type': 'lifespan.shutdown.complete'})
                 break
         info("WebApp: stopping ASGi server")
-    async def get_request_data(self, scope: AsgiScopeType, recv: Callable) -> HttpMixin:
+    async def get_request_data(self, scope: AsgiScopeType, recv: Callable) -> bytes|None:
         """Read the body and returns the data. Accepted types:
         - `text/plain': returns decoded string.
         - 'application/x-binary', 'application/octet-stream': return as bytes.
@@ -132,7 +115,7 @@ class AsgiWebApp(ApiRouteManager):
             + The body is the raw binary data in the body
         """
         if scope['method'] not in HTTP_METHODS_WITH_BODY:
-            return HttpMixin.from_request(None, scope['headers'])
+            return None
         body = []
         more_body = True
         while more_body:
@@ -141,11 +124,7 @@ class AsgiWebApp(ApiRouteManager):
             if frag:
                 body.append(frag)
             more_body = message.get('more_body', False)
-        data = b''.join(body)
-        try:
-            return HttpMixin.from_request(data, scope['headers'])
-        except Exception as exc:
-            return HttpError(400, "ASGi: parsing input", cause=exc)
+        return b''.join(body)
     async def send_async_ping(self, state: list[float], delay: float, send: Callable):
         while True:
             current = time.time()
@@ -213,11 +192,14 @@ class AsgiWebApp(ApiRouteManager):
         if ping_task is not None:
             ping_task.cancel()
 
-if __name__ == '__main__':
-    from .route import load_command_line_args
-    (routes, assets, host, port) = load_command_line_args()
+def run_asgi_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
+                    host: str, port: int, **kwargs):
     import uvicorn
     server = uvicorn.Server(uvicorn.Config(
-        AsgiWebApp(routes, assets), log_level="info", host=host, port=port
+        AsgiWebApp(routes, assets), log_level="info", host=host, port=port, **kwargs
     ))
     server.run()
+
+if __name__ == '__main__':
+    from .route import load_command_line_args
+    run_asgi_server(*load_command_line_args())

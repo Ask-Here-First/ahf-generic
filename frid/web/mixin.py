@@ -15,7 +15,9 @@ DEF_ESCAPE_SEQ = os.getenv('FRID_ESCAPE_SEQ', "#!")
 FRID_MIME_TYPE = "text/vnd.askherefirst.frid"
 
 ShortMimeType = Literal['text','html','form','blob','json','frid']
-InputHttpHead = Mapping[str|bytes,str|bytes]|Iterable[tuple[str|bytes,str|bytes]]|Message
+InputHttpHead = (
+    Mapping[str,str]|Mapping[bytes,bytes]|Iterable[tuple[str|bytes,str|bytes]]|Message
+)
 
 def parse_url_value(v: str) -> FridValue:
     """Parse a single value in URL.

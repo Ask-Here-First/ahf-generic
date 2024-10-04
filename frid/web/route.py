@@ -13,7 +13,7 @@ from ..guards import is_frid_value
 from ..helper import get_type_name
 from ..typing import FridNameArgs, FridValue
 from ..osutil import load_data_in_module
-from .mixin import HttpError, HttpMixin, parse_url_query, parse_url_value
+from .mixin import HttpError, HttpMixin, InputHttpHead, parse_url_query, parse_url_value
 from .files import FileRouter
 
 """
@@ -163,8 +163,11 @@ class ApiRouteManager:
         'Access-Control-Max-Age': "1728000",
     }  # TODO: add CORS & cache constrol headers
 
-    def __init__(self, routes: Mapping[str,Any]|None=None,
-                 assets: str|Mapping[str,str]|None=None):
+    def __init__(
+            self, routes: Mapping[str,Any]|None=None, assets: str|Mapping[str,str]|None=None,
+            *, accept_origins: Sequence[str]|None=None,
+    ):
+        self.accept_origins = accept_origins if accept_origins else []
         self._registry = {}
         if isinstance(assets, str):
             self._registry[''] = FileRouter(assets)
@@ -277,20 +280,58 @@ class ApiRouteManager:
             # TODO find out what methods are suppoted
             'access-control-allow-methods': "GET, POST, PUT, DELETE, PATCH, OPTIONS"
         })
-    @classmethod
-    def update_headers(cls, response: HttpMixin, req: HttpMixin,
-                       /, host: str|tuple[str,int|None]|None, accept_origins: Sequence[str]=[]):
+    def update_headers(self, response: HttpMixin, request: HttpMixin):
         """Adding extra headers to response; mostly for CORS, cache, and access control."""
         headers = response.http_head
-        headers.update(cls._common_headers)
-        if host is not None and not isinstance(host, str):
-            host = host[0]
-        origin = req.http_head.get('origin')
-        if origin and (origin in accept_origins or host in ('127.0.0.1', 'localhost')):
+        headers.update(self._common_headers)
+        host = request.http_head.get('host')
+        assert isinstance(host, str)
+        if ':' in host:
+            host = host.split(':')[0]
+        origin = request.http_head.get('origin')
+        if origin and (origin in self.accept_origins or host in ('127.0.0.1', 'localhost')):
             headers['Access-Control-Allow-Origin'] = origin
         if isinstance(response.http_data, AsyncIterable):
             headers['X-Accel-Buffering'] = "no"
         return headers
+
+    def handle_request(
+            self, method: str, data: bytes|None, headers: InputHttpHead,
+            *, path: str, qstr: str|None, peer: str|tuple[str,int]|None,
+    ) -> tuple[HttpMixin,HttpMixin|FridValue]:
+        """Create a request object and run the route.
+        - Returns a pair of (request, result), where request is an HttpMixin
+          object and the result is whatever the route returns (if called) or
+          an HttpError.
+        """
+        try:
+            request = HttpMixin.from_request(data, headers)
+        except Exception as exc:
+            return (HttpMixin.from_request(None, headers),
+                    HttpError(400, "ASGi: parsing input", cause=exc))
+        if method == 'OPTIONS':
+            return (request, self.handle_options(path))
+        if method not in HTTP_SUPPORTED_METHODS:
+            return (HttpMixin.from_request(None, headers),
+                    HttpError(405, f"Bad method {method}: {method} {path}"))
+        # Run the routes
+        route = self.create_route(method, path, qstr)
+        if isinstance(route, HttpError):
+            return (request, route)
+        return (request, route(request, peer=peer, path=path, qstr=qstr))
+    def process_result(self, request: HttpMixin, result: HttpMixin|FridValue) -> HttpMixin:
+        """Process the result of the route execution and returns a response.
+        - The response is an object of HttpMixin with body already prepared.
+        """
+        if isinstance(result, HttpMixin):
+            response = result
+        else:
+            assert not isinstance(request.http_data, AsyncIterable)
+            response = HttpMixin(http_data=result, ht_status=200)
+        self.update_headers(response, request)
+        response.set_response()
+        return response
+
 
 class EchoRouter:
     def get_(self, *args, __, **kwds):

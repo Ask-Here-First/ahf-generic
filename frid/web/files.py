@@ -92,4 +92,4 @@ class FileRouter:
                 continue
             (http_body, mime_type) = result
             return HttpMixin(ht_status=200, http_body=http_body, mime_type=mime_type)
-        raise HttpError(404, f"File not found: '{'/'.join(path)}']")
+        raise HttpError(404, f"File not found: '{'/'.join(path)}'")
