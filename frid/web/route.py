@@ -290,6 +290,24 @@ class ApiRouteManager:
             headers['X-Accel-Buffering'] = "no"
         return headers
 
+class EchoRouter:
+    def get_echo(self, *args, **kwds):
+        if not kwds:
+            return args  # Args can be empty
+        if not args:
+            return kwds
+        return {'.': "get", '.args': args, '.kwds': kwds}
+    def del_echo(self, *args, **kwds):
+        return self.run_echo("del", {}, *args, **kwds)
+    def run_echo(self, action, data, *args, **kwds):
+        out = dict(data) if isinstance(data, Mapping) else {'.data': data}
+        out['.'] = action
+        if args:
+            out['.args'] = args
+        if kwds:
+            out['.kwds'] = kwds
+        return out
+
 def load_command_line_args() -> tuple[dict[str,str],str|dict[str,str]|None,str,int]:
     import logging, faulthandler
     faulthandler.enable()
