@@ -54,7 +54,9 @@ class AsgiWebApp(ApiRouteManager):
                 result = req
             else:
                 qstr = scope['query_string'].decode()
-                route = self.create_route(method, path, qstr)
+                # Note: ASGi cannot distinguish empty query string with and without ?
+                # Hence we assume '?' does not exist if query string is empty
+                route = self.create_route(method, path, qstr or None)
                 if isinstance(route, HttpError):
                     result = route
                 else:
