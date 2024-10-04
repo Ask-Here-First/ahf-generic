@@ -14,6 +14,7 @@ from ..helper import get_type_name
 from ..typing import FridNameArgs, FridValue
 from ..osutil import load_data_in_module
 from .mixin import HttpError, HttpMixin, parse_http_query
+from .files import FileRouter
 
 """
 REST API convention.
@@ -130,6 +131,16 @@ class ApiRoute:
         ))
 
 class ApiRouteManager:
+    """The base route management class.
+
+    Constructor arguments:
+    - `routes`: (optional) a map from the URL path prefixes to router objects.
+    - `assets`: (optional) a map from directory or zip file paths on the disk
+      to URL path prefixes. For each unique prefixes, it creates a file router.
+    Note that the same prefix can have only one router; however, a file router
+    can be served from multiple directories or zip files, allowing overlay.
+    When serving resources, the router with the longest matching prefix is used.
+    """
     _route_prefixes = {
         'HEAD': ['get_', 'run_'],
         'GET': ['get_', 'run_'],
@@ -152,12 +163,30 @@ class ApiRouteManager:
         'Access-Control-Max-Age': "1728000",
     }  # TODO: add CORS & cache constrol headers
 
-    def __init__(self, routes: Mapping[str,Any]={}):
-        self._registry = {k: load_data_in_module(v) if isinstance(v, str) else v
-                          for k, v in routes.items()}
+    def __init__(self, routes: Mapping[str,Any]|None=None,
+                 assets: str|Mapping[str,str]|None=None):
+        self._registry = {}
+        if isinstance(assets, str):
+            self._registry[''] = FileRouter(assets)
+        elif isinstance(assets, Mapping):
+            roots: dict[str,list[str]] = {}
+            for k, v in assets.items():
+                v = v.rstrip('/')
+                if v in roots:
+                    roots[v].append(k)
+                else:
+                    roots[v] = [k]
+            for k, v in roots.items():
+                self._registry[k] = FileRouter(*v)
+        if routes is not None:
+            self._registry.update(
+                (k.rstrip('/'), load_data_in_module(v)) if isinstance(v, str) else v
+                for k, v in routes.items()
+            )
         info("Current routes:")
         for k, v in self._registry.items():
-            info(f"|   {k or '/'} => {get_type_name(v)}")
+            r = ' | '.join(v.roots()) if isinstance(v, FileRouter) else get_type_name(v)
+            info(f"|   {k or '/'} => {r}")
     def create_route(self, method: str, path: str, qstr: str|None) -> ApiRoute|HttpError:
         assert isinstance(path, str)
         (prefix, router) = self.fetch_router(path)
@@ -166,7 +195,7 @@ class ApiRouteManager:
         suffix = path[len(prefix):] # Should either be empty or starting with '/'
         if not suffix:
             url = path + "/" if qstr is None else path + "/?" + qstr
-            return HttpError(307, headers={'location': url})
+            return HttpError(307, http_head={'location': url})
         # Find the callee
         if callable(router):
             # If the router itself is callable, just call it without action
@@ -261,7 +290,7 @@ class ApiRouteManager:
             headers['X-Accel-Buffering'] = "no"
         return headers
 
-def load_command_line_args() -> tuple[dict[str,str],str,int,str]:
+def load_command_line_args() -> tuple[dict[str,str],str|dict[str,str]|None,str,int]:
     import logging, faulthandler
     faulthandler.enable()
     logging.basicConfig(level=logging.INFO)
@@ -276,7 +305,7 @@ def load_command_line_args() -> tuple[dict[str,str],str,int,str]:
     else:
         host = ''
         port = int(sys.argv[1])
-    root = None
+    assets = None
     routes = {}
     for item in sys.argv[2:]:
         if '=' in item:
@@ -287,10 +316,8 @@ def load_command_line_args() -> tuple[dict[str,str],str,int,str]:
                 value += "()"
             routes[name] = value
         else:
-            if root is not None:
-                print(f"The root directory is already specified: {root}", file=sys.stderr)
+            if assets is not None:
+                print(f"The root directory is already specified: {assets}", file=sys.stderr)
                 sys.exit(1)
-            root = item
-    if root is None:
-        root = "assets"
-    return (routes, host, port, root)
+            assets = item
+    return (routes, assets, host, port)

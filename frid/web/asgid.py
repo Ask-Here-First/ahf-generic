@@ -213,9 +213,9 @@ class AsgiWebApp(ApiRouteManager):
 
 if __name__ == '__main__':
     from .route import load_command_line_args
-    (routes, host, port, root) = load_command_line_args()
+    (routes, assets, host, port) = load_command_line_args()
     import uvicorn
     server = uvicorn.Server(uvicorn.Config(
-        AsgiWebApp(routes), log_level="info", host=host, port=port
+        AsgiWebApp(routes, assets), log_level="info", host=host, port=port
     ))
     server.run()
