@@ -17,7 +17,18 @@ FRID_MIME_TYPE = "text/vnd.askherefirst.frid"
 ShortMimeType = Literal['text','html','form','blob','json','frid']
 InputHttpHead = Mapping[str|bytes,str|bytes]|Iterable[tuple[str|bytes,str|bytes]]|Message
 
-def parse_http_query(qs: str) -> tuple[list[tuple[str,str]|str],dict[str,FridValue]]:
+def parse_url_value(v: str) -> FridValue:
+    """Parse a single value in URL.
+    - Returns a pair; first is the string form and the second is parsed as frid if possible
+    """
+    v2 = v.lstrip('+').replace('+', ' ')  # Convert + to space except for leading +
+    value = unquote(v[:(len(v) - len(v2))] + v2)
+    try:
+        return load_frid_str(value)
+    except Exception:
+        return value
+
+def parse_url_query(qs: str) -> tuple[list[tuple[str,str]|str],dict[str,FridValue]]:
     """Parse the URL query string (or www forms) into key value pairs.
     - Returns two data structures as a pair:
         + A list of original key value pairs of strings, URI decoded, but not evaluated.
@@ -44,14 +55,9 @@ def parse_http_query(qs: str) -> tuple[list[tuple[str,str]|str],dict[str,FridVal
             qsargs.append(unquote(item))
             continue
         (k, v) = item.split('=', 1)
-        v2 = v.lstrip('+').replace('+', ' ')  # Convert + to space except for leading +
-        value = unquote(v[:(len(v) - len(v2))] + v2)
         key = unquote(k)
-        qsargs.append((key, value))
-        try:
-            kwargs[key] = load_frid_str(value)
-        except Exception:
-            kwargs[key] = value
+        qsargs.append((key, unquote(v)))
+        kwargs[key] = parse_url_value(v)
     return (qsargs, kwargs)
 
 
@@ -134,7 +140,7 @@ class HttpMixin:
                     http_data = rawdata
                     mime_type = 'blob'
                 case 'application/x-www-form-urlencoded':
-                    http_data = parse_http_query(rawdata.decode(encoding))
+                    http_data = parse_url_query(rawdata.decode(encoding))
                     mime_type = 'form'
                 case 'application/json' | 'text/json':
                     http_data = json.loads(rawdata.decode(encoding))

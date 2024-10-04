@@ -13,7 +13,7 @@ from ..guards import is_frid_value
 from ..helper import get_type_name
 from ..typing import FridNameArgs, FridValue
 from ..osutil import load_data_in_module
-from .mixin import HttpError, HttpMixin, parse_http_query
+from .mixin import HttpError, HttpMixin, parse_url_query, parse_url_value
 from .files import FileRouter
 
 """
@@ -74,7 +74,7 @@ class ApiRoute:
     qsargs: list[tuple[str,str]|str]
     router: Any
     callee: Callable
-    vpargs: list[str]
+    vpargs: list[FridValue]
     kwargs: dict[str,FridValue]
     actype: ApiCallType
 
@@ -92,7 +92,7 @@ class ApiRoute:
         info(msg)
         try:
             assert not isinstance(req.http_data, AsyncIterable)
-            return self.callee(*self._get_opargs(req.http_data), **self.kwargs, __={
+            return self.callee(*self._get_vpargs(req.http_data), **self.kwargs, __={
                 'head': req.http_head, 'body': req.http_body, 'type': req.mime_type,
                 'call': (self.prefix, self.action), 'auth': auth, 'peer': peer,
                 **kwargs
@@ -116,7 +116,7 @@ class ApiRoute:
                     status = s
                     break
         return HttpError(status, "Crashed: " + self.get_log_str(req, peer), cause=exc)
-    def _get_opargs(self, data: FridValue) -> tuple[FridValue,...]:
+    def _get_vpargs(self, data: FridValue) -> tuple[FridValue,...]:
         if isinstance(self.actype, bool):
             return (data, *self.vpargs) if self.actype else tuple(self.vpargs)
         return (self.actype, data, *self.vpargs)
@@ -127,7 +127,7 @@ class ApiRoute:
             peer = peer[0]
         assert is_frid_value(req.http_data)
         return f"[{peer}] ({self.prefix}) {self.method} " + dump_args_str(FridNameArgs(
-            self.action or "", self._get_opargs(frid_redact(req.http_data, 0)), self.kwargs
+            self.action or "", self._get_vpargs(frid_redact(req.http_data, 0)), self.kwargs
         ))
 
 class ApiRouteManager:
@@ -214,14 +214,16 @@ class ApiRouteManager:
                 suffix = suffix[len(action):] # Should still be empty or starting with /
         # Parse the query string
         if isinstance(qstr, str):
-            (qsargs, kwargs) = parse_http_query(qstr)
+            (qsargs, kwargs) = parse_url_query(qstr)
         else:
             qsargs = []
             kwargs = {}
-        opargs = x.split('/') if (x := suffix.strip('/')) else []
+        vpargs = [
+            parse_url_value(item) for item in args.split('/')
+        ] if (args := suffix.strip('/')) else []
         return ApiRoute(
             method=method, prefix=prefix, action=action, suffix=suffix, qsargs=qsargs,
-            router=router, callee=callee, vpargs=opargs, kwargs=kwargs, actype=actype,
+            router=router, callee=callee, vpargs=vpargs, kwargs=kwargs, actype=actype,
         )
     def fetch_router(self, path: str) -> tuple[str|None,Any]:
         """Fetch the router object in the registry that matches the
@@ -291,17 +293,17 @@ class ApiRouteManager:
         return headers
 
 class EchoRouter:
-    def get_echo(self, *args, **kwds):
+    def get_(self, *args, __, **kwds):
         if not kwds:
             return args  # Args can be empty
         if not args:
             return kwds
-        return {'.': "get", '.args': args, '.kwds': kwds}
-    def del_echo(self, *args, **kwds):
-        return self.run_echo("del", {}, *args, **kwds)
-    def run_echo(self, action, data, *args, **kwds):
+        return {'.self': "get", '.args': args, '.kwds': kwds}
+    def del_(self, *args, __, **kwds):
+        return self.run_("del", {}, *args, __=__, **kwds)
+    def run_(self, action, data, __, *args, **kwds):
         out = dict(data) if isinstance(data, Mapping) else {'.data': data}
-        out['.'] = action
+        out['.self'] = action
         if args:
             out['.args'] = args
         if kwds:
