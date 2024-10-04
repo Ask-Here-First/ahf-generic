@@ -183,7 +183,7 @@ class ApiRouteManager:
                 self._registry[k] = FileRouter(*v)
         if routes is not None:
             self._registry.update(
-                (k.rstrip('/'), load_data_in_module(v)) if isinstance(v, str) else v
+                (k.rstrip('/'), (load_data_in_module(v) if isinstance(v, str) else v))
                 for k, v in routes.items()
             )
         info("Current routes:")

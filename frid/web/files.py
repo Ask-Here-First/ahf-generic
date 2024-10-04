@@ -22,8 +22,8 @@ class FileRouter:
     }
     _other_mime_type = "application/octet-stream"
 
-    def __init__(self, *roots, index: str="index.html"):
-        self._roots: list[Path|ZipFile] = [
+    def __init__(self, *roots: str, index: str="index.html"):
+        self._roots: list[Path|tuple[ZipFile,str]] = [
             self._open_path(v) for v in roots
         ] if roots else [Path(os.getcwd())]
         self._index = index
@@ -31,12 +31,18 @@ class FileRouter:
         return [x.filename if isinstance(x, ZipFile) and x.filename is not None else str(x)
                 for x in self._roots]
     @staticmethod
-    def _open_path(s: str) -> Path|ZipFile:
+    def _open_path(s: str) -> Path|tuple[ZipFile,str]:
         path = Path(s).absolute()
         if path.is_dir():
             return path
         if path.is_file() and path.name.endswith(".zip"):
-            return ZipFile(path)
+            return (ZipFile(path), "")
+        index = s.find('.zip/')
+        if index > 0:
+            index += 4
+            path = Path(s[:index])
+            if path.is_file():
+                return (ZipFile(path), s[(index+1):])
         raise ValueError(f"Invalid path {s}: not a directory or a zip file")
 
     def _get_mime_type(self, suffix):
@@ -63,8 +69,9 @@ class FileRouter:
             raise HttpError(403, str(e))
         return (data, self._get_mime_type(file_path.suffix))
 
-    def _load_file_in_zip(self, zipf: ZipFile, path: Sequence[str]) -> tuple[bytes,str]|None:
-        zip_path = '/'.join(path)
+    def _load_file_in_zip(self, zipf: ZipFile, path: Sequence[str],
+                          prefix: str="") -> tuple[bytes,str]|None:
+        zip_path = prefix + '/'.join(path)
         if zip_path not in zipf.namelist():
             zip_path += '/' + self._index
             if zip_path not in zipf.namelist():
@@ -84,8 +91,12 @@ class FileRouter:
         for root in self._roots:
             if isinstance(root, Path):
                 result = self._load_file_in_dir(root, path)
-            elif isinstance(root, ZipFile):
-                result = self._load_file_in_zip(root, path)
+            elif isinstance(root, tuple) and len(root) == 2:
+                (zipfile, prefix) = root
+                if isinstance(zipfile, ZipFile) and isinstance(prefix, str):
+                    result = self._load_file_in_zip(zipfile, path, prefix)
+                else:
+                    raise ValueError(f"Invalid tuple {type(zipfile)} and {type(prefix)}")
             else:
                 raise ValueError(f"Invalid root directory type {type(root)}")
             if result is None:
