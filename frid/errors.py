@@ -66,7 +66,8 @@ class FridError(FridMixin, Exception):
         if self.trace is not None:
             trace.extend(self.trace)
             trace.append("")
-        trace.extend(traceback.format_exception(self))
+        if self.__traceback__ is not None:
+            trace.extend(traceback.format_exception(self))
         if self.__cause__:
             out['cause'] = str(self.__cause__)
         elif self.cause is not None:
