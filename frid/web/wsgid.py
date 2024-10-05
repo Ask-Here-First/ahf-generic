@@ -30,7 +30,7 @@ def run_wsgi_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
                     host: str, port: int, *, timeout: int=0, **kwargs):
     from gunicorn.app.base import BaseApplication
     from six import iteritems
-    class MyApplication(BaseApplication):
+    class ServerApplication(BaseApplication):
         def __init__(self, app, options=None):
             self.options = options or {}
             self.application = app
@@ -43,9 +43,11 @@ def run_wsgi_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
                 self.cfg.set(key.lower(), value)
         def load(self):
             return self.application
-    MyApplication(WsgiWebApp(routes, assets), {
+    server  = ServerApplication(WsgiWebApp(routes, assets), {
         'bind': f"{host}:{port}", 'timeout': timeout, **kwargs
-    }).run()
+    })
+    print(f"Starting WSGi server at {host}:{port} ...")
+    server.run()
 
 if __name__ == '__main__':
     from .route import load_command_line_args

@@ -53,7 +53,11 @@ def run_http_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
     from http.server import HTTPServer
     with HTTPServer((host, port), TestHTTPRequestHandler) as httpd:
         print(f"Starting HTTP server at {host}:{port} ...")
-        httpd.serve_forever()
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print(f"Shutting down HTTP server at {host}:{port} ...")
+            httpd.shutdown()
 
 if __name__ == '__main__':
     from .route import load_command_line_args

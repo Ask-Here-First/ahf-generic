@@ -198,6 +198,7 @@ def run_asgi_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
     server = uvicorn.Server(uvicorn.Config(
         AsgiWebApp(routes, assets), log_level="info", host=host, port=port, **kwargs
     ))
+    print(f"Starting ASGi server at {host}:{port} ...")
     server.run()
 
 if __name__ == '__main__':

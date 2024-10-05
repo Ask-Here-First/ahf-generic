@@ -4,7 +4,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from zipfile import ZipFile
 
-from frid.typing import StrKeyMap
 from frid.web import HttpError, HttpMixin
 
 class FileRouter:
@@ -85,7 +84,7 @@ class FileRouter:
             return (data, self._get_mime_type(zip_path[idx:]))
         return (data, self._other_mime_type)
 
-    def get_(self, *path, __: StrKeyMap={}):
+    def __call__(self, *path):
         if any(p.startswith('.') for p in path):
             raise HttpError(400, f"Path items cannot start with .: '{'/'.join(path)}'")
         for root in self._roots:
@@ -103,4 +102,4 @@ class FileRouter:
                 continue
             (http_body, mime_type) = result
             return HttpMixin(ht_status=200, http_body=http_body, mime_type=mime_type)
-        raise HttpError(404, f"File not found: '{'/'.join(path)}'")
+        return HttpError(404, f"File not found: '{'/'.join(path)}'")

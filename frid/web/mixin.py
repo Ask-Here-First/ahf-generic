@@ -4,7 +4,7 @@ from typing import Any, Literal
 from urllib.parse import unquote
 from email.message import Message
 
-from ..typing import BlobTypes, FridValue
+from ..typing import MISSING, BlobTypes, FridValue, MissingType
 from ..errors import FridError
 from ..guards import is_frid_value
 from ..loader import load_frid_str
@@ -76,13 +76,15 @@ class HttpMixin:
       `text`, `blob`, `html`, `json`, `frid`.
     - `http_data`: the data as supported by Frid.
     """
-    def __init__(self, /, *args, ht_status: int=0, http_head: Mapping[str,str]|None=None,
-                 http_body: BlobTypes|None=None, mime_type: str|ShortMimeType|None=None,
-                 http_data: FridValue|AsyncIterable[FridValue|Any]=None, **kwargs):
+    def __init__(
+            self, /, *args, ht_status: int=0, http_head: Mapping[str,str]|None=None,
+            http_body: BlobTypes|None=None, mime_type: str|ShortMimeType|None=None,
+            http_data: FridValue|AsyncIterable[FridValue|Any]|MissingType=MISSING, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.ht_status: int = ht_status
         self.http_body: BlobTypes|AsyncIterable[BlobTypes]|None = http_body
-        self.http_data: FridValue|AsyncIterable[FridValue|Any]|None = http_data
+        self.http_data: FridValue|AsyncIterable[FridValue|Any]|MissingType = http_data
         self.mime_type: str|ShortMimeType|None = mime_type
         self.http_head: dict[str,str] = dict(http_head) if http_head is not None else {}
 
@@ -129,7 +131,7 @@ class HttpMixin:
                 if key.strip().lower() == 'charset':
                     encoding = val.strip().lower()
         # Decoding the data if any
-        http_data = None
+        http_data = MISSING
         if rawdata is not None:
             match mime_type:
                 case 'text/plain':
@@ -221,11 +223,15 @@ class HttpMixin:
                 body = json.dumps(self.http_data).encode() # TODO do escape
                 mime_type = self.mime_type
             elif self.mime_type == 'frid':
+                assert self.http_data is not MISSING
                 body = dump_frid_str(self.http_data).encode()
                 mime_type = self.mime_type
             else:
-                body = dump_frid_str(self.http_data, json_level=1,
-                                     escape_seq=DEF_ESCAPE_SEQ).encode()
+                if self.http_data is MISSING:
+                    body = None
+                else:
+                    body = dump_frid_str(self.http_data, json_level=1,
+                                        escape_seq=DEF_ESCAPE_SEQ).encode()
                 mime_type = 'json'
             self.http_body = body
         # Check mime type for Content-Type if it is missing in http_head

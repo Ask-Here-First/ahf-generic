@@ -2,30 +2,46 @@ import sys, traceback
 from logging import info
 from dataclasses import dataclass
 from collections.abc import AsyncIterable, Mapping, Callable, Sequence
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 if sys.version_info >= (3, 11):
-    from typing import NotRequired
+    from typing import NotRequired, Unpack
 else:
-    from typing_extensions import NotRequired  # noqa: F401
+    from typing_extensions import NotRequired, Unpack  # noqa: F401
 
 from ..dumper import dump_args_str, frid_redact
 from ..guards import is_frid_value
 from ..helper import get_type_name
-from ..typing import FridNameArgs, FridValue
+from ..typing import MISSING, FridNameArgs, FridValue, MissingType
 from ..osutil import load_data_in_module
 from .mixin import HttpError, HttpMixin, InputHttpHead, parse_url_query, parse_url_value
 from .files import FileRouter
 
 """
-REST API convention.
-- get_PATH: for GET method only
-- set_PATH: for POST with state changes; take precedence over post_PATH
-- del_PATH: for DELETE
-- fix_PATH: for PATCH
-- post_PATH: for POST, with or without state changes.
-- delete_PATH: for DELETE
-- put_PATH: for PUT
-- run_PATH: for GET, POST, PUT, PATCH, mainly for queries that accepts both methods
+The REST API convention.
+
+To find the right function to call, first find the router object.
+
+Each router object is associated with a prefix string starting
+with a '/', except for the root router which has an empty prefix string
+(but is displayed as '/').
+A path that matches to the prefix of a router must be equal to the prefix
+or starts with the prefix followed by a '/'.
+
+The matching router with the longest prefix wins.
+
+
+
+- get_NAME: for GET method only
+- set_NAME: for POST with state changes; take precedence over post_PATH
+- del_NAME: for DELETE
+- fix_NAME: for PATCH
+- post_NAME: for POST, with or without state changes.
+- delete_NAME: for DELETE
+- put_NAME: for PUT
+- run_NAME: for GET, POST, PUT, PATCH, mainly for queries that accepts both methods
+
+Note that NAME can be an empty string
+
 """
 
 # WEBHOOK_BASE_PATH = "/hooks"
@@ -33,11 +49,26 @@ REST API convention.
 # - If call type is a string, it is call with (call_type, data, *opargs, **kwargs)
 # - If call type is true, it is call with (data, *opargs, **kwargs)
 # - If call type is false, it is call just with just (*opargs, **kwargs)
-ApiCallType = Literal['get','set','put','add','del']|bool
+ApiCallType = Literal['get','set','put','add','del']
+_api_call_types: dict[str,ApiCallType] = {
+    'HEAD': 'get', 'GET': 'get', 'POST': 'set', 'PUT': 'put',
+    'PATCH': 'add', 'DELETE': 'del'
+}
 
 
 HTTP_SUPPORTED_METHODS = ('HEAD', 'GET', 'PUT', 'POST', 'DELETE', 'PATCH')
 HTTP_METHODS_WITH_BODY = ('POST', 'PUT', 'PATCH')
+
+class HttpInfo(TypedDict, total=False):
+    path: str               # The path to in the URL
+    qstr: str               # The query string in the URL
+    call: ApiCallType       # One of the five calls
+    head: dict[str,str]     # The headers of the call
+    mime: str               # The mime-type of the body
+    body: bytes             # The body of the call
+    data: FridValue         # The data of the call
+    auth: str               # The auth string from the header or elsewhere
+    peer: str               # The peer IP address (no port)
 
 @dataclass
 class ApiRoute:
@@ -46,12 +77,6 @@ class ApiRoute:
     The URL is split into the following fields of this class:
 
     - `method`: the HTTP method
-    - `prefix`: (str) mapped to an object, which may or may not be callable.
-       Empty string for object mapped to root, or otherwise must starts with /.
-       Also it must ends with a '/'.
-    - `action`: (str|None) An action, as a callable attribute of the object.
-       This variable can be None if the object itself is callable and will be called directly.
-    - `suffix`: (str) the path after the action, as a string; can be empty; without leading /.
     - `qsargs` :: The query string, percentage decoded, saved as a list of string or a pair
        of strings.
 
@@ -59,27 +84,35 @@ class ApiRoute:
     Other fields with processed arguments:
 
     - `router`: the router object. It is usually a user-defined class object.
-    - `callee`: the actual callable to invoke, can be the router object itself or its method.
+    - `action`: the actual callable action to invoke, the router object itself
+       or one of its methods.
     - `vpargs`: the variable positional arguments for the callee, processed from `suffix`.
     - `kwargs`: the keyward arguments for the callee, processed from `qsargs`.
-    - `nodata`: the callee is called without request data.
+    - `numfpa`: the number of fixed positional arguments, one of 0, 1, and, 2.
 
-    When a callee is called, the post data is the first argument, except for `get_` and `del_`
-    methods. The `opargs` then follows as positional argments and `kwargs` as keyword arguments.
+    The `action` is called with `numfpa` number of position arguments, followed by `*vpargs`
+    and then the keyword arguments given by `kwargs`.
+    - If `numfpa` is 1, the request data is passed as the first argument (or None)
+    - If `numfpa` is 2, the `actype` and request data is passed as the first two arguments
+    - Additional keyword arguments tried to be passed:
+        + `_http`: an HttpInfo dict for request information if the user accepts it
+        + `_data`: if `action` is None (a callable router) but the API call is not `get`
+          and there is data (which can be None).
+        + `_call`: if the API call is not 'get'; the callee should use a default value
+          of `get` if accepting it.
     """
     method: str
-    prefix: str
-    action: str|None
-    suffix: str
+    pparts: tuple[str,str,str]
     qsargs: list[tuple[str,str]|str]
     router: Any
-    callee: Callable
+    action: Callable
     vpargs: list[FridValue]
     kwargs: dict[str,FridValue]
-    actype: ApiCallType
+    numfpa: Literal[0,1,2]
 
-    def __call__(self, req: HttpMixin, *, peer: tuple[str,int]|str|None=None, **kwargs):
+    def __call__(self, req: HttpMixin, **kwargs: Unpack[HttpInfo]):
         # Fetch authorization status
+        peer = kwargs.get('peer')
         auth = req.http_head.get('authorization')
         if isinstance(auth, str):
             pair = auth.split()
@@ -90,21 +123,35 @@ class ApiRoute:
             # Read body if needed
         msg = self.get_log_str(req, peer)
         info(msg)
+        # Generates the HttpInfo structure users might need
+        assert not isinstance(req.http_data, AsyncIterable)
+        http_info: HttpInfo = {
+            'call': _api_call_types[self.method], **kwargs, 'head': req.http_head
+        }
+        if req.http_data is not MISSING:
+            http_info['data'] = req.http_data
+        if req.mime_type is not None:
+            http_info['mime'] = req.mime_type
+        if req.http_body is not None:
+            assert not isinstance(req.http_body, AsyncIterable)
+            http_info['body'] = req.http_body
+        if auth is not None:
+            http_info['auth'] = auth
         try:
-            assert not isinstance(req.http_data, AsyncIterable)
-            return self.callee(*self._get_vpargs(req.http_data), **self.kwargs, __={
-                'head': req.http_head, 'body': req.http_body, 'type': req.mime_type,
-                'call': (self.prefix, self.action), 'auth': auth, 'peer': peer,
-                **kwargs
-            })
+            args = self._get_vpargs(req.http_data)
+            kwds = self._get_kwargs()
+            try:
+                return self.action(*args, **kwds, _http=http_info)
+            except TypeError:
+                pass
+            return self.action(*args, **kwds)
         except TypeError as exc:
             traceback.print_exc()
             return HttpError(400, "Bad args: " + msg, cause=exc)
         except Exception as exc:
             traceback.print_exc()
-            return self.to_http_error(exc, req, peer)
-    def to_http_error(self, exc: Exception, req: HttpMixin,
-                      peer: tuple[str,int]|str|None) -> HttpError:
+            return self.to_http_error(exc, req, peer=peer)
+    def to_http_error(self, exc: Exception, req: HttpMixin, peer: str|None) -> HttpError:
         if isinstance(exc, HttpError):
             return exc
         status = 500
@@ -116,18 +163,32 @@ class ApiRoute:
                     status = s
                     break
         return HttpError(status, "Crashed: " + self.get_log_str(req, peer), cause=exc)
-    def _get_vpargs(self, data: FridValue) -> tuple[FridValue,...]:
-        if isinstance(self.actype, bool):
-            return (data, *self.vpargs) if self.actype else tuple(self.vpargs)
-        return (self.actype, data, *self.vpargs)
-    def get_log_str(self, req: HttpMixin, peer: tuple[str,int]|str|None=None):
-        if peer is None:
-            peer = "??"
-        elif not isinstance(peer, str):
-            peer = peer[0]
-        assert is_frid_value(req.http_data)
-        return f"[{peer}] ({self.prefix}) {self.method} " + dump_args_str(FridNameArgs(
-            self.action or "", self._get_vpargs(frid_redact(req.http_data, 0)), self.kwargs
+    def _get_vpargs(self, data: FridValue|MissingType) -> tuple[FridValue,...]:
+        if data is MISSING:
+            data = None    # Pass data as None if it is MISSING
+        match self.numfpa:
+            case 0:
+                return tuple(self.vpargs)
+            case 1:
+                return (data, *self.vpargs)
+            case 2:
+                return (_api_call_types[self.method], data, *self.vpargs)
+            case _:
+                raise ValueError(f"Invalid value of numfpa={self.numfpa}")
+    def _get_kwargs(self, data: FridValue|MissingType=MISSING):
+        if self.router is not self.action or self.method == 'GET':
+            return self.kwargs
+        kwargs = dict(self.kwargs)
+        kwargs['_call'] = _api_call_types[self.method]
+        if data is not MISSING:
+            kwargs['_data'] = data
+        return kwargs
+    def get_log_str(self, req: HttpMixin, peer: str|None=None):
+        assert is_frid_value(req.http_data) or req.http_data is MISSING, type(req.http_data)
+        (prefix, member, _) = self.pparts
+        data = MISSING if req.http_data is MISSING else frid_redact(req.http_data, 0)
+        return f"[{peer}] ({prefix}) {self.method} " + dump_args_str(FridNameArgs(
+            member, self._get_vpargs(data), self.kwargs
         ))
 
 class ApiRouteManager:
@@ -149,11 +210,9 @@ class ApiRouteManager:
         'PATCH': ['add_', 'patch_', 'run_'],
         'DELETE': ['del_', 'delete_', 'run_'],
     }
-    _api_call_types: dict[str,ApiCallType] = {
-        'HEAD': 'get', 'GET': 'get', 'POST': 'set', 'PUT': 'put',
-        'PATCH': 'add', 'DELETE': 'del',
-        'get_': False, 'set_': True, 'put_': True, 'add_': True, 'del_': False,
-        'post_': True, 'patch_': True, 'delete_': False,
+    _num_fixed_args: dict[str,Literal[0,1,2]] = {
+        'get_': 0, 'set_': 1, 'put_': 1, 'add_': 1, 'del_': 0, 'run_': 2,
+        'post_': 1, 'patch_': 1, 'delete_': 0,
     }
     _common_headers = {
         'Cache-Control': "no-cache",
@@ -174,7 +233,6 @@ class ApiRouteManager:
         elif isinstance(assets, Mapping):
             roots: dict[str,list[str]] = {}
             for k, v in assets.items():
-                v = v.rstrip('/')
                 if v in roots:
                     roots[v].append(k)
                 else:
@@ -183,7 +241,7 @@ class ApiRouteManager:
                 self._registry[k] = FileRouter(*v)
         if routes is not None:
             self._registry.update(
-                (k.rstrip('/'), (load_data_in_module(v) if isinstance(v, str) else v))
+                (k, (load_data_in_module(v) if isinstance(v, str) else v))
                 for k, v in routes.items()
             )
         info("Current routes:")
@@ -192,89 +250,121 @@ class ApiRouteManager:
             info(f"|   {k or '/'} => {r}")
     def create_route(self, method: str, path: str, qstr: str|None) -> ApiRoute|HttpError:
         assert isinstance(path, str)
-        (prefix, router) = self.fetch_router(path)
-        if prefix is None:
+        result = self.fetch_router(path, qstr)
+        if isinstance(result, HttpError):
+            return result
+        if result is None:
             return HttpError(404, f"Cannot find the path router for {path}")
-        suffix = path[len(prefix):] # Should either be empty or starting with '/'
-        if not suffix:
-            url = path + "/" if qstr is None else path + "/?" + qstr
-            return HttpError(307, http_head={'location': url})
-        # Find the callee
-        if callable(router):
-            # If the router itself is callable, just call it without action
-            action = None
-            callee = router
-            actype = False
+        (router, prefix) = result
+        suffix = path[len(prefix):]
+        if prefix.endswith('/'):
+            result = self.fetch_member(router, method, prefix, suffix, qstr)
+            if isinstance(result, HttpError):
+                return result
+            (action, member, suffix, numfpa) = result
+        elif callable(router):
+            action = router
+            # Special case if prefix is empty and suffix == '/', set it to member
+            if not prefix and suffix == '/':
+                member = "/"
+                suffix = ""
+            else:
+                member = ""
+                suffix = path[len(prefix):]
+            numfpa = 0
         else:
-            assert suffix[0] == '/'
-            prefix += '/'
-            suffix = suffix[1:]
-            # Find the member match the name
-            (action, callee, actype) = self.fetch_member(router, method, suffix)
-            if callee is None:
-                return HttpError(405, f"[{prefix}]: cannot find {method} '.../{suffix}'")
-            if action:
-                suffix = suffix[len(action):] # Should still be empty or starting with /
+            raise HttpError(403, f"[{prefix}]: the router is not callable")
         # Parse the query string
         if isinstance(qstr, str):
             (qsargs, kwargs) = parse_url_query(qstr)
         else:
             qsargs = []
             kwargs = {}
-        vpargs = [
-            parse_url_value(item) for item in args.split('/')
-        ] if (args := suffix.strip('/')) else []
+        if suffix:
+            assert suffix[0] == '/', suffix
+            args = suffix[1:].split('/')
+            if not all(item for item in args):
+                url = prefix + member + '/' + ''.join('/' + item for item in args if item) + (
+                    '' if qstr is None else '?' + qstr
+                )
+                print("===", path, "=>", url, args)
+                return HttpError(307, {'location': url})
+            vpargs = [parse_url_value(item) for item in args]
+        else:
+            vpargs = []
         return ApiRoute(
-            method=method, prefix=prefix, action=action, suffix=suffix, qsargs=qsargs,
-            router=router, callee=callee, vpargs=vpargs, kwargs=kwargs, actype=actype,
+            method=method, pparts=(prefix, member, suffix), qsargs=qsargs,
+            router=router, action=action, vpargs=vpargs, kwargs=kwargs, numfpa=numfpa
         )
-    def fetch_router(self, path: str) -> tuple[str|None,Any]:
+    def fetch_router(self, path: str, qstr: str|None) -> tuple[str,str]|HttpError|None:
         """Fetch the router object in the registry that matches the
         longest prefix of path.
-        - Returns a pair of path and the router object. If it does not match,
+        - Returns the router object and its prefix. If it does not match,
           return (None, None)
         """
         router = self._registry.get(path)
         if router is not None:
-            return (path, router)
+            return (router, path)
+        if not path.endswith('/') and self._registry.get(path + '/'):
+            url = path + "/" if qstr is None else path + "/?" + qstr
+            return HttpError(307, http_head={'location': url})
         index = path.rfind('/')
         while index >= 0:
-            sub_path = path[:index]
-            router = self._registry.get(sub_path)
+            prefix = path[:(index+1)]
+            router = self._registry.get(prefix)
             if router is not None:
-                return (sub_path, router)
+                return (router, prefix)
+            prefix = path[:index]
+            router = self._registry.get(prefix)
+            if router is not None:
+                return (router, prefix)
             index = path.rfind('/', 0, index)
-        return (None, None)
+        return None
     @classmethod
     def fetch_member(
-        cls, router, method: str, path: str
-    ) -> tuple[str|None,Callable|None,ApiCallType]:
+        cls, router, method: str, prefix: str, suffix: str, qstr: str|None
+    ) -> tuple[Callable,str,str,Literal[0,1,2]]|HttpError:
         """Find the end point in the router according to the path.
         - First try using prefixes concatenated with the first path element as names;
         - Then try the prefixes themselves.
         """
-        actype = cls._api_call_types[method]
-        if path:
-            parts = path.split('/', 1)
-            for prefix in cls._route_prefixes[method]:
-                full_name = prefix + parts[0]
-                if hasattr(router, full_name):
-                    member = getattr(router, full_name)
-                    if callable(member):
-                        return (parts[0], member, cls._api_call_types.get(prefix, actype))
-        for prefix in cls._route_prefixes[method]:
-            if hasattr(router, prefix):
-                member = getattr(router, prefix)
-                if callable(member):
-                    return (None, member, cls._api_call_types.get(prefix, actype))
-        return (None, None, False)
-    def handle_options(self, path: str) -> HttpMixin:
+        if suffix and suffix[0] != '/':
+            index = suffix.find('/')
+            if index > 0:
+                member = suffix[:index]
+                suffix = suffix[index:]
+            else:
+                member = suffix
+                suffix = ""
+            for rp in cls._route_prefixes[method]:
+                full_name = rp + member
+                if not hasattr(router, full_name):
+                    continue
+                action = getattr(router, full_name)
+                if not callable(action):
+                    continue
+                return (action, member, suffix, cls._num_fixed_args[rp])
+        for rp in cls._route_prefixes[method]:
+            if not hasattr(router, rp):
+                continue
+            action = getattr(router, rp)
+            if not callable(action):
+                continue
+            if not suffix.startswith('/'):
+                url = prefix + "/" + suffix + ("" if qstr is None else "/?" + qstr)
+                return HttpError(307, http_head={'location': url})
+            return (action, '', suffix, cls._num_fixed_args[rp])
+        return HttpError(405, f"[{prefix}]: no action matches '{suffix}'")
+
+    def handle_options(self, path: str, qstr: str|None) -> HttpMixin:
         if path == '*':
             return HttpMixin(ht_status=203, http_head={
                 'access-control-allow-methods': ", ".join(HTTP_SUPPORTED_METHODS) + ", OPTIONS"
             })
-        router = self.fetch_router(path)
-        if router is None:
+        result = self.fetch_router(path, qstr)
+        if isinstance(result, HttpError):
+            return result
+        if result is None:
             return HttpError(404, f"Invalid request OPTIONS {path}")
         return HttpMixin(ht_status=203, http_head={
             # TODO find out what methods are suppoted
@@ -310,7 +400,7 @@ class ApiRouteManager:
             return (HttpMixin.from_request(None, headers),
                     HttpError(400, "ASGi: parsing input", cause=exc))
         if method == 'OPTIONS':
-            return (request, self.handle_options(path))
+            return (request, self.handle_options(path, qstr))
         if method not in HTTP_SUPPORTED_METHODS:
             return (HttpMixin.from_request(None, headers),
                     HttpError(405, f"Bad method {method}: {method} {path}"))
@@ -318,7 +408,14 @@ class ApiRouteManager:
         route = self.create_route(method, path, qstr)
         if isinstance(route, HttpError):
             return (request, route)
-        return (request, route(request, peer=peer, path=path, qstr=qstr))
+        kwargs: HttpInfo = {'path': path}
+        if qstr is not None:
+            kwargs['qstr'] = qstr
+        if peer is not None:
+            if not isinstance(peer, str):
+                peer = peer[0]
+            kwargs['peer'] = peer
+        return (request, route(request, **kwargs))
     def process_result(self, request: HttpMixin, result: HttpMixin|FridValue) -> HttpMixin:
         """Process the result of the route execution and returns a response.
         - The response is an object of HttpMixin with body already prepared.
@@ -332,6 +429,27 @@ class ApiRouteManager:
         response.set_response()
         return response
 
+def echo_router(*args, _data=..., _call: str='get', _http: HttpInfo={}, **kwds):
+    args = list(args)
+    if _call == 'get':
+        if not kwds:
+            return args  # Args can be empty
+        if not args:
+            return kwds
+        return {'.call': "get", '.args': args, '.kwds': kwds, '.http': _http}
+    if isinstance(_data, Mapping):
+        out = dict(_data)
+    else:
+        out = {}
+        if _data is not ...:
+            out['.data'] = _data
+    out['.call'] = _call
+    out['.http'] = _http
+    if args:
+        out['.args'] = args
+    if kwds:
+        out['.kwds'] = kwds
+    return out
 
 class EchoRouter:
     def get_(self, *args, __, **kwds):
@@ -340,8 +458,8 @@ class EchoRouter:
         if not args:
             return kwds
         return {'.self': "get", '.args': args, '.kwds': kwds}
-    def del_(self, *args, __, **kwds):
-        return self.run_("del", {}, *args, __=__, **kwds)
+    def del_(self, *args, _http, **kwds):
+        return self.run_("del", {}, *args, _http=_http, **kwds)
     def run_(self, action, data, __, *args, **kwds):
         out = dict(data) if isinstance(data, Mapping) else {'.data': data}
         out['.self'] = action
