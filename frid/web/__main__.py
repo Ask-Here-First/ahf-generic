@@ -1,4 +1,4 @@
-import time, logging, unittest
+import time, unittest
 import urllib.error
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -13,8 +13,8 @@ from ..typing import FridValue, MissingType, MISSING
 
 from .route import echo_router
 from .httpd import run_http_server
-from .wsgid import run_wsgi_server
-from .asgid import run_asgi_server
+from .wsgid import run_wsgi_server_with_gunicorn
+from .asgid import run_asgi_server_with_uvicorn
 
 class TestRouter:
     def get_echo(self, *args, _http={}, **kwds):
@@ -42,9 +42,7 @@ class TestWebAppHelper(unittest.TestCase):
                 '/echo': echo_router, '/test/': TestRouter(),
             },
             {str(Path(__file__).absolute().parent): ''},
-            cls.TEST_HOST, cls.TEST_PORT, {
-                'log_level': logging.getLevelName(logging.getLogger().level).lower(), # "warning",
-            }
+            cls.TEST_HOST, cls.TEST_PORT,
         ))
         info(f"Spawning {cls.__name__} {server.__name__} at {cls.BASE_URL} ...")
         cls.process.start()
@@ -190,7 +188,7 @@ class TestHttpWebApp(TestWebAppHelper):
 class TestWsgiWebApp(TestWebAppHelper):
     @classmethod
     def setUpClass(cls):
-        cls.start_server(run_wsgi_server)
+        cls.start_server(run_wsgi_server_with_gunicorn)
     @classmethod
     def tearDownClass(cls):
         cls.close_server()
@@ -200,9 +198,12 @@ class TestWsgiWebApp(TestWebAppHelper):
 class TestAsgiWebApp(TestWebAppHelper):
     @classmethod
     def setUpClass(cls):
-        cls.start_server(run_asgi_server)
+        cls.start_server(run_asgi_server_with_uvicorn)
     @classmethod
     def tearDownClass(cls):
         cls.close_server()
     def test_asgi_server(self):
         return self.run_tests()
+
+if __name__ == '__main__':
+    unittest.main()

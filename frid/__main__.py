@@ -849,7 +849,10 @@ if __name__ == '__main__':
         print("Running unit tests with coverage ...")
     else:
         print("Running unit tests ...")
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level={
+        'debug': logging.DEBUG, 'info': logging.INFO, 'error': logging.ERROR,
+        'warn': logging.WARNING, 'warning': logging.WARNING,
+    }.get(os.getenv('FRID_LOG_LEVEL', 'warn').lower()))
 
     unittest.main(exit=False)
     unittest.main("frid.kvs.__main__", exit=False)

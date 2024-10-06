@@ -1,4 +1,4 @@
-import sys, time, asyncio, inspect, traceback
+import sys, time, asyncio, logging, inspect, traceback
 from logging import info, error
 from collections.abc import AsyncIterable, Iterable, Mapping, Callable
 from typing import Any, Literal, TypedDict
@@ -192,11 +192,14 @@ class AsgiWebApp(ApiRouteManager):
         if ping_task is not None:
             ping_task.cancel()
 
-def run_asgi_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
-                    host: str, port: int, options: Mapping[str,Any]={}, **kwargs):
+def run_asgi_server_with_uvicorn(
+        routes: dict[str,Any], assets: str|dict[str,str]|str|None,
+        host: str, port: int, options: Mapping[str,Any]={}, **kwargs
+):
     import signal, uvicorn
     server = uvicorn.Server(uvicorn.Config(
-        AsgiWebApp(routes, assets), host=host, port=port, **options, **kwargs
+        AsgiWebApp(routes, assets), host=host, port=port,
+        log_level=logging.getLogger().level, **options, **kwargs
     ))
     def sigterm_handler(signum, frame):
         server.should_exit = True
@@ -206,6 +209,8 @@ def run_asgi_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
         server.run()
     finally:
         info(f"[ASGi server] Completed service at {host}:{port}.")
+
+run_asgi_server = run_asgi_server_with_uvicorn
 
 if __name__ == '__main__':
     from .route import load_command_line_args

@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterable, Callable, Mapping, Sequence
 from typing import Any
 from logging import info
@@ -27,9 +28,11 @@ class WsgiWebApp(ApiRouteManager):
         assert not isinstance(response.http_body, AsyncIterable)
         return [] if method == 'HEAD' or response.http_body is None else [response.http_body]
 
-def run_wsgi_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
-                    host: str, port: int, options: Mapping[str,Any]={},
-                    *, timeout: int=0, **kwargs):
+def run_wsgi_server_with_gunicorn(
+        routes: dict[str,Any], assets: str|dict[str,str]|str|None,
+        host: str, port: int, options: Mapping[str,Any]={},
+        *, timeout: int=0, **kwargs
+):
     from gunicorn.app.base import BaseApplication
     from six import iteritems
     class ServerApplication(BaseApplication):
@@ -46,15 +49,18 @@ def run_wsgi_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
         def load(self):
             return self.application
     options = {**options, **kwargs}
-    log_level = options.get('log_level', "info")
     server  = ServerApplication(WsgiWebApp(routes, assets), {
-        'bind': f"{host}:{port}", 'timeout': timeout, 'loglevel': log_level, **options, **kwargs
+        'bind': f"{host}:{port}", 'timeout': timeout,
+        'loglevel': logging.getLevelName(logging.getLogger().level).lower(),
+        **options, **kwargs
     })
     info(f"[WSGi server] Starting service at {host}:{port} ...")
     try:
         server.run()
     finally:
         info(f"[WSGi server] Completed service at {host}:{port}.")
+
+run_wsgi_server = run_wsgi_server_with_gunicorn
 
 if __name__ == '__main__':
     from .route import load_command_line_args

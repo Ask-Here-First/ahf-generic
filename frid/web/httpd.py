@@ -1,4 +1,4 @@
-import sys, logging
+import sys
 from collections.abc import AsyncIterable, Mapping
 from http.server import BaseHTTPRequestHandler
 from typing import Any
@@ -52,19 +52,6 @@ def run_http_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
                     host: str, port: int, options: Mapping[str,Any]={}, **kwargs):
     if kwargs:
         options = {**options, **kwargs}
-    # if 'log_level' in options:
-    #     level = options['log_level']
-    #     if isinstance(level, str):
-    #         level = {
-    #             "critical": logging.CRITICAL,
-    #             "error": logging.ERROR,
-    #             "warn": logging.WARN,
-    #             "warning": logging.WARNING,
-    #             "info": logging.INFO,
-    #             "debug": logging.DEBUG,
-    #             "trace": 0,
-    #         }.get(level.lower(), logging.INFO)
-    #     logging.basicConfig(level=level, force=True)
     manager = ApiRouteManager(routes, assets)
     class TestHTTPRequestHandler(FridHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
