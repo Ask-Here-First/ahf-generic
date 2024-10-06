@@ -29,7 +29,7 @@ with a prefix string. There are two kinds of routers:
   but a matching prefix, if not the entire URL path, must be followed by a '/'
   in the URL path.
 
-The shortest possible router prefix is an empty string which is for a functor 
+The shortest possible router prefix is an empty string which is for a functor
 router. In the implementation, if enabled, it is always mapped to the root
 file router to access static files (assets) on disk.
 
@@ -96,15 +96,15 @@ then by a list of keyword arguments coming from the URL query string.
 
 For object router, the number of fix positional arguments depends on the name
 of object methods:
-- For `get_*`, `del_*`, `delete_*` methods, there is no fixed positional 
+- For `get_*`, `del_*`, `delete_*` methods, there is no fixed positional
   argument.
 - For `set_*`, `post_*`, `put_*`, `add_*`, and `patch_*`, the request body
-  parsed as enhanced JSON to `FridValue` is passed as  one and only fixed 
+  parsed as enhanced JSON to `FridValue` is passed as  one and only fixed
   positional argument.
 - For `run_*`, two fixed positional arguments are passed; the first is a
   string of the following: `get` for HTTP GET, `set` for HTTP POST,
   `put` for HTTP PUT, `add` for HTTP PATCH, and `del` for HTTP DELETE;
-  the second is the processed request body as a `FridValue`, or `None` 
+  the second is the processed request body as a `FridValue`, or `None`
   if the body is missing.
 
 For functor router, the action is the router, which is called with zero fixed
@@ -114,10 +114,10 @@ depending on the HTTP method:
 - For other HTTP methods, a keyword argument with key `_call` and value being
   one of `get`, `set`, `put`, `add` or `del` (just like the first argument
   of `run_*` method in the router object as above).
-- For HTTP POST, PUT, and PATCH, the processed HTTP body (a `FridValue`) 
+- For HTTP POST, PUT, and PATCH, the processed HTTP body (a `FridValue`)
   is passed with the key `_data`.
 
-Also, a keyword argument named `_http` with a `dict` value is passed as an 
+Also, a keyword argument named `_http` with a `dict` value is passed as an
 additional keyword argument. If the action does not accept this argument,
 (i.e., a `TypeError` is raised when calling), the `_http` keyword argument
 is removed and the call is tried again.
@@ -131,15 +131,20 @@ is removed and the call is tried again.
   and a HTTP 200 code.
 - If other frid-compatible values are returned, they are converted to
   enhanced JSON format with MIME-type `application/json` and 200 code.
-- If the action returns a tuple with two or three elements, the first
-  it handled as the returned data as above, and third, if present,
-  is the `dict[str,str]` of route-specific headers. The second element,
-  is either an integer for status code (in which case MIME-type is determined
-  by data as above), or a string for MIME-type (in which case the status code
-  is 200 or 204 is data is None).
+- If the action returns a tuple with two or three elements:
+    + the first element is handled as the returned data as above;
+    + The second element, is either of
+        + An integer for status code (in which case MIME-type is determined
+          by data as above), or
+        + A string for MIME-type (in which case the status code is 200 or 204
+          depending if data is None).  One can use short-hand for MIME-types:
+          `text` for `text/plain`, `html` for `text/html`, `blob` for binary,
+          `json` for `application/json`.
+    + The third element, if present, is of `Mapping[str,str]` for additional
+      route-specific headers.
 - If a HttpError is returned or raised, its `ht_status` code is used as the
   HTTP status, and headers therein are also used.
-- If other exceptions are raised, an 500 error is returned with generated
+- If other exceptions are raised, an 500 status code is returned with generated
   headers.
 """
 

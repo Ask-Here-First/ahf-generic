@@ -231,7 +231,7 @@ class HttpMixin:
                     body = None
                 else:
                     body = dump_frid_str(self.http_data, json_level=1,
-                                        escape_seq=DEF_ESCAPE_SEQ).encode()
+                                         escape_seq=DEF_ESCAPE_SEQ).encode()
                 mime_type = 'json'
             self.http_body = body
         # Check mime type for Content-Type if it is missing in http_head
@@ -252,7 +252,10 @@ class HttpMixin:
                         mime_type = 'application/x-www-form-urlencoded'
                     case 'frid':
                         mime_type = FRID_MIME_TYPE
-                self.http_head['content-type'] = mime_type + ";charset=utf-8"
+                if mime_type.startswith('text/') or mime_type in (
+                    'application/json', 'application/x-www-form-urlencoded',
+                ):
+                    self.http_head['content-type'] = mime_type + ";charset=utf-8"
         # Update the status with 200
         if not self.ht_status:
             self.ht_status = 204 if self.http_body is None else 200

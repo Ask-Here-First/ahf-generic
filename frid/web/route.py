@@ -11,7 +11,7 @@ else:
 from ..dumper import dump_args_str, frid_redact
 from ..guards import is_frid_value
 from ..helper import get_type_name
-from ..typing import MISSING, FridNameArgs, FridValue, MissingType
+from ..typing import FridNameArgs, FridValue, MissingType, MISSING
 from ..osutil import load_data_in_module
 from .mixin import HttpError, HttpMixin, InputHttpHead, parse_url_query, parse_url_value
 from .files import FileRouter
@@ -112,7 +112,7 @@ class ApiRoute:
             http_info['auth'] = auth
         try:
             args = self._get_vpargs(req.http_data)
-            kwds = self._get_kwargs()
+            kwds = self._get_kwargs(req.http_data)
             try:
                 return self.action(*args, **kwds, _http=http_info)
             except TypeError:
@@ -148,7 +148,7 @@ class ApiRoute:
                 return (_api_call_types[self.method], data, *self.vpargs)
             case _:
                 raise ValueError(f"Invalid value of numfpa={self.numfpa}")
-    def _get_kwargs(self, data: FridValue|MissingType=MISSING):
+    def _get_kwargs(self, data: FridValue|MissingType):
         if self.router is not self.action or self.method == 'GET':
             return self.kwargs
         kwargs = dict(self.kwargs)
@@ -395,13 +395,27 @@ class ApiRouteManager:
         if isinstance(result, HttpMixin):
             response = result
         else:
+            ht_status = 200
+            http_head: dict[str,str] = {}
+            mime_type: str|None = None
+            if isinstance(result, tuple):
+                if not 2 <= len(result) <= 3:
+                    return HttpError(500, f"Invalid length of tuple: {len(result)}")
+                if isinstance(result[1], int):
+                    ht_status = result[1]
+                elif isinstance(result[1], str):
+                    mime_type = result[1]
+                else:
+                    return HttpError(500, f"Invalid second item of returned tuple: {result[1]}")
             assert not isinstance(request.http_data, AsyncIterable)
-            response = HttpMixin(http_data=result, ht_status=200)
+            response = HttpMixin(http_data=result, ht_status=ht_status, http_head=http_head,
+                                 mime_type=mime_type)
         self.update_headers(response, request)
         response.set_response()
         return response
 
-def echo_router(*args, _data=..., _call: str='get', _http: HttpInfo={}, **kwds):
+def echo_router(*args, _data: FridValue|MissingType=MISSING,
+                _call: str='get', _http: HttpInfo={}, **kwds):
     args = list(args)
     if _call == 'get':
         if not kwds:
@@ -413,7 +427,7 @@ def echo_router(*args, _data=..., _call: str='get', _http: HttpInfo={}, **kwds):
         out = dict(_data)
     else:
         out = {}
-        if _data is not ...:
+        if _data is not MISSING:
             out['.data'] = _data
     out['.call'] = _call
     out['.http'] = _http

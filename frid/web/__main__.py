@@ -22,11 +22,11 @@ class TestRouter:
     def set_echo(self, data, *args, _http={}, **kwds):
         return {'.data': data, '.args': list(args), '.kwds': kwds}
     def put_echo(self, data, *args, _http={}, **kwds):
-        return [data, args, kwds]
+        return [data, list(args), kwds]
     def del_echo(self, *args, _http={}, **kwds):
         return {'status': "ok", **kwds, '.args': list(args)}
-    def run_echo0(self, action, data, *args, _http={}, **kwds):
-        return {'action': action, '.data': list(data), '.kwds': kwds, '.args': args}
+    def run_echo(self, action, data, *args, _http={}, **kwds):
+        return {'action': action, '.data': data, '.kwds': kwds, '.args': list(args)}
 
 ServerType = Callable[[dict[str,Any],dict[str,str]|str|None,str,int],None]
 
@@ -85,7 +85,8 @@ class TestWebAppHelper(unittest.TestCase):
                   *, method: str|None=None, raw: bool=False) -> FridValue:
         raw_data = None if data is MISSING else dump_frid_str(data, json_level=1).encode()
         path = cls.BASE_URL + path
-        with urlopen(Request(path, raw_data, method=method)) as fp:
+        headers = {'Content-Type': "application/json"}
+        with urlopen(Request(path, raw_data, headers, method=method)) as fp:
             result = fp.read()
             return result if raw else load_frid_str(result.decode(), json_level=1)
 
@@ -100,6 +101,20 @@ class TestWebAppHelper(unittest.TestCase):
                          test.get_echo(a=True))
         self.assertEqual(self.load_page("/test/echo/a/3?b=4&c=x"),
                          test.get_echo("a", 3, b=4, c="x"))
+        self.assertEqual(self.load_page("/test/echo", {"x": 1, "y": 2}),
+                         test.set_echo({"x": 1, "y": 2}))
+        self.assertEqual(
+            self.load_page("/test/echo/a/3?b=4&c=x", {"x": 1, "y": 2}, method='PUT'),
+            test.put_echo({"x": 1, "y": 2}, "a", 3, b=4, c="x")
+        )
+        self.assertEqual(
+            self.load_page("/test/echo/a", method='DELETE'),
+            test.del_echo("a")
+        )
+        self.assertEqual(
+            self.load_page("/test/echo?b=4&c=x", {"x": 1, "y": 2}, method='PATCH'),
+            test.run_echo('add', {"x": 1, "y": 2}, b=4, c="x")
+        )
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.load_page("/test/xxxx")
         self.assertEqual(ctx.exception.code, 405)
@@ -128,6 +143,19 @@ class TestWebAppHelper(unittest.TestCase):
                          self._remove_env(test(a=True)))
         self.assertEqual(self._remove_env(self.load_page("/echo/a/3?b=4&c=x")),
                          self._remove_env(test("a", 3, b=4, c="x")))
+        self.assertEqual(self._remove_env(self.load_page("/echo", {"x": 1, "y": 2})),
+                         self._remove_env(test(_data={"x": 1, "y": 2}, _call="set")))
+        self.assertEqual(self._remove_env(
+            self.load_page("/echo/a/3?b=4&c=x", {"x": 1, "y": 2}, method='PUT')
+        ), self._remove_env(test("a", 3, b=4, c="x", _data={"x": 1, "y": 2}, _call="put")))
+        self.assertEqual(self._remove_env(
+            self.load_page("/echo/a", method='DELETE')
+        ), self._remove_env(test("a", _call="del")))
+        self.assertEqual(self._remove_env(
+            self.load_page("/echo/a/3?b=4&c=x", {"x": 1, "y": 2}, method='PATCH')
+        ), self._remove_env(
+            test("a", 3, b=4, c="x", _data={"x": 1, "y": 2}, _call="add")
+        ))
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.load_page("/test/xxxx")
         self.assertEqual(ctx.exception.code, 405)

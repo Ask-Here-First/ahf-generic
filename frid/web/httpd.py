@@ -39,6 +39,8 @@ class FridHTTPRequestHandler(BaseHTTPRequestHandler):
         self.do_request('POST')
     def do_PUT(self):
         self.do_request('PUT')
+    def do_DELETE(self):
+        self.do_request('DELETE')
     def do_PATCH(self):
         self.do_request('PATCH')
     def do_HEAD(self):
