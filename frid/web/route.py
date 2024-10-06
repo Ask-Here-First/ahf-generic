@@ -451,24 +451,6 @@ def echo_router(*args, _data=..., _call: str='get', _http: HttpInfo={}, **kwds):
         out['.kwds'] = kwds
     return out
 
-class EchoRouter:
-    def get_(self, *args, __, **kwds):
-        if not kwds:
-            return args  # Args can be empty
-        if not args:
-            return kwds
-        return {'.self': "get", '.args': args, '.kwds': kwds}
-    def del_(self, *args, _http, **kwds):
-        return self.run_("del", {}, *args, _http=_http, **kwds)
-    def run_(self, action, data, __, *args, **kwds):
-        out = dict(data) if isinstance(data, Mapping) else {'.data': data}
-        out['.self'] = action
-        if args:
-            out['.args'] = args
-        if kwds:
-            out['.kwds'] = kwds
-        return out
-
 def load_command_line_args() -> tuple[dict[str,str],str|dict[str,str]|None,str,int]:
     import logging, faulthandler
     faulthandler.enable()
