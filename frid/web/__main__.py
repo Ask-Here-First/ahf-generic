@@ -1,4 +1,4 @@
-import time, unittest
+import time, logging, unittest
 import urllib.error
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -43,7 +43,7 @@ class TestWebAppHelper(unittest.TestCase):
             },
             {str(Path(__file__).absolute().parent): ''},
             cls.TEST_HOST, cls.TEST_PORT, {
-                'log_level': "warning",
+                'log_level': logging.getLevelName(logging.getLogger().level).lower(), # "warning",
             }
         ))
         info(f"Spawning {cls.__name__} {server.__name__} at {cls.BASE_URL} ...")
@@ -68,8 +68,14 @@ class TestWebAppHelper(unittest.TestCase):
         info(f"Terminaing {cls.__name__} server at {cls.BASE_URL} ...")
         # if cls.process.pid is not None:
         #     os.kill(cls.process.pid, signal.SIGINT)
+        #     info(f"Sending SIGINT to process {cls.process.pid}")
+        #     time.sleep(0.5)
+        # for _ in range(10):
+        #     if cls.process.exitcode is None:
+        #         break
         #     time.sleep(0.5)
         if cls.process.exitcode is None:
+            info("Sending SIGTERM to the process")
             cls.process.terminate()
         cls.process.join()
         info(f"The {cls.__name__} server at {cls.BASE_URL} is terminated.")

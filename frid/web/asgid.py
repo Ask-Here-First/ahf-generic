@@ -194,15 +194,18 @@ class AsgiWebApp(ApiRouteManager):
 
 def run_asgi_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
                     host: str, port: int, options: Mapping[str,Any]={}, **kwargs):
-    import uvicorn
+    import signal, uvicorn
     server = uvicorn.Server(uvicorn.Config(
         AsgiWebApp(routes, assets), host=host, port=port, **options, **kwargs
     ))
-    info(f"Starting ASGi server at {host}:{port} ...")
+    def sigterm_handler(signum, frame):
+        server.should_exit = True
+    signal.signal(signal.SIGTERM, sigterm_handler)
+    info(f"[ASGi server] Starting service at {host}:{port} ...")
     try:
         server.run()
     finally:
-        info(f"ASGi server at {host}:{port} is stopped.")
+        info(f"[ASGi server] Completed service at {host}:{port}.")
 
 if __name__ == '__main__':
     from .route import load_command_line_args

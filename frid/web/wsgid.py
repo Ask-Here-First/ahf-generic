@@ -46,15 +46,15 @@ def run_wsgi_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
         def load(self):
             return self.application
     options = {**options, **kwargs}
-    log_level = options.get('log_level')
+    log_level = options.get('log_level', "info")
     server  = ServerApplication(WsgiWebApp(routes, assets), {
         'bind': f"{host}:{port}", 'timeout': timeout, 'loglevel': log_level, **options, **kwargs
     })
-    info(f"Starting WSGi server at {host}:{port} ...")
+    info(f"[WSGi server] Starting service at {host}:{port} ...")
     try:
         server.run()
     finally:
-        info(f"WSGi server at {host}:{port} is stoppped.")
+        info(f"[WSGi server] Completed service at {host}:{port}.")
 
 if __name__ == '__main__':
     from .route import load_command_line_args
