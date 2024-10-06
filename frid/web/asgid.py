@@ -193,13 +193,16 @@ class AsgiWebApp(ApiRouteManager):
             ping_task.cancel()
 
 def run_asgi_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
-                    host: str, port: int, **kwargs):
+                    host: str, port: int, options: Mapping[str,Any]={}, **kwargs):
     import uvicorn
     server = uvicorn.Server(uvicorn.Config(
-        AsgiWebApp(routes, assets), log_level="info", host=host, port=port, **kwargs
+        AsgiWebApp(routes, assets), host=host, port=port, **options, **kwargs
     ))
-    print(f"Starting ASGi server at {host}:{port} ...")
-    server.run()
+    info(f"Starting ASGi server at {host}:{port} ...")
+    try:
+        server.run()
+    finally:
+        info(f"ASGi server at {host}:{port} is stopped.")
 
 if __name__ == '__main__':
     from .route import load_command_line_args

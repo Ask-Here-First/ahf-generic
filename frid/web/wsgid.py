@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterable, Callable, Mapping, Sequence
 from typing import Any
+from logging import info
 
 from .route import ApiRouteManager
 
@@ -27,7 +28,8 @@ class WsgiWebApp(ApiRouteManager):
         return [] if method == 'HEAD' or response.http_body is None else [response.http_body]
 
 def run_wsgi_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
-                    host: str, port: int, *, timeout: int=0, **kwargs):
+                    host: str, port: int, options: Mapping[str,Any]={},
+                    *, timeout: int=0, **kwargs):
     from gunicorn.app.base import BaseApplication
     from six import iteritems
     class ServerApplication(BaseApplication):
@@ -43,11 +45,16 @@ def run_wsgi_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
                 self.cfg.set(key.lower(), value)
         def load(self):
             return self.application
+    options = {**options, **kwargs}
+    log_level = options.get('log_level')
     server  = ServerApplication(WsgiWebApp(routes, assets), {
-        'bind': f"{host}:{port}", 'timeout': timeout, **kwargs
+        'bind': f"{host}:{port}", 'timeout': timeout, 'loglevel': log_level, **options, **kwargs
     })
-    print(f"Starting WSGi server at {host}:{port} ...")
-    server.run()
+    info(f"Starting WSGi server at {host}:{port} ...")
+    try:
+        server.run()
+    finally:
+        info(f"WSGi server at {host}:{port} is stoppped.")
 
 if __name__ == '__main__':
     from .route import load_command_line_args

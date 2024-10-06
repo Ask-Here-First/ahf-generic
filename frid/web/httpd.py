@@ -1,6 +1,8 @@
-from collections.abc import AsyncIterable
+import sys, logging
+from collections.abc import AsyncIterable, Mapping
 from http.server import BaseHTTPRequestHandler
 from typing import Any
+from logging import info
 
 from .route import ApiRouteManager
 
@@ -45,19 +47,41 @@ class FridHTTPRequestHandler(BaseHTTPRequestHandler):
         self.do_request('OPTIONS', with_body=False)
 
 def run_http_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
-                    host: str, port: int):
+                    host: str, port: int, options: Mapping[str,Any]={}, **kwargs):
+    if kwargs:
+        options = {**options, **kwargs}
+        if 'log_level' in options:
+            level = options['log_level']
+            if isinstance(level, str):
+                level = {
+                    "critical": logging.CRITICAL,
+                    "error": logging.ERROR,
+                    "warn": logging.WARN,
+                    "warning": logging.WARNING,
+                    "info": logging.INFO,
+                    "debug": logging.DEBUG,
+                    "trace": 0,
+                }.get(level.lower())
+            logging.basicConfig(level=level)
     manager = ApiRouteManager(routes, assets)
     class TestHTTPRequestHandler(FridHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, manager=manager, **kwargs)
+        def log_message(self, format, *args):
+            info(f"{self.address_string()} - {format % args}")
     from http.server import HTTPServer
-    with HTTPServer((host, port), TestHTTPRequestHandler) as httpd:
-        print(f"Starting HTTP server at {host}:{port} ...")
+    class TestHTTPServer(HTTPServer):
+        def handle_error(self, request, client_address):
+            info(f"HTTP request handler encountered {sys.exc_info()[1]} from {client_address}")
+    with TestHTTPServer((host, port), TestHTTPRequestHandler) as httpd:
+        info(f"Starting HTTP server at {host}:{port} ...")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
-            print(f"Shutting down HTTP server at {host}:{port} ...")
+            info(f"Shutting down HTTP server at {host}:{port} ...")
             httpd.shutdown()
+        finally:
+            info(f"HTTP server at {host}:{port} is stopped.")
 
 if __name__ == '__main__':
     from .route import load_command_line_args

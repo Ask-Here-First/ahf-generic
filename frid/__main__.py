@@ -851,6 +851,7 @@ if __name__ == '__main__':
 
     unittest.main(exit=False)
     unittest.main("frid.kvs.__main__", exit=False)
+    unittest.main("frid.web.__main__", exit=False)
 
     if _cov is not None:
         _cov.stop()

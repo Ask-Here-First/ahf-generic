@@ -2,6 +2,7 @@ import time, unittest
 import urllib.error
 from collections.abc import Callable, Mapping
 from typing import Any
+from logging import info
 from pathlib import Path
 from urllib.request import urlopen, Request
 from multiprocessing import Process
@@ -36,10 +37,16 @@ class TestWebAppHelper(unittest.TestCase):
 
     @classmethod
     def start_server(cls, server: ServerType):
-        cls.process = Process(target=server, args=({
-            '/echo': echo_router, '/test/': TestRouter(),
-        }, {str(Path(__file__).absolute().parent): ''}, cls.TEST_HOST, cls.TEST_PORT))
-        print(f"Waiting for {cls.__name__} {server.__name__} at {cls.BASE_URL} ...")
+        cls.process = Process(target=server, args=(
+            {
+                '/echo': echo_router, '/test/': TestRouter(),
+            },
+            {str(Path(__file__).absolute().parent): ''},
+            cls.TEST_HOST, cls.TEST_PORT, {
+                'log_level': "warning",
+            }
+        ))
+        info(f"Spawning {cls.__name__} {server.__name__} at {cls.BASE_URL} ...")
         cls.process.start()
         time.sleep(0.5)
         for _ in range(60):
@@ -54,19 +61,19 @@ class TestWebAppHelper(unittest.TestCase):
                 if not isinstance(e.reason, ConnectionRefusedError):
                     raise  # Connection refused
             time.sleep(1.0)
-        print(f"Started {cls.__name__} {server.__name__} at {cls.BASE_URL}.")
+        info(f"{cls.__name__} {server.__name__} at {cls.BASE_URL} is ready.")
     @classmethod
     def close_server(cls):
         time.sleep(0.5)
-        print(f"Terminaing {cls.__name__} server at {cls.BASE_URL} ...")
+        info(f"Terminaing {cls.__name__} server at {cls.BASE_URL} ...")
         # if cls.process.pid is not None:
         #     os.kill(cls.process.pid, signal.SIGINT)
         #     time.sleep(0.5)
         if cls.process.exitcode is None:
             cls.process.terminate()
         cls.process.join()
-        print(f"The {cls.__name__} server at {cls.BASE_URL} is terminated.")
-        time.sleep(10.5)
+        info(f"The {cls.__name__} server at {cls.BASE_URL} is terminated.")
+        time.sleep(0.5)
     @classmethod
     def load_page(cls, path: str, data: FridValue|MissingType=MISSING,
                   *, method: str|None=None, raw: bool=False) -> FridValue:
