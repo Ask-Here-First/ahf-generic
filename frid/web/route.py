@@ -16,33 +16,6 @@ from ..osutil import load_data_in_module
 from .mixin import HttpError, HttpMixin, InputHttpHead, parse_url_query, parse_url_value
 from .files import FileRouter
 
-"""
-The REST API convention.
-
-To find the right function to call, first find the router object.
-
-Each router object is associated with a prefix string starting
-with a '/', except for the root router which has an empty prefix string
-(but is displayed as '/').
-A path that matches to the prefix of a router must be equal to the prefix
-or starts with the prefix followed by a '/'.
-
-The matching router with the longest prefix wins.
-
-
-
-- get_NAME: for GET method only
-- set_NAME: for POST with state changes; take precedence over post_PATH
-- del_NAME: for DELETE
-- fix_NAME: for PATCH
-- post_NAME: for POST, with or without state changes.
-- delete_NAME: for DELETE
-- put_NAME: for PUT
-- run_NAME: for GET, POST, PUT, PATCH, mainly for queries that accepts both methods
-
-Note that NAME can be an empty string
-
-"""
 
 # WEBHOOK_BASE_PATH = "/hooks"
 
@@ -287,7 +260,6 @@ class ApiRouteManager:
                 url = prefix + member + '/' + ''.join('/' + item for item in args if item) + (
                     '' if qstr is None else '?' + qstr
                 )
-                print("===", path, "=>", url, args)
                 return HttpError(307, {'location': url})
             vpargs = [parse_url_value(item) for item in args]
         else:
