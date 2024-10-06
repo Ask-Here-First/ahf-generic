@@ -225,7 +225,7 @@ class ApiRouteManager:
         info("Current routes:")
         for k, v in self._registry.items():
             r = ' | '.join(v.roots()) if isinstance(v, FileRouter) else get_type_name(v)
-            info(f"|   {k or '/'} => {r}")
+            info(f"|   {k or "[ROOT]"} => {r}")
     def create_route(self, method: str, path: str, qstr: str|None) -> ApiRoute|HttpError:
         assert isinstance(path, str)
         result = self.fetch_router(path, qstr)
