@@ -1,30 +1,39 @@
 import logging
+import http.client
 from collections.abc import AsyncIterable, Callable, Mapping, Sequence
 from typing import Any
 from logging import info
 
-from .route import ApiRouteManager
 
-StartResponseCallable = Callable[[str,list[tuple[str,str]]],None]
+from .route import ApiRouteManager
 
 class WsgiWebApp(ApiRouteManager):
     """The main ASGi Web App."""
 
     def __init__(self, *args, accept_origins: Sequence[str]=[], **kwargs):
-        super().__init__(*args, )
+        super().__init__(*args, **kwargs)
         self.accept_origins = accept_origins
-    def __call__(self, env: Mapping[str,Any], start_response: StartResponseCallable):
+    def __call__(self, env: Mapping[str,Any], start_response: Callable):
         method = env['REQUEST_METHOD']
         headers = {k[5:].lower(): v for k, v in env.items() if k.startswith('HTTP_')}
-        if headers.get('transfer_encoding', '').lower() == 'chunked' or 'CONTENT_LENGTH' in env:
+        if headers.get('transfer_encoding', '').lower() == 'chunked':
             input_data = env['wsgi.input'].read()
+        elif (content_length := env.get('CONTENT_LENGTH')):
+            # wsgiref.simple_server does not support read() without a positive number
+            nb = int(content_length)
+            if nb > 0:
+                input_data = env['wsgi.input'].read(nb)
+            else:
+                input_data = b''
         else:
             input_data = None
         response = self.process_result(*self.handle_request(
             method, input_data, headers,
             peer=env['REMOTE_ADDR'], path=env['PATH_INFO'], qstr=env.get('QUERY_STRING')
         ))
-        start_response(str(response.ht_status), list(response.http_head.items()))
+        reason = http.client.responses.get(response.ht_status, "Unknown Status Code")
+        start_response(str(response.ht_status) + " " + reason,
+                       list(response.http_head.items()))
         assert not isinstance(response.http_body, AsyncIterable)
         return [] if method == 'HEAD' or response.http_body is None else [response.http_body]
 
@@ -48,17 +57,36 @@ def run_wsgi_server_with_gunicorn(
                 self.cfg.set(key.lower(), value)
         def load(self):
             return self.application
-    options = {**options, **kwargs}
     server  = ServerApplication(WsgiWebApp(routes, assets), {
         'bind': f"{host}:{port}", 'timeout': timeout,
         'loglevel': logging.getLevelName(logging.getLogger().level).lower(),
         **options, **kwargs
     })
-    info(f"[WSGi server] Starting service at {host}:{port} ...")
+    info(f"[WSGi gunicorn server] Starting service at {host}:{port} ...")
     try:
         server.run()
     finally:
-        info(f"[WSGi server] Completed service at {host}:{port}.")
+        info(f"[WSGi gunicorn server] Completed service at {host}:{port}.")
+
+def run_wsgi_server_with_simple(
+        routes: dict[str,Any], assets: str|dict[str,str]|str|None,
+        host: str, port: int, options: Mapping[str,Any]={},
+        **kwargs
+):
+    import sys, signal
+    from wsgiref.simple_server import make_server
+    def sigterm_handler(signum, frame):
+        sys.exit(1)
+    signal.signal(signal.SIGTERM, sigterm_handler)
+    # wsgiref.simple_server does not support Connection: ...
+    app = WsgiWebApp(routes, assets, set_connection=None)
+    server = make_server(host, port, app, **options, **kwargs)
+    info(f"[WSGi simple server] Starting service at {host}:{port} ...")
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+        info(f"[WSGi simple server] Completed service at {host}:{port}.")
 
 run_wsgi_server = run_wsgi_server_with_gunicorn
 

@@ -13,7 +13,7 @@ from ..typing import FridValue, MissingType, MISSING
 
 from .route import echo_router
 from .httpd import run_http_server
-from .wsgid import run_wsgi_server_with_gunicorn
+from .wsgid import run_wsgi_server_with_gunicorn, run_wsgi_server_with_simple
 from .asgid import run_asgi_server_with_uvicorn
 
 class TestRouter:
@@ -37,6 +37,7 @@ class TestWebAppHelper(unittest.TestCase):
 
     @classmethod
     def start_server(cls, server: ServerType):
+        cls.server = server
         cls.process = Process(target=server, args=(
             {
                 '/echo': echo_router, '/test/': TestRouter(),
@@ -47,7 +48,7 @@ class TestWebAppHelper(unittest.TestCase):
         info(f"Spawning {cls.__name__} {server.__name__} at {cls.BASE_URL} ...")
         cls.process.start()
         time.sleep(0.5)
-        for _ in range(60):
+        for _ in range(120):
             try:
                 cls.load_page('/non-existing-file')
                 raise ValueError("Loaded an non-existing file successfully")
@@ -185,7 +186,7 @@ class TestHttpWebApp(TestWebAppHelper):
     def test_http_server(self):
         return self.run_tests()
 
-class TestWsgiWebApp(TestWebAppHelper):
+class TestWsgiGunicornWebApp(TestWebAppHelper):
     @classmethod
     def setUpClass(cls):
         cls.start_server(run_wsgi_server_with_gunicorn)
@@ -195,7 +196,17 @@ class TestWsgiWebApp(TestWebAppHelper):
     def test_wsgi_server(self):
         return self.run_tests()
 
-class TestAsgiWebApp(TestWebAppHelper):
+class TestWsgiRefWebApp(TestWebAppHelper):
+    @classmethod
+    def setUpClass(cls):
+        cls.start_server(run_wsgi_server_with_simple)
+    @classmethod
+    def tearDownClass(cls):
+        cls.close_server()
+    def test_wsgi_server(self):
+        return self.run_tests()
+
+class TestAsgiUvicornWebApp(TestWebAppHelper):
     @classmethod
     def setUpClass(cls):
         cls.start_server(run_asgi_server_with_uvicorn)

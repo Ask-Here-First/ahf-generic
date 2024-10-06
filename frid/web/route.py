@@ -174,6 +174,10 @@ class ApiRouteManager:
     Note that the same prefix can have only one router; however, a file router
     can be served from multiple directories or zip files, allowing overlay.
     When serving resources, the router with the longest matching prefix is used.
+    - `accept_origins`: the list of origins that can be accepted.
+      The header 'Access-Control-Allow-Origin' is set if the origin is in the list.
+    - `set_connection`: if not None, `Connection: keep-alive` (for true value) or
+      `Connection: close` (for false value) is added to the header.
     """
     _route_prefixes = {
         'HEAD': ['get_', 'run_'],
@@ -189,7 +193,7 @@ class ApiRouteManager:
     }
     _common_headers = {
         'Cache-Control': "no-cache",
-        'Connection': "keep-alive",
+        # 'Connection': "keep-alive",
         'Content-Encoding': "none",
         'Access-Control-Allow-Headers': "X-Requested-With",
         'Access-Control-Max-Age': "1728000",
@@ -197,9 +201,10 @@ class ApiRouteManager:
 
     def __init__(
             self, routes: Mapping[str,Any]|None=None, assets: str|Mapping[str,str]|None=None,
-            *, accept_origins: Sequence[str]|None=None,
+            *, accept_origins: Sequence[str]|None=None, set_connection: bool|None=True,
     ):
         self.accept_origins = accept_origins if accept_origins else []
+        self.set_connection = set_connection
         self._registry = {}
         if isinstance(assets, str):
             self._registry[''] = FileRouter(assets)
@@ -355,6 +360,8 @@ class ApiRouteManager:
             headers['Access-Control-Allow-Origin'] = origin
         if isinstance(response.http_data, AsyncIterable):
             headers['X-Accel-Buffering'] = "no"
+        if self.set_connection is not None:
+            headers['Connection'] = "keep-alive" if self.set_connection else "close"
         return headers
 
     def handle_request(
