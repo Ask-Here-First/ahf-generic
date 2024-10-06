@@ -14,8 +14,8 @@ rules:
   case that an empty prefix is matched to the root path `/`.
   (This is to accommondate the case that, although URL path can be empty but
   the server is still get a single `/` string.)
-- The path suffix, if non-empty, must start with a `/` but not ends with a `/`,
-  nor it can contain double `/`s.
+- The path suffix, if non-empty, may start with a `/` but must not ends with
+  a `/`, nor it can contain contiguous `/`s.
 The three fragments concatenate into the full URL path without the query string.
 
 ### How to split URL path into fragments
@@ -70,23 +70,18 @@ The found attribute that matches to the medial and HTTP method is the action.
 The remaining string after the path medial is the path suffix.
 By the way how prefix and medial are matched, the path suffix must either
 starts with a `/` and starts right after a `/`. The latter happens only
-for an object router with an empty medial. In this case if the path sufix
-is non-empty we prepend a `/` to the suffix and issue an http 307 redirection.
-This will results in suffix either starts with `/` or is empty.
+for an object router with an empty medial.
 
-The suffix is then split into multiple items starting with a `/` but
-contains no `/` otherwise. Each item is processed this way:
-- The leading `/` is striped;
-- The remaining string is percentage decoded;
+When parsing the suffix, the leading `/`, if any, is removed first.
+The suffix is then split into multiple items with `/`.
+Each item is processed this way:
+- The item is percentage decoded;
 - Then it is parsed into a `FridValue`.
 The result is an array of `FridValue`s.
 
 Since FridValue string representation does not allow empty string,
-there will be no continguous `/`s or `/` at the end. If such is
+there will be no continguous `/`s or `/` at the end. If this is
 the case, a http 307 is issued to remove extra `/`s.
-
-Note that only one http 307 is issued for both adding leading `/` and removing
-continguous and ending slashes.
 
 ## How actions are called
 

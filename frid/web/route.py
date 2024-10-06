@@ -35,6 +35,7 @@ HTTP_METHODS_WITH_BODY = ('POST', 'PUT', 'PATCH')
 class HttpInfo(TypedDict, total=False):
     path: str               # The path to in the URL
     qstr: str               # The query string in the URL
+    frag: list[str]         # Three element list after path fragmentation
     call: ApiCallType       # One of the five calls
     head: dict[str,str]     # The headers of the call
     mime: str               # The mime-type of the body
@@ -49,8 +50,9 @@ class ApiRoute:
 
     The URL is split into the following fields of this class:
 
-    - `method`: the HTTP method
-    - `qsargs` :: The query string, percentage decoded, saved as a list of string or a pair
+    - `method`: the HTTP method.
+    - `pfrags`: The fragments (prefix, medial, suffix) of the path.
+    - `qsargs`: The query string, percentage decoded, saved as a list of string or a pair
        of strings.
 
     The path can be reconstructed by joining `prefix`, `action` (if not None), and `suffix`.
@@ -75,7 +77,7 @@ class ApiRoute:
           of `get` if accepting it.
     """
     method: str
-    pparts: tuple[str,str,str]
+    pfrags: list[str]
     qsargs: list[tuple[str,str]|str]
     router: Any
     action: Callable
@@ -99,7 +101,8 @@ class ApiRoute:
         # Generates the HttpInfo structure users might need
         assert not isinstance(req.http_data, AsyncIterable)
         http_info: HttpInfo = {
-            'call': _api_call_types[self.method], **kwargs, 'head': req.http_head
+            'call': _api_call_types[self.method], **kwargs, 'head': req.http_head,
+            'frag': self.pfrags,
         }
         if req.http_data is not MISSING:
             http_info['data'] = req.http_data
@@ -158,10 +161,10 @@ class ApiRoute:
         return kwargs
     def get_log_str(self, req: HttpMixin, peer: str|None=None):
         assert is_frid_value(req.http_data) or req.http_data is MISSING, type(req.http_data)
-        (prefix, member, _) = self.pparts
+        (prefix, medial, _) = self.pfrags
         data = MISSING if req.http_data is MISSING else frid_redact(req.http_data, 0)
         return f"[{peer}] ({prefix}) {self.method} " + dump_args_str(FridNameArgs(
-            member, self._get_vpargs(data), self.kwargs
+            medial, self._get_vpargs(data), self.kwargs
         ))
 
 class ApiRouteManager:
@@ -236,18 +239,18 @@ class ApiRouteManager:
         (router, prefix) = result
         suffix = path[len(prefix):]
         if prefix.endswith('/'):
-            result = self.fetch_member(router, method, prefix, suffix, qstr)
+            result = self.fetch_action(router, method, prefix, suffix, qstr)
             if isinstance(result, HttpError):
                 return result
-            (action, member, suffix, numfpa) = result
+            (action, medial, suffix, numfpa) = result
         elif callable(router):
             action = router
             # Special case if prefix is empty and suffix == '/', set it to member
             if not prefix and suffix == '/':
-                member = "/"
+                medial = "/"
                 suffix = ""
             else:
-                member = ""
+                medial = ""
                 suffix = path[len(prefix):]
             numfpa = 0
         else:
@@ -259,18 +262,26 @@ class ApiRouteManager:
             qsargs = []
             kwargs = {}
         if suffix:
-            assert suffix[0] == '/', suffix
-            args = suffix[1:].split('/')
+            if suffix == '/':
+                url = prefix + medial + ("" if qstr is None else "/?" + qstr)
+                return HttpError(307, http_head={'location': url})
+            if suffix[0] == '/':
+                args = suffix[1:].split('/')
+                leading = '/'
+            else:
+                args = suffix.split('/')
+                leading = ''
             if not all(item for item in args):
-                url = prefix + member + '/' + ''.join('/' + item for item in args if item) + (
+                url = prefix + medial + leading + '/'.join(item for item in args if item) + (
                     '' if qstr is None else '?' + qstr
                 )
                 return HttpError(307, {'location': url})
             vpargs = [parse_url_value(item) for item in args]
         else:
             vpargs = []
+        assert path == prefix + medial + suffix
         return ApiRoute(
-            method=method, pparts=(prefix, member, suffix), qsargs=qsargs,
+            method=method, pfrags=[prefix, medial, suffix], qsargs=qsargs,
             router=router, action=action, vpargs=vpargs, kwargs=kwargs, numfpa=numfpa
         )
     def fetch_router(self, path: str, qstr: str|None) -> tuple[str,str]|HttpError|None:
@@ -298,7 +309,7 @@ class ApiRouteManager:
             index = path.rfind('/', 0, index)
         return None
     @classmethod
-    def fetch_member(
+    def fetch_action(
         cls, router, method: str, prefix: str, suffix: str, qstr: str|None
     ) -> tuple[Callable,str,str,Literal[0,1,2]]|HttpError:
         """Find the end point in the router according to the path.
@@ -308,28 +319,25 @@ class ApiRouteManager:
         if suffix and suffix[0] != '/':
             index = suffix.find('/')
             if index > 0:
-                member = suffix[:index]
-                suffix = suffix[index:]
+                medial = suffix[:index]
+                new_suffix = suffix[index:]
             else:
-                member = suffix
-                suffix = ""
+                medial = suffix
+                new_suffix = ""
             for rp in cls._route_prefixes[method]:
-                full_name = rp + member
+                full_name = rp + medial
                 if not hasattr(router, full_name):
                     continue
                 action = getattr(router, full_name)
                 if not callable(action):
                     continue
-                return (action, member, suffix, cls._num_fixed_args[rp])
+                return (action, medial, new_suffix, cls._num_fixed_args[rp])
         for rp in cls._route_prefixes[method]:
             if not hasattr(router, rp):
                 continue
             action = getattr(router, rp)
             if not callable(action):
                 continue
-            if not suffix.startswith('/'):
-                url = prefix + "/" + suffix + ("" if qstr is None else "/?" + qstr)
-                return HttpError(307, http_head={'location': url})
             return (action, '', suffix, cls._num_fixed_args[rp])
         return HttpError(405, f"[{prefix}]: no action matches '{suffix}'")
 

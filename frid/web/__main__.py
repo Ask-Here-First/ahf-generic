@@ -27,6 +27,10 @@ class TestRouter:
         return {'status': "ok", **kwds, '.args': list(args)}
     def run_echo(self, action, data, *args, _http={}, **kwds):
         return {'action': action, '.data': data, '.kwds': kwds, '.args': list(args)}
+    def get_(self, *args, _http={}, **kwds):
+        return [*args, kwds]
+    def put_(self, data, *args, _http={}, **kwds):
+        return {'action': 'put', '.data': data, '.kwds': kwds, '.args': list(args)}
 
 ServerType = Callable[[dict[str,Any],dict[str,str]|str|None,str,int],None]
 
@@ -48,9 +52,10 @@ class TestWebAppHelper(unittest.TestCase):
         info(f"Spawning {cls.__name__} {server.__name__} at {cls.BASE_URL} ...")
         cls.process.start()
         time.sleep(0.5)
+    def await_server(self):
         for _ in range(120):
             try:
-                cls.load_page('/non-existing-file')
+                self.load_page('/non-existing-file')
                 raise ValueError("Loaded an non-existing file successfully")
             except urllib.error.HTTPError as e:
                 if e.code != 404:
@@ -60,7 +65,7 @@ class TestWebAppHelper(unittest.TestCase):
                 if not isinstance(e.reason, ConnectionRefusedError):
                     raise  # Connection refused
             time.sleep(1.0)
-        info(f"{cls.__name__} {server.__name__} at {cls.BASE_URL} is ready.")
+        info(f"{self.__class__.__name__} {self.server.__name__} at {self.BASE_URL} is ready.")
     @classmethod
     def close_server(cls):
         time.sleep(0.5)
@@ -79,14 +84,14 @@ class TestWebAppHelper(unittest.TestCase):
         cls.process.join()
         info(f"The {cls.__name__} server at {cls.BASE_URL} is terminated.")
         time.sleep(0.5)
-    @classmethod
-    def load_page(cls, path: str, data: FridValue|MissingType=MISSING,
+    def load_page(self, path: str, data: FridValue|MissingType=MISSING,
                   *, method: str|None=None, raw: bool=False) -> FridValue:
         raw_data = None if data is MISSING else dump_frid_str(data, json_level=1).encode()
-        path = cls.BASE_URL + path
+        path = self.BASE_URL + path
         headers = {'Content-Type': "application/json"}
         with urlopen(Request(path, raw_data, headers, method=method)) as fp:
             result = fp.read()
+            self.last_url = fp.url
             return result if raw else load_frid_str(result.decode(), json_level=1)
 
     def run_test_test(self):
@@ -114,16 +119,19 @@ class TestWebAppHelper(unittest.TestCase):
             self.load_page("/test/echo?b=4&c=x", {"x": 1, "y": 2}, method='PATCH'),
             test.run_echo('add', {"x": 1, "y": 2}, b=4, c="x")
         )
+        self.assertEqual(self.load_page("/test/other/a/3?b=4&c=x"),
+                         test.get_("other", "a", 3, b=4, c="x"))
+        self.assertEqual(self.load_page("/test/other", {"x": 1, "y": 2}, method='PUT'),
+                         test.put_({"x": 1, "y": 2}, "other"))
         with self.assertRaises(urllib.error.HTTPError) as ctx:
-            self.load_page("/test/xxxx")
+            self.load_page("/test/xxx", method='DELETE')
         self.assertEqual(ctx.exception.code, 405)
         with self.assertRaises(urllib.error.HTTPError) as ctx:
-            self.load_page("/test/")
+            self.load_page("/test/", method='DELETE')
         self.assertEqual(ctx.exception.code, 405)
         with self.assertRaises(urllib.error.HTTPError) as ctx:
-            self.load_page("/test")
-        self.assertEqual(ctx.exception.geturl(), self.BASE_URL + "/test/")
-        self.assertEqual(ctx.exception.code, 405)  # Since urllib handdles redirection
+            self.load_page("/test", method='DELETE')
+        self.assertEqual(ctx.exception.code, 307)  # Since urllib handdles redirection
 
     def _remove_env(self, data: FridValue) -> FridValue:
         if not isinstance(data, Mapping):
@@ -155,9 +163,6 @@ class TestWebAppHelper(unittest.TestCase):
         ), self._remove_env(
             test("a", 3, b=4, c="x", _data={"x": 1, "y": 2}, _call="add")
         ))
-        with self.assertRaises(urllib.error.HTTPError) as ctx:
-            self.load_page("/test/xxxx")
-        self.assertEqual(ctx.exception.code, 405)
 
     def run_file_test(self):
         file = Path(__file__)
@@ -172,6 +177,7 @@ class TestWebAppHelper(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 404)
 
     def run_tests(self):
+        self.await_server()
         self.run_test_test()
         self.run_echo_test()
         self.run_file_test()
