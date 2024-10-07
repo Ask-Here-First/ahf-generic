@@ -22,7 +22,10 @@ try:
 except ImportError:
     _cov = None
 
-from .typing import MISSING, PRESENT, FridBeing, FridMixin, FridValue, FridNameArgs, StrKeyMap, ValueArgs, get_func_name, get_qual_name, get_type_name
+from .typing import (
+    MISSING, PRESENT, FridBeing, FridMixin, FridValue, FridNameArgs, StrKeyMap, ValueArgs,
+    get_func_name, get_type_name, get_qual_name
+)
 from .chrono import DateTimeDiff, DateTimeSpec, parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode

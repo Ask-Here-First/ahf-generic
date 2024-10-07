@@ -210,14 +210,35 @@ FridSeqVT = StrKeyMap|Sequence|Set|FridPrime|FridMixin
 FridArray = Sequence[FridSeqVT]
 FridValue = StrKeyMap|FridArray|FridPrime|FridExtra
 
+FridTypeName = Literal['frid','text','blob','list','dict','real','date','null','bool','']
+FridTypeSize = tuple[FridTypeName,int]
+
+def frid_type_size(data: FridValue) -> FridTypeSize:
+    if data is None:
+        return ('null', 0)
+    if isinstance(data, str):
+        return ('text', len(data))
+    if isinstance(data, bool):
+        return ('bool', 0)
+    if isinstance(data, int|float):
+        return ('real', 0)
+    if isinstance(data, BlobTypes):
+        return ('blob', len(data))
+    if isinstance(data, dateonly|timeonly|datetime):
+        return ('date', 0)
+    if isinstance(data, Mapping):
+        return ('dict', len(data))
+    if isinstance(data, Sequence):
+        return ('list', len(data))
+    if isinstance(data, FridMixin|FridBasic):
+        return ('frid', 0)
+    return ('', -1)
+
 class FridNameArgs(NamedTuple):
     """This is a named tuple used to create and represent FridMixin."""
     name: str
     args: FridArray
     kwds: StrKeyMap
-
-FridTypeName = Literal['frid','text','blob','list','dict','real','date','null','bool','']
-FridTypeSize = tuple[FridTypeName,int]
 
 @final
 class ValueArgs(Generic[_T]):
@@ -251,7 +272,6 @@ def get_type_name(data) -> str:
         return data.__name__
     # Or return its type's type name
     return type(data).__name__
-
 
 def get_qual_name(data) -> str:
     """Return the data's qualified name."""

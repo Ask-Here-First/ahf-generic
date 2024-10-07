@@ -13,11 +13,11 @@ from sqlalchemy import types
 
 from ..typing import (
     MISSING, BlobTypes, DateTypes, FridArray, FridBeing,
-    FridTypeName, FridTypeSize, FridValue, MissingType, StrKeyMap, get_type_name
+    FridTypeName, FridTypeSize, FridValue, MissingType, StrKeyMap, frid_type_size, get_type_name
 )
 from ..guards import as_kv_pairs, is_frid_array, is_text_list_like
 from ..chrono import datetime, dateonly, timeonly
-from ..helper import frid_merge, frid_type_size
+from ..helper import frid_merge
 from ..dumper import dump_frid_str
 from ..loader import load_frid_str
 from .store import AsyncStore, ValueStore

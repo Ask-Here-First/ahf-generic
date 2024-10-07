@@ -8,12 +8,12 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Concatenate, Generic, ParamSpec, TypeVar
 from urllib.parse import urlparse
 
-from ..typing import MISSING, PRESENT, BlobTypes, MissingType
+from ..typing import MISSING, PRESENT, BlobTypes, MissingType, frid_type_size
 from ..typing import FridTypeName, FridTypeSize, FridValue, FridArray, FridBeing, StrKeyMap
 from ..autils import AsyncReentrantLock
 from ..chrono import parse_datetime, strfr_datetime, datetime, timezone
 from ..guards import is_frid_array, is_frid_skmap
-from ..helper import frid_merge, frid_type_size
+from ..helper import frid_merge
 from ..strops import escape_control_chars, revive_control_chars
 from ..dumper import dump_frid_str
 from ..loader import load_frid_str
