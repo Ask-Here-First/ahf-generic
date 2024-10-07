@@ -2,9 +2,7 @@ import re, math
 from datetime import timezone, timedelta, tzinfo
 from typing import Literal, Mapping, overload
 
-from frid.typing import FridNameArgs
-
-from .typing import FridMixin, dateonly, timeonly, datetime, DateTypes
+from .typing import FridNameArgs, FridMixin, dateonly, timeonly, datetime, DateTypes
 from .number import Quantity
 from .strops import str_find_any
 

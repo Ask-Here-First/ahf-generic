@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from zipfile import ZipFile
 
-from frid.web import HttpError, HttpMixin
+from .mixin import HttpError, HttpMixin
 
 class FileRouter:
     _known_mime_type = {

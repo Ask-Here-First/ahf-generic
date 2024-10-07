@@ -25,7 +25,7 @@ from .utils import (
     BulkInput, KeySearch, VSPutFlag, VStoreKey, VStoreSel, is_dict_sel, is_list_sel,
     dict_concat, list_concat, frid_delete, frid_select, list_remove_all, list_select, match_key
 )
-from frid.kvs import utils
+from . import utils
 
 SqlTypes = str|float|int|DateTypes|bytes|bool  # Allowed data types for columns
 ParTypes = Mapping[str,FridValue]|Sequence[Mapping[str,FridValue]]|None

@@ -1,7 +1,7 @@
 import heapq
 from collections.abc import Callable, Iterable, Mapping
 
-from frid.guards import as_kv_pairs
+from .guards import as_kv_pairs
 
 def str_split_ex(s, sep: str|None=None, maxsplit: int=-1):
     """String split extended version.
