@@ -193,7 +193,7 @@ class AsgiWebApp(ApiRouteManager):
             ping_task.cancel()
 
 def run_asgi_server_with_uvicorn(
-        routes: dict[str,Any], assets: str|dict[str,str]|str|None,
+        routes: dict[str,Any], assets: str|dict[str,str]|list[str]|None,
         host: str, port: int, options: Mapping[str,Any]={}, **kwargs
 ):
     import signal, uvicorn

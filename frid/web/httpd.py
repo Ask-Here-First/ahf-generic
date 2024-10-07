@@ -48,7 +48,7 @@ class FridHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.do_request('OPTIONS', with_body=False)
 
-def run_http_server(routes: dict[str,Any], assets: str|dict[str,str]|str|None,
+def run_http_server(routes: dict[str,Any], assets: str|dict[str,str]|list[str]|None,
                     host: str, port: int, options: Mapping[str,Any]={}, **kwargs):
     if kwargs:
         options = {**options, **kwargs}

@@ -38,7 +38,7 @@ class WsgiWebApp(ApiRouteManager):
         return [] if method == 'HEAD' or response.http_body is None else [response.http_body]
 
 def run_wsgi_server_with_gunicorn(
-        routes: dict[str,Any], assets: str|dict[str,str]|str|None,
+        routes: dict[str,Any], assets: str|dict[str,str]|list[str]|None,
         host: str, port: int, options: Mapping[str,Any]={},
         *, timeout: int=0, **kwargs
 ):
@@ -69,7 +69,7 @@ def run_wsgi_server_with_gunicorn(
         info(f"[WSGi gunicorn server] Completed service at {host}:{port}.")
 
 def run_wsgi_server_with_simple(
-        routes: dict[str,Any], assets: str|dict[str,str]|str|None,
+        routes: Mapping[str,Any], assets: str|dict[str,str]|list[str]|None,
         host: str, port: int, options: Mapping[str,Any]={},
         **kwargs
 ):

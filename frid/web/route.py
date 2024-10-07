@@ -172,15 +172,25 @@ class ApiRouteManager:
 
     Constructor arguments:
     - `routes`: (optional) a map from the URL path prefixes to router objects.
-    - `assets`: (optional) a map from directory or zip file paths on the disk
-      to URL path prefixes. For each unique prefixes, it creates a file router.
-    Note that the same prefix can have only one router; however, a file router
-    can be served from multiple directories or zip files, allowing overlay.
-    When serving resources, the router with the longest matching prefix is used.
+      The values can be router objects/functors themselves, or a string to
+      specify where the router can be loaded.
+        + Object routers are the class path (`package:ClassName`) followed
+          by constructing parameters enclosed in `()`, specified in Frid format.
+        + Functor routers are just the function path (`package:FunctionName`)
+    - `assets`: (optional) specifies the static asset files on disk.
+        + A single directory path on disk, or a path within a zip file (e.g.
+          `myzip.zip/dir1/dir2`. The prefix is assumed to be root (`''`).
+        + A list of such paths. The prefix is assumed to be root (`''`).
+        + A map from paths to URL path prefixes.
+      For each unique prefixes, a single file router is created.
     - `accept_origins`: the list of origins that can be accepted.
       The header 'Access-Control-Allow-Origin' is set if the origin is in the list.
     - `set_connection`: if not None, `Connection: keep-alive` (for true value) or
       `Connection: close` (for false value) is added to the header.
+
+    Note that for file router, the same prefix can have only one router;
+    however, a file router can be served from multiple directories or paths
+    in zip files, allowing overlay between them.
     """
     _route_prefixes = {
         'HEAD': ['get_', 'run_'],
@@ -203,7 +213,8 @@ class ApiRouteManager:
     }  # TODO: add CORS & cache constrol headers
 
     def __init__(
-            self, routes: Mapping[str,Any]|None=None, assets: str|Mapping[str,str]|None=None,
+            self, routes: Mapping[str,str|Any]|None=None,
+            assets: str|Iterable[str]|Mapping[str,str]|None=None,
             *, accept_origins: Sequence[str]|None=None, set_connection: bool|None=True,
     ):
         self.accept_origins = accept_origins if accept_origins else []
@@ -220,6 +231,8 @@ class ApiRouteManager:
                     roots[v] = [k]
             for k, v in roots.items():
                 self._registry[k] = FileRouter(*v)
+        elif assets is not None:
+            self._registry[''] = FileRouter(*assets)
         if routes is not None:
             self._registry.update(
                 (k, (load_data_in_module(v) if isinstance(v, str) else v))
@@ -256,11 +269,7 @@ class ApiRouteManager:
         else:
             raise HttpError(403, f"[{prefix}]: the router is not callable")
         # Parse the query string
-        if isinstance(qstr, str):
-            (qsargs, kwargs) = parse_url_query(qstr)
-        else:
-            qsargs = []
-            kwargs = {}
+        (qsargs, kwargs) = parse_url_query(qstr)
         if suffix:
             if suffix == '/':
                 url = prefix + medial + ("" if qstr is None else "/?" + qstr)
@@ -275,7 +284,7 @@ class ApiRouteManager:
                 url = prefix + medial + leading + '/'.join(item for item in args if item) + (
                     '' if qstr is None else '?' + qstr
                 )
-                return HttpError(307, {'location': url})
+                return HttpError(307, http_head={'location': url})
             vpargs = [parse_url_value(item) for item in args]
         else:
             vpargs = []
@@ -452,7 +461,7 @@ def echo_router(*args, _data: FridValue|MissingType=MISSING,
         out['.kwds'] = kwds
     return out
 
-def load_command_line_args() -> tuple[dict[str,str],str|dict[str,str]|None,str,int]:
+def load_command_line_args() -> tuple[dict[str,str],str|list[str]|dict[str,str]|None,str,int]:
     import logging, faulthandler
     faulthandler.enable()
     logging.basicConfig(level=logging.INFO)
@@ -467,7 +476,7 @@ def load_command_line_args() -> tuple[dict[str,str],str|dict[str,str]|None,str,i
     else:
         host = ''
         port = int(sys.argv[1])
-    assets = None
+    assets = []
     routes = {}
     for item in sys.argv[2:]:
         if '=' in item:
@@ -481,5 +490,5 @@ def load_command_line_args() -> tuple[dict[str,str],str|dict[str,str]|None,str,i
             if assets is not None:
                 print(f"The root directory is already specified: {assets}", file=sys.stderr)
                 sys.exit(1)
-            assets = item
+            assets.add(item)
     return (routes, assets, host, port)

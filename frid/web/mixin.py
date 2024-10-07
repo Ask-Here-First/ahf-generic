@@ -30,7 +30,7 @@ def parse_url_value(v: str) -> FridValue:
     except Exception:
         return value
 
-def parse_url_query(qs: str) -> tuple[list[tuple[str,str]|str],dict[str,FridValue]]:
+def parse_url_query(qs: str|None) -> tuple[list[tuple[str,str]|str],dict[str,FridValue]]:
     """Parse the URL query string (or www forms) into key value pairs.
     - Returns two data structures as a pair:
         + A list of original key value pairs of strings, URI decoded, but not evaluated.
