@@ -10,7 +10,7 @@ else:
 
 from ..dumper import dump_args_str, frid_redact
 from ..guards import is_frid_value
-from ..helper import get_type_name
+from ..typing import get_type_name
 from ..typing import FridNameArgs, FridValue, MissingType, MISSING
 from ..osutil import load_data_in_module
 from .mixin import HttpError, HttpMixin, InputHttpHead, parse_url_query, parse_url_value

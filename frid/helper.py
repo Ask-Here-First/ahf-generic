@@ -1,5 +1,4 @@
 from collections.abc import Callable, Mapping, Sequence
-from functools import partial
 from enum import Flag
 from typing import Concatenate, Generic, ParamSpec, TypeVar, cast, overload
 
@@ -265,41 +264,3 @@ def frid_type_size(data: FridValue) -> FridTypeSize:
     if isinstance(data, FridMixin|FridBasic):
         return ('frid', 0)
     return ('', -1)
-
-
-def _callable_name(func: Callable) -> str:
-    # if hasattr(func, '__qualname__'):
-    #     return func.__qualname__
-    if hasattr(func, '__name__'):
-        return func.__name__
-    if hasattr(func, '__class__'):  # pragma: no cover
-        return func.__class__.__name__ + "()"
-    return str(func)  # pragma: no cover
-
-def get_qual_name(data) -> str:
-    """Return the data's qualified name."""
-    if hasattr(data, '__qualname__'):
-        return data.__qualname__
-    return type(data).__qualname__
-
-def get_type_name(data) -> str:
-    """Return the data type name."""
-    if isinstance(data, type):  # If data is already a type, return its type name
-        return data.__name__
-    # Or return its type's type name
-    return type(data).__name__
-
-def get_func_name(func: Callable) -> str:
-    """Returns the proper function names for regular or partial functions."""
-    if not isinstance(func, partial):
-        return _callable_name(func) + "()"
-    if not func.args and not func.keywords:
-        return _callable_name(func.func) + "()"
-    name = _callable_name(func.func) + "("
-    if func.args:
-        name += ','.join(str(x) for x in func.args) + ",..."
-    else:
-        name += "..."
-    if func.keywords:
-        name += ',' + ','.join(str(k) + '=' + str(v) for k, v in func.keywords.items()) + ",..."
-    return name + ")"

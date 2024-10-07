@@ -22,12 +22,12 @@ try:
 except ImportError:
     _cov = None
 
-from .typing import MISSING, PRESENT, FridBeing, FridMixin, FridValue, FridNameArgs, StrKeyMap, ValueArgs
+from .typing import MISSING, PRESENT, FridBeing, FridMixin, FridValue, FridNameArgs, StrKeyMap, ValueArgs, get_func_name, get_qual_name, get_type_name
 from .chrono import DateTimeDiff, DateTimeSpec, parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode
 from .strops import escape_control_chars, revive_control_chars, str_transform, str_find_any
-from .helper import Comparator, Substitute, get_func_name, get_qual_name, get_type_name
+from .helper import Comparator, Substitute
 from .dumper import dump_args_str, dump_frid_tio, dump_frid_str, frid_redact
 from .loader import FridParseError, load_frid_str, load_frid_tio, open_frid_tio, scan_frid_str
 from .number import Quantity

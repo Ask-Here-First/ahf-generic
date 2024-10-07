@@ -5,7 +5,7 @@ from urllib.parse import unquote
 from email.message import Message
 
 from ..typing import MISSING, BlobTypes, FridValue, MissingType
-from ..errors import FridError
+from ..typing import FridError
 from ..guards import is_frid_value
 from ..loader import load_frid_str
 from ..dumper import dump_frid_str

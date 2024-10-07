@@ -10,7 +10,7 @@ from .typing import (
 from .guards import (
     is_frid_identifier, is_frid_prime, is_frid_quote_free, is_frid_skmap,  is_quote_free_char
 )
-from .errors import FridError
+from .typing import FridError
 from .strops import escape_control_chars, str_find_any, StringEscapeDecode
 from .chrono import parse_datetime
 from .dumper import EXTRA_ESCAPE_PAIRS

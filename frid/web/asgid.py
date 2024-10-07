@@ -7,7 +7,7 @@ if sys.version_info >= (3, 11):
 else:
     from typing_extensions import NotRequired  # noqa: F401
 
-from ..helper import get_type_name
+from ..typing import get_type_name
 from ..strops import escape_control_chars
 from ..typing import FridValue
 from .mixin import HttpError

@@ -1,9 +1,14 @@
-import dataclasses
+from functools import partial
+import os, traceback, dataclasses
 from abc import ABC
 from datetime import date as dateonly, time as timeonly, datetime
 from collections.abc import Mapping, Sequence, Set, Callable
 from enum import Enum
+from types import TracebackType
 from typing import Any, Generic, Literal, NamedTuple, TypeGuard, TypeVar, final
+
+
+FRID_ERROR_VENUE = os.getenv('FRID_ERROR_VENUE')
 
 # Quick union types used in many places
 BlobTypes = bytes|bytearray|memoryview
@@ -230,3 +235,119 @@ class ValueArgs(Generic[_T]):
         return str(self.data) + self.__args_to_str()
     def __repr__(self):
         return repr(self.data) + self.__args_to_str()
+
+def _callable_name(func: Callable) -> str:
+    # if hasattr(func, '__qualname__'):
+    #     return func.__qualname__
+    if hasattr(func, '__name__'):
+        return func.__name__
+    if hasattr(func, '__class__'):  # pragma: no cover
+        return func.__class__.__name__ + "()"
+    return str(func)  # pragma: no cover
+
+def get_type_name(data) -> str:
+    """Return the data type name."""
+    if isinstance(data, type):  # If data is already a type, return its type name
+        return data.__name__
+    # Or return its type's type name
+    return type(data).__name__
+
+
+def get_qual_name(data) -> str:
+    """Return the data's qualified name."""
+    if hasattr(data, '__qualname__'):
+        return data.__qualname__
+    return type(data).__qualname__
+
+def get_func_name(func: Callable) -> str:
+    """Returns the proper function names for regular or partial functions."""
+    if not isinstance(func, partial):
+        return _callable_name(func) + "()"
+    if not func.args and not func.keywords:
+        return _callable_name(func.func) + "()"
+    name = _callable_name(func.func) + "("
+    if func.args:
+        name += ','.join(str(x) for x in func.args) + ",..."
+    else:
+        name += "..."
+    if func.keywords:
+        name += ',' + ','.join(str(k) + '=' + str(v) for k, v in func.keywords.items()) + ",..."
+    return name + ")"
+
+class FridError(FridMixin, Exception):
+    """The base class of errors that is compatible with Frid.
+    The error can be constructed in three ways:
+    - Construct with a single error message string.
+    - Construct with a error message and a stack trace, which will replace
+      the current stack trace.
+    - Construct with `raise FridError("error") from exc` in which case
+      the exc with be chained.
+    """
+    def __init__(self, *args, trace: TracebackType|Sequence[str]|None=None,
+                 cause: BaseException|str|None=None, notes: Sequence[str]|None=None,
+                 venue: str|None=None):
+        if args and isinstance(args[0], BaseException):
+            exc = args[0]
+            super().__init__(*exc.args, *args[1:])
+            if trace is None:
+                trace = exc.__traceback__
+            if cause is None:
+                cause = get_qual_name(exc)
+        else:
+            super().__init__(*args)
+        self.notes: list[str] = list(notes) if notes else []
+        self.cause: BaseException|str|None = cause
+        self.venue: str|None = venue
+        if trace is None:
+            self.trace = None
+        elif isinstance(trace, TracebackType):
+            self.trace = None
+            self.with_traceback(trace)
+        elif isinstance(trace, Sequence):
+            self.trace = list(trace)
+            self.with_traceback(None)
+        else:
+            raise ValueError(f"Invalid trace type {type(trace)}")
+
+    @classmethod
+    def frid_from(cls, data: FridNameArgs, /):
+        # The `trace` and `cause` are not accepting TrackbackType and BaseException;
+        # and `error` is passed as the first argument.
+        assert data.name in cls.frid_keys()
+        error = data.kwds.get('error')
+        trace = data.kwds.get('trace')
+        cause = data.kwds.get('cause')
+        notes = data.kwds.get('notes')
+        venue = data.kwds.get('venue')
+        assert trace is None or isinstance(trace, Sequence)
+        assert cause is None or isinstance(cause, str)
+        assert notes is None or isinstance(notes, Sequence)
+        assert venue is None or isinstance(venue, str)
+        return FridError(error, trace=trace, cause=cause, notes=notes, venue=venue)
+
+    def frid_dict(self) -> dict[str,str|int|list[str]]:
+        """Convert the error into a dictionary"""
+        out: dict[str,str|int|list[str]] = {'error': str(self)}
+        trace = []
+        if self.trace is not None:
+            trace.extend(self.trace)
+            trace.append("")
+        if self.__traceback__ is not None:
+            trace.extend(traceback.format_exception(self))
+        if self.__cause__:
+            out['cause'] = str(self.__cause__)
+        elif self.cause is not None:
+            out['cause'] = str(self.cause)
+            if isinstance(self.cause, BaseException):
+                trace.append("Caused by:")
+                trace.extend(traceback.format_exception(self.cause))
+        if trace:
+            out['trace'] = trace
+        if self.notes:
+            out['notes'] = self.notes
+        if FRID_ERROR_VENUE is not None:
+            out['venue'] = FRID_ERROR_VENUE
+        return out
+
+    def frid_repr(self) -> FridNameArgs:
+        return FridNameArgs(get_type_name(self), (), self.frid_dict())
