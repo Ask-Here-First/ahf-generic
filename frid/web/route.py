@@ -1,7 +1,7 @@
 import sys, traceback
 from logging import info
 from dataclasses import dataclass
-from collections.abc import AsyncIterable, Mapping, Callable, Sequence
+from collections.abc import AsyncIterable, Iterable, Mapping, Callable, Sequence
 from typing import Any, Literal, TypedDict
 if sys.version_info >= (3, 11):
     from typing import NotRequired, Unpack
