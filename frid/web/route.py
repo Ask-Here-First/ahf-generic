@@ -9,7 +9,7 @@ else:
     from typing_extensions import NotRequired, Unpack  # noqa: F401
 
 from ..osutil import load_data_in_module
-from ..typing import get_type_name
+from ..typing import get_type_name, get_func_name
 from ..typing import FridNameArgs, FridValue, MissingType, MISSING
 from ..guards import is_frid_value
 from .._basic import frid_redact
@@ -241,7 +241,12 @@ class ApiRouteManager:
             )
         info("Current routes:")
         for k, v in self._registry.items():
-            r = ' | '.join(v.roots()) if isinstance(v, FileRouter) else get_type_name(v)
+            if isinstance(v, FileRouter):
+                r = ' | '.join(v.roots())
+            elif k.endswith('/'):
+                r = get_type_name(v)
+            else:
+                r = get_func_name(v)
             info(f"|   {k or '[ROOT]'} => {r}")
     def create_route(self, method: str, path: str, qstr: str|None) -> ApiRoute|HttpError:
         assert isinstance(path, str)
@@ -273,7 +278,7 @@ class ApiRouteManager:
         (qsargs, kwargs) = parse_url_query(qstr)
         if suffix:
             if suffix == '/':
-                url = prefix + medial + ("" if qstr is None else "/?" + qstr)
+                url = prefix + medial + ('' if qstr is None else '?' + qstr)
                 return HttpError(307, http_head={'location': url})
             if suffix[0] == '/':
                 args = suffix[1:].split('/')
