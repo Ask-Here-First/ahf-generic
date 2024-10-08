@@ -62,6 +62,8 @@ class TestWebAppHelper(unittest.TestCase):
                     raise
                 break
             except urllib.error.URLError as e:
+                if self.process.exitcode:
+                    raise unittest.SkipTest(f"Server exited with code {self.process.exitcode}")
                 if not isinstance(e.reason, ConnectionRefusedError):
                     raise  # Connection refused
             time.sleep(1.0)

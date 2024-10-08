@@ -243,256 +243,250 @@ class VStoreTestMemoryAndFile(_VStoreTestBase):
         os.rmdir(sub_root)
         os.rmdir(root_dir)
 
-try:
-    from .redis import RedisValueStore
-except Exception:
-    print("Skip Redis sync tests (Is redis-py package installed?)", file=sys.stderr)
-else:
-    class VStoreTestRedis(_VStoreTestBase):
-        def test_redis_value_store(self):
-            if not os.getenv('FRID_REDIS_HOST'):
-                print("Skip Redis value tests as FRID_REDIS_HOST is not set", file=sys.stderr)
-                return
-            store = RedisValueStore().substore("UNITTEST")
-            store.wipe_all()
-            self.do_test_store(store, exact=False)
-            store.wipe_all()
-            store.finalize()
+class VStoreTestRedis(_VStoreTestBase):
+    def test_redis_value_store(self):
+        try:
+            from .redis import RedisValueStore
+        except Exception:
+            raise unittest.SkipTest("Skip Redis async tests (Is redis-py not installed?)")
+        if not os.getenv('FRID_REDIS_HOST'):
+            raise unittest.SkipTest("Skip Redis value tests as FRID_REDIS_HOST is not set")
+        store = RedisValueStore().substore("UNITTEST")
+        store.wipe_all()
+        self.do_test_store(store, exact=False)
+        store.wipe_all()
+        store.finalize()
 
-        def test_redis_async_store(self):
-            try:
-                from .redis import RedisAsyncStore
-            except Exception:
-                print("Skip Redis async tests (Is redis-py not installed?)", file=sys.stderr)
-                return
-            if not os.getenv('FRID_REDIS_HOST'):
-                print("Skip Redis async tests as FRID_REDIS_HOST is not set", file=sys.stderr)
-                return
-            loop = asyncio.new_event_loop()
-            try:
-                store = RedisAsyncStore().substore("UNITTEST")
-                loop.run_until_complete(store.wipe_all())
-                self.do_test_store(AsyncProxyValueStore(store, loop=loop),
-                                no_proxy=True, exact=False)
-                loop.run_until_complete(store.wipe_all())
-                loop.run_until_complete(store.finalize())
-            finally:
-                loop.run_until_complete(loop.shutdown_default_executor())
-                loop.close()
+    def test_redis_async_store(self):
+        try:
+            from .redis import RedisAsyncStore
+        except Exception:
+            raise unittest.SkipTest("Skip Redis async tests (Is redis-py not installed?)")
+        if not os.getenv('FRID_REDIS_HOST'):
+            raise unittest.SkipTest("Skip Redis async tests as FRID_REDIS_HOST is not set")
+        loop = asyncio.new_event_loop()
+        try:
+            store = RedisAsyncStore().substore("UNITTEST")
+            loop.run_until_complete(store.wipe_all())
+            self.do_test_store(AsyncProxyValueStore(store, loop=loop),
+                               no_proxy=True, exact=False)
+            loop.run_until_complete(store.wipe_all())
+            loop.run_until_complete(store.finalize())
+        finally:
+            loop.run_until_complete(loop.shutdown_default_executor())
+            loop.close()
 
-try:
-    import aiosqlite  # noqa: F401
-    from .dbsql import DbsqlValueStore, DbsqlAsyncStore
-    from sqlalchemy import (
-        MetaData, Table, Column, String, LargeBinary, Integer,
-        UniqueConstraint
-    )
-except Exception:
-    print("Skip Dbsql tests (Is sqlalchemy package installed?)", file=sys.stderr)
-else:
-    class VStoreTestDbsql(_VStoreTestBase):
-        def create_tables(self, aio: bool,
-                        *, echo=False, **kwargs) -> tuple[str,str|None,Table,Table]:
-            dburl = os.getenv('DBSQL_ASYNC_STORE_TEST_URL'
-                              if aio else 'DBSQL_VALUE_STORE_TEST_URL')
-            if dburl:
-                dbfile = None
-            else:
-                dbfile = "/tmp/VStoreTest.sdb"
-                if aio:
-                    dburl = "sqlite+aiosqlite:///" + dbfile
-                else:
-                    dburl = "sqlite+pysqlite:///" + dbfile
-            table_name1 = "unittest_table1"
-            table_name2 = "unittest_table2"
-
-            self.remove_tables(dburl, dbfile, table_name1, table_name2, aio,
-                               echo=echo, **kwargs)
-
-            metadata = MetaData()
-            table1 = Table(
-                table_name1, metadata,
-                Column('id', String, primary_key=True),
-                Column('frid', String, nullable=False),
-                Column('n0', String, nullable=True),
-                Column('n1', LargeBinary, nullable=True),
-                # The two fields are set to constants if text_field/blob_field are not set
-                Column('text', String, nullable=True),
-                Column('blob', LargeBinary, nullable=True),
+class VStoreTestDbsql(_VStoreTestBase):
+    def create_tables(self, aio: bool,
+                      *, echo=False, **kwargs) -> tuple[str,str|None,'Table','Table']:
+        try:
+            import aiosqlite  # noqa: F401
+            from .dbsql import DbsqlValueStore, DbsqlAsyncStore
+            from sqlalchemy import (
+                MetaData, Table, Column, String, LargeBinary, Integer,
+                UniqueConstraint
             )
-            table2 = Table(
-                table_name2, metadata,
-                Column('id', String, nullable=False),
-                Column('frid', String, nullable=False),
-                Column('n0', String, nullable=True),
-                Column('n1', LargeBinary, nullable=True),
-                Column('mapkey', String, nullable=True),
-                Column('seqind', Integer, nullable=True),
-                 # Use UniqueConstrait because key cannot be null
-                UniqueConstraint('id', 'mapkey', 'seqind'),
-            )
-            if echo:
-                print("Creating the following tables")
-                print("***", table_name1)
-                for col in table1.c:
-                    print("   ", repr(col))
-                print("***", table_name2)
-                for col in table2.c:
-                    print("   ", repr(col))
-            return (dburl, dbfile, table1, table2)
-
-        def remove_tables(self, dburl: str, dbfile: str|None, table1: str, table2: str,
-                          aio: bool, *, echo: bool=False, **kwargs):
-            from sqlalchemy import create_engine, MetaData
-            metadata = MetaData()
+        except Exception:
+            raise unittest.SkipTest("Skip Dbsql tests as sqlalchemy is not installed")
+        dburl = os.getenv('DBSQL_ASYNC_STORE_TEST_URL' if aio else 'DBSQL_VALUE_STORE_TEST_URL')
+        if dburl:
+            dbfile = None
+        else:
+            dbfile = "/tmp/VStoreTest.sdb"
             if aio:
-                from sqlalchemy.ext.asyncio import create_async_engine
-                async def create_all():
-                    engine = create_async_engine(dburl, echo=echo, **kwargs)
-                    async with engine.begin() as conn:
-                        await conn.run_sync(metadata.reflect)
-                        for k in (table1, table2):
-                            t = metadata.tables.get(k)
-                            if t is not None:
-                                await conn.run_sync(t.drop)
-                    await engine.dispose()
-                asyncio.run(create_all())
+                dburl = "sqlite+aiosqlite:///" + dbfile
             else:
-                from sqlalchemy import create_engine, MetaData
-                engine = create_engine(dburl, echo=echo, **kwargs)
-                with engine.begin() as conn:
-                    metadata.reflect(engine)
+                dburl = "sqlite+pysqlite:///" + dbfile
+        table_name1 = "unittest_table1"
+        table_name2 = "unittest_table2"
+
+        self.remove_tables(dburl, dbfile, table_name1, table_name2, aio,
+                           echo=echo, **kwargs)
+
+        metadata = MetaData()
+        table1 = Table(
+            table_name1, metadata,
+            Column('id', String, primary_key=True),
+            Column('frid', String, nullable=False),
+            Column('n0', String, nullable=True),
+            Column('n1', LargeBinary, nullable=True),
+            # The two fields are set to constants if text_field/blob_field are not set
+            Column('text', String, nullable=True),
+            Column('blob', LargeBinary, nullable=True),
+        )
+        table2 = Table(
+            table_name2, metadata,
+            Column('id', String, nullable=False),
+            Column('frid', String, nullable=False),
+            Column('n0', String, nullable=True),
+            Column('n1', LargeBinary, nullable=True),
+            Column('mapkey', String, nullable=True),
+            Column('seqind', Integer, nullable=True),
+            # Use UniqueConstrait because key cannot be null
+            UniqueConstraint('id', 'mapkey', 'seqind'),
+        )
+        if echo:
+            print("Creating the following tables")
+            print("***", table_name1)
+            for col in table1.c:
+                print("   ", repr(col))
+            print("***", table_name2)
+            for col in table2.c:
+                print("   ", repr(col))
+        return (dburl, dbfile, table1, table2)
+
+    def remove_tables(self, dburl: str, dbfile: str|None, table1: str, table2: str,
+                      aio: bool, *, echo: bool=False, **kwargs):
+        from sqlalchemy import create_engine, MetaData
+        metadata = MetaData()
+        if aio:
+            from sqlalchemy.ext.asyncio import create_async_engine
+            async def create_all():
+                engine = create_async_engine(dburl, echo=echo, **kwargs)
+                async with engine.begin() as conn:
+                    await conn.run_sync(metadata.reflect)
                     for k in (table1, table2):
                         t = metadata.tables.get(k)
                         if t is not None:
-                            t.drop(conn)
-                engine.dispose()
-            if dbfile is None:
-                return
-            try:
-                os.unlink(dbfile)
-            except Exception:
-                pass
+                            await conn.run_sync(t.drop)
+                await engine.dispose()
+            asyncio.run(create_all())
+        else:
+            from sqlalchemy import create_engine, MetaData
+            engine = create_engine(dburl, echo=echo, **kwargs)
+            with engine.begin() as conn:
+                metadata.reflect(engine)
+                for k in (table1, table2):
+                    t = metadata.tables.get(k)
+                    if t is not None:
+                        t.drop(conn)
+            engine.dispose()
+        if dbfile is None:
+            return
+        try:
+            os.unlink(dbfile)
+        except Exception:
+            pass
 
-        def test_dbsql_value_store(self):
-            echo = bool(load_frid_str(os.getenv("DBSQL_ECHO", '-')))
-            (dburl, dbfile, table1, table2) = self.create_tables(False, echo=echo)
+    def test_dbsql_value_store(self):
+        echo = bool(load_frid_str(os.getenv("DBSQL_ECHO", '-')))
+        (dburl, dbfile, table1, table2) = self.create_tables(False, echo=echo)
 
+        # Single frid columm
+        store = DbsqlValueStore.from_url(
+            dburl, table1, engine_args={'echo': echo}, frid_field=True,
+            col_values={'text': "(UNUSED)", 'blob': b"(UNUSED)"}
+        )
+        self.assertTrue(store._frid_column is not None
+                        and store._frid_column.name == 'frid')
+        self.assertTrue(store._text_column is None)
+        self.assertTrue(store._blob_column is None)
+        self.do_test_store(store, exact=True)
+        store.finalize()
+
+        # Separate text columm
+        store = DbsqlValueStore.from_url(
+            dburl, table1.name, engine_args={'echo': echo}, frid_field=True,
+            text_field='text', col_values={'blob': b"(UNUSED)"}
+        )
+        self.assertTrue(store._frid_column is not None
+                        and store._frid_column.name == 'frid')
+        self.assertTrue(store._text_column is not None
+                        and store._text_column.name == 'text')
+        self.assertTrue(store._blob_column is None)
+        self.do_test_store(store, exact=True)
+        store.finalize()
+
+        # Separate blob columm
+        store = DbsqlValueStore.from_url(
+            dburl, table1, engine_args={'echo': echo}, frid_field=True,
+            blob_field='blob', col_values={'text': "(UNUSED)"}
+        )
+        self.assertTrue(store._frid_column is not None
+                        and store._frid_column.name == 'frid')
+        self.assertTrue(store._text_column is None)
+        self.assertTrue(store._blob_column is not None
+                        and store._blob_column.name == 'blob')
+        self.do_test_store(store, exact=True)
+        store.finalize()
+
+        # Multirow for sequence and mapping
+        store = DbsqlValueStore.from_url(
+            dburl, table2, engine_args={'echo': echo},
+            key_fields='id', frid_field='frid',
+            seq_subkey='seqind', map_subkey='mapkey',
+        )
+        self.assertTrue(store._frid_column is not None
+                        and store._frid_column.name == 'frid')
+        self.assertTrue(store._seq_key_col is not None)
+        self.assertTrue(store._map_key_col is not None)
+        self.do_test_store(store, exact=True)
+        store.finalize()
+
+        self.remove_tables(dburl, dbfile, table1.name, table2.name, False, echo=echo)
+
+    def test_dbsql_async_store(self):
+        echo = bool(load_frid_str(os.getenv("DBSQL_ECHO", '-')))
+        (dburl, dbfile, table1, table2) = self.create_tables(True, echo=echo)
+
+        loop = asyncio.new_event_loop()
+        try:
             # Single frid columm
-            store = DbsqlValueStore.from_url(
+            store = loop.run_until_complete(DbsqlAsyncStore.from_url(
                 dburl, table1, engine_args={'echo': echo}, frid_field=True,
                 col_values={'text': "(UNUSED)", 'blob': b"(UNUSED)"}
-            )
+            ))
             self.assertTrue(store._frid_column is not None
                             and store._frid_column.name == 'frid')
             self.assertTrue(store._text_column is None)
             self.assertTrue(store._blob_column is None)
-            self.do_test_store(store, exact=True)
-            store.finalize()
+            self.do_test_store(AsyncProxyValueStore(store, loop=loop),
+                            no_proxy=True, exact=True)
+            loop.run_until_complete(store.finalize())
 
             # Separate text columm
-            store = DbsqlValueStore.from_url(
+            store = loop.run_until_complete(DbsqlAsyncStore.from_url(
                 dburl, table1.name, engine_args={'echo': echo}, frid_field=True,
                 text_field='text', col_values={'blob': b"(UNUSED)"}
-            )
+            ))
             self.assertTrue(store._frid_column is not None
                             and store._frid_column.name == 'frid')
             self.assertTrue(store._text_column is not None
                             and store._text_column.name == 'text')
             self.assertTrue(store._blob_column is None)
-            self.do_test_store(store, exact=True)
-            store.finalize()
+            self.do_test_store(AsyncProxyValueStore(store, loop=loop),
+                            no_proxy=True, exact=True)
+            loop.run_until_complete(store.finalize())
 
             # Separate blob columm
-            store = DbsqlValueStore.from_url(
+            store = loop.run_until_complete(DbsqlAsyncStore.from_url(
                 dburl, table1, engine_args={'echo': echo}, frid_field=True,
                 blob_field='blob', col_values={'text': "(UNUSED)"}
-            )
+            ))
             self.assertTrue(store._frid_column is not None
                             and store._frid_column.name == 'frid')
             self.assertTrue(store._text_column is None)
             self.assertTrue(store._blob_column is not None
                             and store._blob_column.name == 'blob')
-            self.do_test_store(store, exact=True)
-            store.finalize()
+            self.do_test_store(AsyncProxyValueStore(store, loop=loop),
+                            no_proxy=True, exact=True)
+            loop.run_until_complete(store.finalize())
 
-            # Multirow for sequence and mapping
-            store = DbsqlValueStore.from_url(
-                dburl, table2, engine_args={'echo': echo},
-                key_fields='id', frid_field='frid',
-                seq_subkey='seqind', map_subkey='mapkey',
-            )
+            # Multirow for sequence
+            store = loop.run_until_complete(DbsqlAsyncStore.from_url(
+                dburl, table2, engine_args={'echo': echo}, key_fields='id',
+                frid_field='frid', seq_subkey='seqind', map_subkey='mapkey'
+            ))
             self.assertTrue(store._frid_column is not None
                             and store._frid_column.name == 'frid')
             self.assertTrue(store._seq_key_col is not None)
             self.assertTrue(store._map_key_col is not None)
-            self.do_test_store(store, exact=True)
-            store.finalize()
+            self.do_test_store(AsyncProxyValueStore(store, loop=loop),
+                            no_proxy=True, exact=True)
+            loop.run_until_complete(store.finalize())
+        finally:
+            loop.run_until_complete(loop.shutdown_default_executor())
+            loop.close()
 
-            self.remove_tables(dburl, dbfile, table1.name, table2.name, False, echo=echo)
-
-        def test_dbsql_async_store(self):
-            echo = bool(load_frid_str(os.getenv("DBSQL_ECHO", '-')))
-            (dburl, dbfile, table1, table2) = self.create_tables(True, echo=echo)
-
-            loop = asyncio.new_event_loop()
-            try:
-                # Single frid columm
-                store = loop.run_until_complete(DbsqlAsyncStore.from_url(
-                    dburl, table1, engine_args={'echo': echo}, frid_field=True,
-                    col_values={'text': "(UNUSED)", 'blob': b"(UNUSED)"}
-                ))
-                self.assertTrue(store._frid_column is not None
-                                and store._frid_column.name == 'frid')
-                self.assertTrue(store._text_column is None)
-                self.assertTrue(store._blob_column is None)
-                self.do_test_store(AsyncProxyValueStore(store, loop=loop),
-                                no_proxy=True, exact=True)
-                loop.run_until_complete(store.finalize())
-
-                # Separate text columm
-                store = loop.run_until_complete(DbsqlAsyncStore.from_url(
-                    dburl, table1.name, engine_args={'echo': echo}, frid_field=True,
-                    text_field='text', col_values={'blob': b"(UNUSED)"}
-                ))
-                self.assertTrue(store._frid_column is not None
-                                and store._frid_column.name == 'frid')
-                self.assertTrue(store._text_column is not None
-                                and store._text_column.name == 'text')
-                self.assertTrue(store._blob_column is None)
-                self.do_test_store(AsyncProxyValueStore(store, loop=loop),
-                                no_proxy=True, exact=True)
-                loop.run_until_complete(store.finalize())
-
-                # Separate blob columm
-                store = loop.run_until_complete(DbsqlAsyncStore.from_url(
-                    dburl, table1, engine_args={'echo': echo}, frid_field=True,
-                    blob_field='blob', col_values={'text': "(UNUSED)"}
-                ))
-                self.assertTrue(store._frid_column is not None
-                                and store._frid_column.name == 'frid')
-                self.assertTrue(store._text_column is None)
-                self.assertTrue(store._blob_column is not None
-                                and store._blob_column.name == 'blob')
-                self.do_test_store(AsyncProxyValueStore(store, loop=loop),
-                                no_proxy=True, exact=True)
-                loop.run_until_complete(store.finalize())
-
-                # Multirow for sequence
-                store = loop.run_until_complete(DbsqlAsyncStore.from_url(
-                    dburl, table2, engine_args={'echo': echo}, key_fields='id',
-                    frid_field='frid', seq_subkey='seqind', map_subkey='mapkey'
-                ))
-                self.assertTrue(store._frid_column is not None
-                                and store._frid_column.name == 'frid')
-                self.assertTrue(store._seq_key_col is not None)
-                self.assertTrue(store._map_key_col is not None)
-                self.do_test_store(AsyncProxyValueStore(store, loop=loop),
-                                no_proxy=True, exact=True)
-                loop.run_until_complete(store.finalize())
-            finally:
-                loop.run_until_complete(loop.shutdown_default_executor())
-                loop.close()
-
-            self.remove_tables(dburl, dbfile, table1.name, table2.name, True, echo=echo)
+        self.remove_tables(dburl, dbfile, table1.name, table2.name, True, echo=echo)
 
