@@ -6,18 +6,21 @@ and run all unit tests.
 To run AsyncStore against PostgreSQL (with dependencies `sqlalchemy psycopg[binary]`):
 
 ```
-time DBSQL_ECHO=+ DBSQL_VALUE_STORE_TEST_URL='postgresql+psycopg://postgres:PASSWORD@HOSTNAME' \
-    python3 -m unittest frid.kvs.__test__.VStoreTestDbsql.test_dbsql_value_store
+time DBSQL_VALUE_STORE_TEST_URL='postgresql+psycopg://postgres:PASSWORD@HOSTNAME' \
+    FRID_LOG_LEVEL=trace python3 -m unittest \
+        frid.kvs.__test__.VStoreTestDbsql.test_dbsql_value_store
 ```
 
 To run AsyncStore against PostgreSQL (with dependencies `sqlalchemy asyncpg`):
 ```
-time DBSQL_ECHO=+ DBSQL_ASYNC_STORE_TEST_URL='postgresql+asyncpg://postgres:PASSWORD@HOSTNAME' \
-    python3 -m unittest frid.kvs.__test__.VStoreTestDbsql.test_dbsql_async_store
+time DBSQL_ASYNC_STORE_TEST_URL='postgresql+asyncpg://postgres:PASSWORD@HOSTNAME' \
+    FRID_LOG_LEVEL=trace python3 -m unittest \
+        frid.kvs.__test__.VStoreTestDbsql.test_dbsql_async_store
 ```
 """
 
-import os, random, asyncio, unittest
+import os, time, random, asyncio, logging, unittest, subprocess
+from logging import info
 from concurrent.futures import ThreadPoolExecutor
 
 from ..typing import MISSING
@@ -244,13 +247,35 @@ class VStoreTestMemoryAndFile(_VStoreTestBase):
         os.rmdir(root_dir)
 
 class VStoreTestRedis(_VStoreTestBase):
+    @classmethod
+    def setUpClass(cls):
+        # Do not write anything to disk
+        cmd = ["redis-server", "--save", "", "--appendonly", "no"]
+        cls.cmdline = ' '.join(x or '""' for x in cmd)
+        try:
+            cls.process = subprocess.Popen(
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+        except Exception as e:
+            raise unittest.SkipTest(f"Process `{cls.cmdline}`: {e}")
+        if (exit_code := cls.process.poll()) is not None:
+            raise unittest.SkipTest(f"Process exits with code {exit_code}: {cls.cmdline}")
+        info(f"Started process {cls.process.pid}: {cls.cmdline}")
+        time.sleep(1.0)
+    @classmethod
+    def tearDownClass(cls):
+        time.sleep(0.5)
+        pid = cls.process.pid
+        cls.process.terminate()
+        exit_code = cls.process.wait()
+        info(f"Completed process {pid} with code {exit_code}: {cls.cmdline}")
+
     def test_redis_value_store(self):
         try:
             from .redis import RedisValueStore
         except ImportError:
             raise unittest.SkipTest("Skip Redis async tests (Is redis-py not installed?)")
-        if not os.getenv('FRID_REDIS_HOST'):
-            raise unittest.SkipTest("Skip Redis value tests as FRID_REDIS_HOST is not set")
         store = RedisValueStore().substore("UNITTEST")
         store.wipe_all()
         self.do_test_store(store, exact=False)
@@ -262,8 +287,6 @@ class VStoreTestRedis(_VStoreTestBase):
             from .redis import RedisAsyncStore
         except Exception:
             raise unittest.SkipTest("Skip Redis async tests (Is redis-py not installed?)")
-        if not os.getenv('FRID_REDIS_HOST'):
-            raise unittest.SkipTest("Skip Redis async tests as FRID_REDIS_HOST is not set")
         loop = asyncio.new_event_loop()
         try:
             store = RedisAsyncStore().substore("UNITTEST")
@@ -371,7 +394,8 @@ class VStoreTestDbsql(_VStoreTestBase):
     def test_dbsql_value_store(self):
         from .dbsql import DbsqlValueStore
 
-        echo = bool(load_frid_str(os.getenv("DBSQL_ECHO", '-')))
+        # Log only in trace level
+        echo = logging.getLogger().level == 0
         (dburl, dbfile, table1, table2) = self.create_tables(False, echo=echo)
 
         # Single frid columm

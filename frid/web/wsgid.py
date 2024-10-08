@@ -68,9 +68,15 @@ def run_wsgi_server_with_gunicorn(
                 self.cfg.set(key.lower(), value)
         def load(self):
             return self.application
+    log_level = logging.getLogger().level
+    if log_level < logging.DEBUG:
+        log_level = logging.DEBUG
     server  = ServerApplication(WsgiWebApp(routes, assets), {
         'bind': f"{host}:{port}", 'timeout': timeout,
-        'loglevel': logging.getLevelName(logging.getLogger().level).lower(),
+        # Gunicorn does not have trace level
+        'loglevel': (logging.getLevelName(level).lower() if (
+            level := logging.getLogger().level
+        ) >= logging.DEBUG else "debug"),
         **options
     })
     info(f"[WSGi gunicorn server] Starting service at {host}:{port} ...")

@@ -209,7 +209,11 @@ def run_asgi_server_with_uvicorn(
 
     server = uvicorn.Server(uvicorn.Config(
         AsgiWebApp(routes, assets), host=host, port=port,
-        log_level=logging.getLogger().level, **options,
+        # Uvicorn has a "trace" level
+        log_level=(logging.getLevelName(level).lower() if (
+            level := logging.getLogger().level
+        ) >= logging.DEBUG else "trace"),
+        **options,
     ))
 
     import signal

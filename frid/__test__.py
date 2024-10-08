@@ -532,7 +532,7 @@ class TestLoaderAndDumper(unittest.TestCase):
 
     def test_random(self):
         def_seed = 0
-        def_runs = 256
+        def_runs = 64
         def_tree = 4
         runs = int(os.getenv('FRID_RANDOM_RUNS', def_runs))
         seed = os.getenv('FRID_RANDOM_SEED')

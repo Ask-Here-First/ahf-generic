@@ -20,8 +20,8 @@ else:
     print("Running unit tests ...")
 
 log_level = {
-    'debug': logging.DEBUG, 'info': logging.INFO, 'error': logging.ERROR,
-    'warn': logging.WARNING, 'warning': logging.WARNING,
+    'trace': 0, 'debug': logging.DEBUG, 'info': logging.INFO,
+    'warn': logging.WARNING, 'warning': logging.WARNING, 'error': logging.ERROR,
 }.get(os.getenv('FRID_LOG_LEVEL', 'warn').lower(), logging.INFO)
 logging.basicConfig(level=log_level)
 
