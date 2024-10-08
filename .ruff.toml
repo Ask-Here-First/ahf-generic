@@ -1,3 +1,4 @@
 line-length = 96
+target-version = "py310"
 [lint]
 ignore = ["E401"]

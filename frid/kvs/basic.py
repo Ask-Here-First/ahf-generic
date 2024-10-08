@@ -20,7 +20,6 @@ from ..loader import load_frid_str
 from .store import AsyncStore, ValueStore
 from .utils import KeySearch, VSPutFlag, VStoreKey, VStoreSel, frid_delete, frid_select, list_concat, match_key
 
-_T = TypeVar('_T')
 _E = TypeVar('_E')   # The encoding type
 _P = ParamSpec('_P')
 
@@ -240,9 +239,9 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
     def _put(self, key: str, data: FridValue) -> bool:
         self._data[key] = data
         return True
-    def _rmw(self, key: str, mod: ModFunc[_E,_P],
+    def _rmw(self, key: str, mod: ModFunc[FridValue,_P],
              /, flags: VSPutFlag, *args: _P.args, **kwargs: _P.kwargs) -> bool:
-        old_data = self._data.get(key, MISSING)
+        old_data: FridValue|MissingType = self._data.get(key, MISSING)
         if flags & VSPutFlag.NO_CREATE:
             if old_data is MISSING:
                 return False
