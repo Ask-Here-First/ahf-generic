@@ -17,9 +17,9 @@ from ..typing import (
 )
 from ..guards import as_kv_pairs, is_frid_array, is_text_list_like
 from ..chrono import datetime, dateonly, timeonly
-from ..helper import frid_merge
-from ..dumper import dump_frid_str
-from ..loader import load_frid_str
+from .._basic import frid_merge
+from .._dumps import dump_frid_str
+from .._loads import load_frid_str
 from .store import AsyncStore, ValueStore
 from .utils import (
     BulkInput, KeySearch, VSPutFlag, VStoreKey, VStoreSel, is_dict_sel, is_list_sel,

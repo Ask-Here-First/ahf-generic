@@ -12,8 +12,8 @@ from ..osutil import load_data_in_module
 from ..typing import get_type_name
 from ..typing import FridNameArgs, FridValue, MissingType, MISSING
 from ..guards import is_frid_value
-from ..helper import frid_redact
-from ..dumper import dump_args_str
+from .._basic import frid_redact
+from .._dumps import dump_args_str
 from .mixin import HttpError, HttpMixin, InputHttpHead, parse_url_query, parse_url_value
 from .files import FileRouter
 

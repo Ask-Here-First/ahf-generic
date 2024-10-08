@@ -11,7 +11,7 @@ from .typing import (
 from .guards import is_list_like
 from .chrono import timeonly, datetime, dateonly
 from .strops import str_transform
-from .dumper import dump_frid_str
+from ._dumps import dump_frid_str
 
 P = ParamSpec('P')
 T = TypeVar('T')

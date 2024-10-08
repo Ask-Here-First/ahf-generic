@@ -1,7 +1,7 @@
 import os, sys, importlib
 from urllib.parse import quote, unquote
 
-from .loader import load_frid_str
+from ._loads import load_frid_str
 
 def os_path_to_url_path(path: os.PathLike|str) -> str:
     """Convert OS path to URL path (URL encoded, using / as separator)."""

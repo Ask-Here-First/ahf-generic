@@ -2,7 +2,7 @@ import asyncio
 from urllib.parse import unquote
 
 from ..typing import FridNameArgs
-from ..loader import load_frid_str
+from .._loads import load_frid_str
 from .store import ValueStore, AsyncStore
 from .proxy import ValueProxyStore, AsyncProxyStore, AsyncProxyValueStore, ValueProxyAsyncStore
 from .utils import VStoreKey, VStoreSel, VSPutFlag

@@ -7,8 +7,8 @@ from pathlib import Path
 from urllib.request import urlopen, Request
 from multiprocessing import Process
 
-from ..loader import load_frid_str
-from ..dumper import dump_frid_str
+from .._loads import load_frid_str
+from .._dumps import dump_frid_str
 from ..typing import FridValue, MissingType, MISSING
 
 from .route import echo_router

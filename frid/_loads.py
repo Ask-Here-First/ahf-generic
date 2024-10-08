@@ -13,7 +13,7 @@ from .guards import (
 from .typing import FridError
 from .strops import escape_control_chars, str_find_any, StringEscapeDecode
 from .chrono import parse_datetime
-from .dumper import EXTRA_ESCAPE_PAIRS
+from ._dumps import EXTRA_ESCAPE_PAIRS
 
 NO_QUOTE_CHARS = "~!?@$%^&"   # Extra no quote chars; not including/ * # for potential comments
 ALLOWED_QUOTES = "'`\""

@@ -7,8 +7,8 @@ from email.message import Message
 from ..typing import MISSING, BlobTypes, FridValue, MissingType
 from ..typing import FridError
 from ..guards import is_frid_value
-from ..loader import load_frid_str
-from ..dumper import dump_frid_str
+from .._loads import load_frid_str
+from .._dumps import dump_frid_str
 
 
 DEF_ESCAPE_SEQ = os.getenv('FRID_ESCAPE_SEQ', "#!")

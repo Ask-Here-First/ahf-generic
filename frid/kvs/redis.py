@@ -11,7 +11,7 @@ from ..typing import MISSING, FridBeing, FridTypeName, MissingType, frid_type_si
 from ..typing import FridArray, FridTypeSize, FridValue, StrKeyMap
 from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap, is_list_like
 from ..strops import escape_control_chars, revive_control_chars
-from ..helper import frid_merge
+from .._basic import frid_merge
 from . import utils
 from .store import ValueStore, AsyncStore
 from .basic import BinaryStoreMixin

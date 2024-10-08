@@ -13,10 +13,10 @@ from ..typing import FridTypeName, FridTypeSize, FridValue, FridArray, FridBeing
 from ..autils import AsyncReentrantLock
 from ..chrono import parse_datetime, strfr_datetime, datetime, timezone
 from ..guards import is_frid_array, is_frid_skmap
-from ..helper import frid_merge
+from .._basic import frid_merge
 from ..strops import escape_control_chars, revive_control_chars
-from ..dumper import dump_frid_str
-from ..loader import load_frid_str
+from .._dumps import dump_frid_str
+from .._loads import load_frid_str
 from .store import AsyncStore, ValueStore
 from .utils import KeySearch, VSPutFlag, VStoreKey, VStoreSel, frid_delete, frid_select, list_concat, match_key
 
