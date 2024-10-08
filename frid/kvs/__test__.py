@@ -496,5 +496,3 @@ else:
 
             self.remove_tables(dburl, dbfile, table1.name, table2.name, True, echo=echo)
 
-if __name__ == '__main__':
-    unittest.main()

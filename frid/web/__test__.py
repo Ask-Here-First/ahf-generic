@@ -222,5 +222,3 @@ class TestAsgiUvicornWebApp(TestWebAppHelper):
     def test_asgi_server(self):
         return self.run_tests()
 
-if __name__ == '__main__':
-    unittest.main()
