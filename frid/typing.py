@@ -263,7 +263,7 @@ def _callable_name(func: Callable) -> str:
     if hasattr(func, '__name__'):
         return func.__name__
     if hasattr(func, '__class__'):  # pragma: no cover
-        return func.__class__.__name__ + "()"
+        return func.__class__.__name__ + "(...)"
     return str(func)  # pragma: no cover
 
 def get_type_name(data) -> str:
@@ -282,9 +282,9 @@ def get_qual_name(data) -> str:
 def get_func_name(func: Callable) -> str:
     """Returns the proper function names for regular or partial functions."""
     if not isinstance(func, partial):
-        return _callable_name(func) + "()"
+        return _callable_name(func) + "(...)"
     if not func.args and not func.keywords:
-        return _callable_name(func.func) + "()"
+        return _callable_name(func.func) + "(...)"
     name = _callable_name(func.func) + "("
     if func.args:
         name += ','.join(str(x) for x in func.args) + ",..."
