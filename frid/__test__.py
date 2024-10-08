@@ -392,13 +392,13 @@ class TestHelper(unittest.TestCase):
         self.assertEqual(get_qual_name(FridBeing), "FridBeing")
         self.assertEqual(get_qual_name(PRESENT), "FridBeing")
         self.assertEqual(get_qual_name(MISSING), "FridBeing")
-        self.assertEqual(get_func_name(self.test_type_check), "test_type_check()")
-        self.assertEqual(get_func_name(id), "id()")
+        self.assertEqual(get_func_name(self.test_type_check), "test_type_check(...)")
+        self.assertEqual(get_func_name(id), "id(...)")
         def test(a, b, c):
             pass
-        self.assertEqual(get_func_name(test), "test()")
+        self.assertEqual(get_func_name(test), "test(...)")
         self.assertIsInstance(partial(test, 3), partial)
-        self.assertEqual(get_func_name(partial(test)), "test()")
+        self.assertEqual(get_func_name(partial(test)), "test(...)")
         self.assertEqual(get_func_name(partial(test, 3)), "test(3,...)")
         self.assertEqual(get_func_name(partial(test, b=3)), "test(...,b=3,...)")
 
