@@ -27,7 +27,13 @@ logging.basicConfig(level=log_level)
 
 loader = unittest.TestLoader()
 suite = loader.loadTestsFromNames(["frid.__test__", "frid.kvs.__test__", "frid.web.__test__"])
-unittest.TextTestRunner(verbosity=(2 if log_level <= logging.INFO else 1)).run(suite)
+res = unittest.TextTestRunner(verbosity=(2 if log_level <= logging.INFO else 1)).run(suite)
+
+for x, y in [("Skipped", res.skipped), ("Bungled", res.failures), ("Crashed", res.errors)]:
+    if y:
+        print(x)
+        for a, b in y:
+            print(f"   {a.__class__.__name__}: {b}")
 
 if _cov is not None:
     _cov.stop()
