@@ -1,24 +1,7 @@
-import os, io, sys, math, json, base64, logging, unittest, importlib
+import os, io, sys, math, json, base64, unittest
 from random import Random
 from typing import Any, Literal, cast
 from functools import partial
-
-try:
-    # We have to import in the begining; otherwise static contents are not coveraged
-    if __name__ == '__main__':
-        print("Load the Python coverage package ...")
-        import coverage
-        _cov = coverage.Coverage()
-        _cov.erase()
-        _cov.start()
-        # Reload all loaded modules of name frid.* to cover all static context
-        modules = [x for x in sys.modules.values() if x.__name__.startswith("frid.")]
-        for module in modules:
-            importlib.reload(module)
-    else:
-        _cov = None
-except ImportError:
-    _cov = None
 
 from .typing import (
     MISSING, PRESENT, FridBeing, FridMixin, FridValue, FridNameArgs, StrKeyMap, ValueArgs,
@@ -837,32 +820,10 @@ class TestQuantity(unittest.TestCase):
         with self.assertRaises(ValueError):
             Quantity("3ft", ["ft", 'ft'])
         with self.assertRaises(ValueError):
-            Quantity("3ft", 8) # type: ignore -- negative test with bad data type
+            Quantity("3ft", 8)  # type: ignore -- negative test with bad data type
         with self.assertRaises(ValueError):
             Quantity("3feet2meter", {"foot": ['ft', 'feet']})
         with self.assertRaises(ValueError):
             Quantity("3feet2foot", {"foot": ['ft', 'feet']})
         with self.assertRaises(ValueError):
             Quantity("                3feet  1inches @                          ")
-
-if __name__ == '__main__':
-    if _cov is not None:
-        print("Running unit tests with coverage ...")
-    else:
-        print("Running unit tests ...")
-    logging.basicConfig(level={
-        'debug': logging.DEBUG, 'info': logging.INFO, 'error': logging.ERROR,
-        'warn': logging.WARNING, 'warning': logging.WARNING,
-    }.get(os.getenv('FRID_LOG_LEVEL', 'warn').lower()))
-
-    unittest.main(exit=False)
-    unittest.main("frid.kvs.__main__", exit=False)
-    unittest.main("frid.web.__main__", exit=False)
-
-    if _cov is not None:
-        _cov.stop()
-        _cov.save()
-        _cov.combine()
-        print("Generating HTML converage report ...")
-        _cov.html_report()
-        print("Report is in [ htmlcov/index.html ].")
