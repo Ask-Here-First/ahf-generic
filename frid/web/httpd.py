@@ -1,6 +1,6 @@
 import sys
 from collections.abc import AsyncIterable, Mapping
-from http.server import BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from logging import info
 
@@ -48,25 +48,29 @@ class FridHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.do_request('OPTIONS', with_body=False)
 
+class NoPrintHttpRequestHandler(BaseHTTPRequestHandler):
+    """This class is to use logging system to log results"""
+    def log_message(self, format, *args):
+        info(f"{self.address_string()} - {format % args}")
+
+class NoPrintHTTPServer(HTTPServer):
+    def handle_error(self, request, client_address):
+        info(f"HTTP request handler encountered {sys.exc_info()[1]} from {client_address}")
+
 def run_http_server(routes: dict[str,Any], assets: str|dict[str,str]|list[str]|None,
                     host: str, port: int, options: Mapping[str,Any]={}, **kwargs):
-    if kwargs:
-        options = {**options, **kwargs}
-    manager = ApiRouteManager(routes, assets)
-    class TestHTTPRequestHandler(FridHTTPRequestHandler):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, manager=manager, **kwargs)
-        def log_message(self, format, *args):
-            info(f"{self.address_string()} - {format % args}")
-    from http.server import HTTPServer
-    class TestHTTPServer(HTTPServer):
-        def handle_error(self, request, client_address):
-            info(f"HTTP request handler encountered {sys.exc_info()[1]} from {client_address}")
+    # options = {**options, **kwargs}
+
     import signal
     def sigterm_handler(signum, frame):
         sys.exit(1)
     signal.signal(signal.SIGTERM, sigterm_handler)
-    with TestHTTPServer((host, port), TestHTTPRequestHandler) as httpd:
+
+    manager = ApiRouteManager(routes, assets)
+    class TestHTTPRequestHandler(FridHTTPRequestHandler, NoPrintHttpRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, manager=manager, **kwargs)
+    with NoPrintHTTPServer((host, port), TestHTTPRequestHandler) as httpd:
         info(f"[HTTP server] Starting service at {host}:{port} ...")
         try:
             httpd.serve_forever()

@@ -196,14 +196,27 @@ def run_asgi_server_with_uvicorn(
         routes: dict[str,Any], assets: str|dict[str,str]|list[str]|None,
         host: str, port: int, options: Mapping[str,Any]={}, **kwargs
 ):
-    import signal, uvicorn
+    options = {**options, **kwargs}
+    quiet = options.pop('quiet', False)
+
+    try:
+        import uvicorn
+    except ImportError as e:
+        if quiet:
+            info(f"Failed to import uvicorn: {e}")
+            sys.exit(1)
+        raise
+
     server = uvicorn.Server(uvicorn.Config(
         AsgiWebApp(routes, assets), host=host, port=port,
-        log_level=logging.getLogger().level, **options, **kwargs
+        log_level=logging.getLogger().level, **options,
     ))
+
+    import signal
     def sigterm_handler(signum, frame):
         server.should_exit = True
     signal.signal(signal.SIGTERM, sigterm_handler)
+
     info(f"[ASGi server] Starting service at {host}:{port} ...")
     try:
         server.run()

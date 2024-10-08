@@ -1,4 +1,4 @@
-import logging
+import sys, logging
 import http.client
 from collections.abc import AsyncIterable, Callable, Mapping, Sequence
 from typing import Any
@@ -42,7 +42,18 @@ def run_wsgi_server_with_gunicorn(
         host: str, port: int, options: Mapping[str,Any]={},
         *, timeout: int=0, **kwargs
 ):
-    from gunicorn.app.base import BaseApplication
+    options = {**options, **kwargs}
+    quiet = options.pop('quiet', False)
+
+    # Note gunicorn handles signals as we need
+    try:
+        from gunicorn.app.base import BaseApplication
+    except ImportError as e:
+        if quiet:
+            info(f"Failed to import gunicorn: {e}")
+            sys.exit(1)
+        raise
+
     from six import iteritems
     class ServerApplication(BaseApplication):
         def __init__(self, app, options=None):
@@ -60,7 +71,7 @@ def run_wsgi_server_with_gunicorn(
     server  = ServerApplication(WsgiWebApp(routes, assets), {
         'bind': f"{host}:{port}", 'timeout': timeout,
         'loglevel': logging.getLevelName(logging.getLogger().level).lower(),
-        **options, **kwargs
+        **options
     })
     info(f"[WSGi gunicorn server] Starting service at {host}:{port} ...")
     try:
@@ -70,17 +81,26 @@ def run_wsgi_server_with_gunicorn(
 
 def run_wsgi_server_with_simple(
         routes: Mapping[str,Any], assets: str|dict[str,str]|list[str]|None,
-        host: str, port: int, options: Mapping[str,Any]={},
-        **kwargs
+        host: str, port: int, options: Mapping[str,Any]={}, **kwargs
 ):
+    # options = {**options, **kwargs}
+
     import sys, signal
-    from wsgiref.simple_server import make_server
     def sigterm_handler(signum, frame):
         sys.exit(1)
     signal.signal(signal.SIGTERM, sigterm_handler)
+
     # wsgiref.simple_server does not support Connection: ...
     app = WsgiWebApp(routes, assets, set_connection=None)
-    server = make_server(host, port, app, **options, **kwargs)
+    from .httpd import NoPrintHttpRequestHandler  # simple_server actually uses http.server
+    from wsgiref.simple_server import make_server, WSGIRequestHandler, WSGIServer
+    class TestWsgiHandler(WSGIRequestHandler, NoPrintHttpRequestHandler):
+        pass
+    class TestWsgiServer(WSGIServer, NoPrintHttpRequestHandler):
+        pass
+
+    server = make_server(host, port, app,
+                         handler_class=TestWsgiHandler, server_class=TestWsgiServer)
     info(f"[WSGi simple server] Starting service at {host}:{port} ...")
     try:
         server.serve_forever()

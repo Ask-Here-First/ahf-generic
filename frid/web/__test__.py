@@ -47,7 +47,7 @@ class TestWebAppHelper(unittest.TestCase):
                 '/echo': echo_router, '/test/': TestRouter(),
             },
             {str(Path(__file__).absolute().parent): ''},
-            cls.TEST_HOST, cls.TEST_PORT,
+            cls.TEST_HOST, cls.TEST_PORT, {'quiet': True},
         ))
         info(f"Spawning {cls.__name__} {server.__name__} at {cls.BASE_URL} ...")
         cls.process.start()

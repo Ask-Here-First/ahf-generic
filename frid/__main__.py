@@ -19,14 +19,15 @@ if _cov is not None:
 else:
     print("Running unit tests ...")
 
-logging.basicConfig(level={
+log_level = {
     'debug': logging.DEBUG, 'info': logging.INFO, 'error': logging.ERROR,
     'warn': logging.WARNING, 'warning': logging.WARNING,
-}.get(os.getenv('FRID_LOG_LEVEL', 'warn').lower()))
+}.get(os.getenv('FRID_LOG_LEVEL', 'warn').lower(), logging.INFO)
+logging.basicConfig(level=log_level)
 
-unittest.main("frid.__test__", exit=False)
-unittest.main("frid.kvs.__test__", exit=False)
-unittest.main("frid.web.__test__", exit=False)
+loader = unittest.TestLoader()
+suite = loader.loadTestsFromNames(["frid.__test__", "frid.kvs.__test__", "frid.web.__test__"])
+unittest.TextTestRunner(verbosity=(2 if log_level <= logging.INFO else 1)).run(suite)
 
 if _cov is not None:
     _cov.stop()

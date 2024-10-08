@@ -7,17 +7,17 @@ To run AsyncStore against PostgreSQL (with dependencies `sqlalchemy psycopg[bina
 
 ```
 time DBSQL_ECHO=+ DBSQL_VALUE_STORE_TEST_URL='postgresql+psycopg://postgres:PASSWORD@HOSTNAME' \
-    python3 -m unittest frid.kvs.__main__.VStoreTestDbsql.test_dbsql_value_store
+    python3 -m unittest frid.kvs.__test__.VStoreTestDbsql.test_dbsql_value_store
 ```
 
 To run AsyncStore against PostgreSQL (with dependencies `sqlalchemy asyncpg`):
 ```
 time DBSQL_ECHO=+ DBSQL_ASYNC_STORE_TEST_URL='postgresql+asyncpg://postgres:PASSWORD@HOSTNAME' \
-    python3 -m unittest frid.kvs.__main__.VStoreTestDbsql.test_dbsql_async_store
+    python3 -m unittest frid.kvs.__test__.VStoreTestDbsql.test_dbsql_async_store
 ```
 """
 
-import os, sys, random, asyncio, unittest
+import os, random, asyncio, unittest
 from concurrent.futures import ThreadPoolExecutor
 
 from ..typing import MISSING
@@ -247,7 +247,7 @@ class VStoreTestRedis(_VStoreTestBase):
     def test_redis_value_store(self):
         try:
             from .redis import RedisValueStore
-        except Exception:
+        except ImportError:
             raise unittest.SkipTest("Skip Redis async tests (Is redis-py not installed?)")
         if not os.getenv('FRID_REDIS_HOST'):
             raise unittest.SkipTest("Skip Redis value tests as FRID_REDIS_HOST is not set")
@@ -277,17 +277,17 @@ class VStoreTestRedis(_VStoreTestBase):
             loop.close()
 
 class VStoreTestDbsql(_VStoreTestBase):
-    def create_tables(self, aio: bool,
-                      *, echo=False, **kwargs) -> tuple[str,str|None,'Table','Table']:
+    @classmethod
+    def setUpClass(cls):
         try:
-            import aiosqlite  # noqa: F401
-            from .dbsql import DbsqlValueStore, DbsqlAsyncStore
-            from sqlalchemy import (
-                MetaData, Table, Column, String, LargeBinary, Integer,
-                UniqueConstraint
-            )
-        except Exception:
+            import aiosqlite, sqlalchemy  # noqa: F401
+        except ImportError:
             raise unittest.SkipTest("Skip Dbsql tests as sqlalchemy is not installed")
+    def create_tables(self, aio: bool,*, echo=False, **kwargs):
+        from sqlalchemy import (
+            MetaData, Table, Column, String, LargeBinary, Integer,
+            UniqueConstraint
+        )
         dburl = os.getenv('DBSQL_ASYNC_STORE_TEST_URL' if aio else 'DBSQL_VALUE_STORE_TEST_URL')
         if dburl:
             dbfile = None
@@ -369,6 +369,8 @@ class VStoreTestDbsql(_VStoreTestBase):
             pass
 
     def test_dbsql_value_store(self):
+        from .dbsql import DbsqlValueStore
+
         echo = bool(load_frid_str(os.getenv("DBSQL_ECHO", '-')))
         (dburl, dbfile, table1, table2) = self.create_tables(False, echo=echo)
 
@@ -426,6 +428,8 @@ class VStoreTestDbsql(_VStoreTestBase):
         self.remove_tables(dburl, dbfile, table1.name, table2.name, False, echo=echo)
 
     def test_dbsql_async_store(self):
+        from .dbsql import DbsqlAsyncStore
+
         echo = bool(load_frid_str(os.getenv("DBSQL_ECHO", '-')))
         (dburl, dbfile, table1, table2) = self.create_tables(True, echo=echo)
 
