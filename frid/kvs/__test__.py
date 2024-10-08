@@ -258,24 +258,35 @@ class VStoreTestRedis(_VStoreTestBase):
                 start_new_session=True
             )
         except Exception as e:
-            raise unittest.SkipTest(f"Process `{cls.cmdline}`: {e}")
-        if (exit_code := cls.process.poll()) is not None:
-            raise unittest.SkipTest(f"Process exits with code {exit_code}: {cls.cmdline}")
-        info(f"Started process {cls.process.pid}: {cls.cmdline}")
+            cls.process = None
+            info(f"Failed to start `{cls.cmdline}`: {e}")
+        else:
+            info(f"Started process {cls.process.pid}: {cls.cmdline}")
         time.sleep(1.0)
     @classmethod
     def tearDownClass(cls):
+        if cls.process is None:
+            return
         time.sleep(0.5)
         pid = cls.process.pid
-        cls.process.terminate()
+        if cls.process.poll() is None:
+            cls.process.terminate()
         exit_code = cls.process.wait()
         info(f"Completed process {pid} with code {exit_code}: {cls.cmdline}")
 
-    def test_redis_value_store(self):
+    def check_redis(self):
         try:
-            from .redis import RedisValueStore
+            import redis  # noqa: F401
         except ImportError:
-            raise unittest.SkipTest("Skip Redis async tests (Is redis-py not installed?)")
+            raise unittest.SkipTest("Skip Redis test as the `redis` package is not installed.")
+        if self.process is None:
+            raise unittest.SkipTest(f"Process `{self.cmdline}` was not started")
+        if (exit_code := self.process.poll()) is not None:
+            raise unittest.SkipTest(f"Process exits with code {exit_code}: {self.cmdline}")
+
+    def test_redis_value_store(self):
+        self.check_redis()
+        from .redis import RedisValueStore
         store = RedisValueStore().substore("UNITTEST")
         store.wipe_all()
         self.do_test_store(store, exact=False)
@@ -283,10 +294,8 @@ class VStoreTestRedis(_VStoreTestBase):
         store.finalize()
 
     def test_redis_async_store(self):
-        try:
-            from .redis import RedisAsyncStore
-        except Exception:
-            raise unittest.SkipTest("Skip Redis async tests (Is redis-py not installed?)")
+        self.check_redis()
+        from .redis import RedisAsyncStore
         loop = asyncio.new_event_loop()
         try:
             store = RedisAsyncStore().substore("UNITTEST")
@@ -300,8 +309,7 @@ class VStoreTestRedis(_VStoreTestBase):
             loop.close()
 
 class VStoreTestDbsql(_VStoreTestBase):
-    @classmethod
-    def setUpClass(cls):
+    def check_dbsql(self):
         try:
             import aiosqlite, sqlalchemy  # noqa: F401
         except ImportError:
@@ -392,6 +400,7 @@ class VStoreTestDbsql(_VStoreTestBase):
             pass
 
     def test_dbsql_value_store(self):
+        self.check_dbsql()
         from .dbsql import DbsqlValueStore
 
         # Log only in trace level
@@ -452,6 +461,7 @@ class VStoreTestDbsql(_VStoreTestBase):
         self.remove_tables(dburl, dbfile, table1.name, table2.name, False, echo=echo)
 
     def test_dbsql_async_store(self):
+        self.check_dbsql()
         from .dbsql import DbsqlAsyncStore
 
         echo = bool(load_frid_str(os.getenv("DBSQL_ECHO", '-')))
