@@ -335,7 +335,7 @@ class TestStrops(unittest.TestCase):
         with self.assertRaises(ValueError):
             decode(t1, '')
 
-class TestHelper(unittest.TestCase):
+class TestBasic(unittest.TestCase):
     def test_comparator(self):
         cmp = Comparator()
         self.assertTrue(cmp(None, None))
@@ -403,7 +403,7 @@ class TestHelper(unittest.TestCase):
         self.assertEqual(get_func_name(partial(test, b=3)), "test(...,b=3,...)")
 
 
-class TestLoaderAndDumper(unittest.TestCase):
+class TestLoadsAndDumps(unittest.TestCase):
     common_cases = {
         "123": 123,     " 123 ": 123,   "-4": -4,       "   -4   ": -4,
         "0.0": 0.0,     "+0.0": 0.0,    "+0.": 0.0,     ".0": 0.0,
