@@ -8,11 +8,12 @@ if sys.version_info >= (3, 11):
 else:
     from typing_extensions import NotRequired, Unpack  # noqa: F401
 
-from ..dumper import dump_args_str, frid_redact
-from ..guards import is_frid_value
+from ..osutil import load_data_in_module
 from ..typing import get_type_name
 from ..typing import FridNameArgs, FridValue, MissingType, MISSING
-from ..osutil import load_data_in_module
+from ..guards import is_frid_value
+from ..helper import frid_redact
+from ..dumper import dump_args_str
 from .mixin import HttpError, HttpMixin, InputHttpHead, parse_url_query, parse_url_value
 from .files import FileRouter
 

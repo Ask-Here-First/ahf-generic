@@ -1,12 +1,13 @@
 import math, base64
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence, Set
-from typing import Any, Literal, TextIO, overload
+from typing import Any, Literal, TextIO
+from enum import Enum, auto
 
 from .typing import MISSING, PRESENT, FridBasic, FridBeing, BlobTypes, FridNameArgs, ValueArgs
-from .typing import FridArray, FridMixin, FridPrime, FridValue, StrKeyMap
-from .chrono import DateTypes, strfr_datetime, timeonly, datetime, dateonly
-from .guards import is_frid_identifier, is_frid_quote_free, is_list_like
-from .pretty import MultilineFormatMixin, PPToTextIOMixin, PrettyPrint, PPTokenType, PPToStringMixin
+from .typing import FridMixin, FridValue, StrKeyMap
+from .chrono import DateTypes, strfr_datetime
+from .guards import is_frid_identifier, is_frid_quote_free
 from .strops import StringEscapeEncode
 
 JSON_QUOTED_KEYSET = (
@@ -15,6 +16,146 @@ JSON_QUOTED_KEYSET = (
 JSON1_ESCAPE_PAIRS = "\nn\tt\rr\ff\vv\bb"
 JSON5_ESCAPE_PAIRS = JSON1_ESCAPE_PAIRS + "\vv\x000"
 EXTRA_ESCAPE_PAIRS = JSON1_ESCAPE_PAIRS + "\aa\x1be"
+
+
+class PPTokenType(Enum):
+    START = auto()      # The block starting token, such as [{(
+    CLOSE = auto()      # The block ending token, such as )}]
+    LABEL = auto()      # The label (the key of dict)
+    ENTRY = auto()      # The entry: prime values, including list items and dict values
+    PIECE = auto()      # The partial data of an entry
+    SEP_0 = auto()      # The primary separator (e.g., comma)
+    SEP_1 = auto()      # The secondary separator (e.g., colon)
+    OPT_0 = auto()      # The optional primary separator (e.g., comma at the end)
+    OPT_1 = auto()      # The optional secondary secondary (e.g, colon with no value)
+
+class PrettyPrint(ABC):
+    """This abstract base class supports two kinds of mixins:
+    - Data backend mixins. The data can be printed into a string or written
+      to a stream, depending on the mixin.
+    - Pretty format mixins. They constrol how whitespaces are inserted (e.g,
+      spaces, new lines, and identitations). The default is not to insert any
+      whitespaces.
+    """
+    @abstractmethod
+    def _print(self, token: str, /):
+        """This method is for the backend to override."""
+        raise NotImplementedError
+
+    def print(self, token: str, ttype: PPTokenType, /):
+        """Default token print behavior:
+        - Do not show optional separator.
+        - Add a space after the required seqarator ',:'.
+        """
+        if ttype not in (PPTokenType.OPT_0, PPTokenType.OPT_1):
+            self._print(token)
+        if ttype in (PPTokenType.SEP_0, PPTokenType.SEP_1) and token in ':,':
+            self._print(' ')
+
+class PPToStringMixin(PrettyPrint):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.buffer = []
+    def _print(self, token: str, /):
+        self.buffer.append(token)
+    def __str__(self):
+        return ''.join(self.buffer)
+
+class PPToTextIOMixin(PrettyPrint):
+    def __init__(self, stream: TextIO, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stream = stream
+    def _print(self, token: str, /):
+        self.stream.write(token)
+
+class MultilineFormatMixin(PrettyPrint):
+    def __init__(self, *args, indent: int|str|None=None, extra_comma=False,
+                 break_quoted: bool=False,
+                 newline: str='\n', newline_after: str="{[", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.indent = ' ' * indent if isinstance(indent, int) else indent
+        self.newline = newline
+        self.extra_comma = extra_comma
+        self.break_quoted = break_quoted
+        self.newline_after = newline_after
+        self._level = 0
+        self._delta: list[bool] = []
+        self._indented_back = False
+        self._start_newline = False
+    def print(self, token: str, ttype: PPTokenType, /):
+        if self.indent is None:
+            return super().print(token, ttype)
+        if self._start_newline or self._indented_back:
+            prefix = self.newline + self.indent * self._level
+        else:
+            prefix = ''
+        self._indented_back = False
+        self._start_newline = False
+        match ttype:
+            case PPTokenType.START:
+                if token in self.newline_after:
+                    self._level += 1
+                    self._start_newline = True
+                self._delta.append(self._start_newline)
+            case PPTokenType.CLOSE:
+                self._indented_back = self._delta.pop()
+                # Need to recompute the prefix
+                if self._indented_back:
+                    self._level -= 1
+                    prefix = self.newline + self.indent * self._level
+            case PPTokenType.SEP_0:
+                prefix = ''
+                self._start_newline = self._delta and self._delta[-1]
+                if not self._start_newline:
+                    token += ' '
+            case PPTokenType.SEP_1:
+                if token == ':':
+                    token += ' '
+            case PPTokenType.OPT_0:
+                prefix = ''
+                self._start_newline = self._delta and self._delta[-1]
+                if not self._start_newline or not self.extra_comma:
+                    token = ''
+            case PPTokenType.OPT_1:
+                token = ''
+            case PPTokenType.ENTRY:
+                if self.break_quoted:
+                    lines = self._split_quoted_lines(token)
+                    if lines is not None:
+                        if not prefix:
+                            prefix = self.newline + self.indent * (self._level + 1)
+                        token = ('"' + prefix + '"').join(lines)
+        if prefix:
+            self._print(prefix)
+        if token:
+            self._print(token)
+        if self._level <= 0:
+            self._print(self.newline)
+    def _split_quoted_lines(self, token: str) -> list[str]|None:
+        """Split quoted multi-line string into multiple strings."""
+        if not token.startswith('"') and not token.endswith('"'):
+            return None
+        lines = []
+        index = 0
+        prev_index = 0
+        while (index := token.find("\\n", index)) >= 0:
+            index += 2
+            # Check if the quoted string is at the end
+            if index >= len(token) or token[index] == '"':
+                continue
+            # Count the number of preceding backslash
+            n = 0
+            while index > n + 2 and token[index-n-3] == '\\':
+                n += 1
+            if n & 1:
+                continue
+            lines.append(token[prev_index:index])
+            prev_index = index
+        if not lines:
+            return None
+        if prev_index < len(token):
+            lines.append(token[prev_index:])
+        return lines
 
 class FridDumper(PrettyPrint):
     """Dump data structure into Frid or JSON format (or Frid-escaped JSON format).
@@ -350,66 +491,4 @@ def dump_args_tio(named_args: FridNameArgs, /, file: TextIO, *args, **kwargs) ->
     dumper = FridTextIODumper(file, *args, **kwargs)
     dumper.print_named_args(named_args, '')
     return file
-
-@overload
-def frid_redact(data: FridPrime, depth: int=16) -> FridPrime: ...
-@overload
-def frid_redact(data: FridArray, depth: int=16) -> FridArray: ...
-@overload
-def frid_redact(data: FridMixin, depth: int=16) -> str: ...
-@overload
-def frid_redact(data: StrKeyMap, depth: int=16) -> StrKeyMap: ...
-@overload
-def frid_redact(data: FridValue, depth: int=16) -> FridValue: ...
-@overload
-def frid_redact(data: FridBeing, depth: int=16) -> FridBeing: ...
-def frid_redact(data, depth: int=16) -> FridValue|FridBeing:
-    """Redacts the `data` of any type to a certain depth.
-    - Keeps null and boolean as is.
-    - Converts string to 's' + length.
-    - Converts bytes to 'b' + length.
-    - Converts integer to string 'i', float to string 'f', date/datetime to 'd', time to 't'.
-    - Converts mixins to its type name string.
-    - Recursively process the sequence and the mapping with decremented depth.
-    - Converts non-empty sequence to a single element of integer length if the depth is zero.
-    - Converts non-empty mapping to keys with no value if the depth reaches zero.
-    - Returns the redacted value.
-    This function is usually used before dump.
-    """
-    if data is None:
-        return None
-    if isinstance(data, bool):
-        return data
-    if isinstance(data, str):
-        return 's' + str(len(data))
-    if isinstance(data, BlobTypes):
-        return 'b' + str(len(data))
-    if isinstance(data, int):
-        return 'i'
-    if isinstance(data, float):
-        return 'f'
-    if isinstance(data, timeonly):
-        return 't'
-    if isinstance(data, datetime|dateonly):
-        return 'd'
-    if isinstance(data, FridBasic):
-        return data.__class__.__name__
-    if isinstance(data, FridMixin):
-        return data.frid_keys()[0]
-    if isinstance(data, FridBeing):
-        return data
-    if not data:
-        return data   # As is for empty mapping or sequence
-    if isinstance(data, Mapping):
-        if depth <= 0:
-            return {k: frid_redact(v, depth) if is_list_like(v) else PRESENT
-                    for k, v in data.items() if v is not MISSING}
-        # Do not decrement the depth if value is a sequence; keep elipsis as is
-        return {k: frid_redact(v, depth if is_list_like(v) else depth - 1)
-                for k, v in data.items() if v is not MISSING}
-    if isinstance(data, Sequence):
-        if depth <= 0:
-            return [len(data)]
-        return [frid_redact(x, depth-1) for x in data]
-    return "??"
 

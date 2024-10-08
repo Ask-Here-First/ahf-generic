@@ -2,9 +2,12 @@ from collections.abc import Callable, Mapping, Sequence
 from enum import Flag
 from typing import Concatenate, Generic, ParamSpec, TypeVar, cast, overload
 
-from .typing import MISSING, BlobTypes, DateTypes, FridBeing, MissingType
-from .typing import FridArray, FridMapVT, FridSeqVT, FridValue, StrKeyMap
+from .typing import (
+    PRESENT, MISSING, BlobTypes, DateTypes, FridPrime, FridBasic, FridBeing, MissingType,
+    FridMixin, FridArray, FridMapVT, FridSeqVT, FridValue, StrKeyMap
+)
 from .guards import is_list_like
+from .chrono import timeonly, datetime, dateonly
 from .strops import str_transform
 from .dumper import dump_frid_str
 
@@ -242,4 +245,66 @@ def frid_merge(old: T|MissingType, new: T, *, depth: int=16, flags=MergeFlags.AL
                 out.extend(new)
             return cast(T, out)
     return new
+
+@overload
+def frid_redact(data: FridPrime, depth: int=16) -> FridPrime: ...
+@overload
+def frid_redact(data: FridArray, depth: int=16) -> FridArray: ...
+@overload
+def frid_redact(data: FridMixin, depth: int=16) -> str: ...
+@overload
+def frid_redact(data: StrKeyMap, depth: int=16) -> StrKeyMap: ...
+@overload
+def frid_redact(data: FridValue, depth: int=16) -> FridValue: ...
+@overload
+def frid_redact(data: FridBeing, depth: int=16) -> FridBeing: ...
+def frid_redact(data, depth: int=16) -> FridValue|FridBeing:
+    """Redacts the `data` of any type to a certain depth.
+    - Keeps null and boolean as is.
+    - Converts string to 's' + length.
+    - Converts bytes to 'b' + length.
+    - Converts integer to string 'i', float to string 'f', date/datetime to 'd', time to 't'.
+    - Converts mixins to its type name string.
+    - Recursively process the sequence and the mapping with decremented depth.
+    - Converts non-empty sequence to a single element of integer length if the depth is zero.
+    - Converts non-empty mapping to keys with no value if the depth reaches zero.
+    - Returns the redacted value.
+    This function is usually used before dump.
+    """
+    if data is None:
+        return None
+    if isinstance(data, bool):
+        return data
+    if isinstance(data, str):
+        return 's' + str(len(data))
+    if isinstance(data, BlobTypes):
+        return 'b' + str(len(data))
+    if isinstance(data, int):
+        return 'i'
+    if isinstance(data, float):
+        return 'f'
+    if isinstance(data, timeonly):
+        return 't'
+    if isinstance(data, datetime|dateonly):
+        return 'd'
+    if isinstance(data, FridBasic):
+        return data.__class__.__name__
+    if isinstance(data, FridMixin):
+        return data.frid_keys()[0]
+    if isinstance(data, FridBeing):
+        return data
+    if not data:
+        return data   # As is for empty mapping or sequence
+    if isinstance(data, Mapping):
+        if depth <= 0:
+            return {k: frid_redact(v, depth) if is_list_like(v) else PRESENT
+                    for k, v in data.items() if v is not MISSING}
+        # Do not decrement the depth if value is a sequence; keep elipsis as is
+        return {k: frid_redact(v, depth if is_list_like(v) else depth - 1)
+                for k, v in data.items() if v is not MISSING}
+    if isinstance(data, Sequence):
+        if depth <= 0:
+            return [len(data)]
+        return [frid_redact(x, depth-1) for x in data]
+    return "??"
 
