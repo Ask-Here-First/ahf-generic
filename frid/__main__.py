@@ -3,8 +3,6 @@ from random import Random
 from typing import Any, Literal, cast
 from functools import partial
 
-from .random import frid_random
-
 try:
     # We have to import in the begining; otherwise static contents are not coveraged
     if __name__ == '__main__':
@@ -30,7 +28,7 @@ from .chrono import DateTimeDiff, DateTimeSpec, parse_datetime, parse_timeonly, 
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode
 from .strops import escape_control_chars, revive_control_chars, str_transform, str_find_any
-from .helper import Comparator, Substitute, frid_redact
+from .helper import Comparator, Substitute, frid_redact, frid_random
 from .dumper import dump_args_str, dump_frid_tio, dump_frid_str
 from .loader import FridParseError, load_frid_str, load_frid_tio, open_frid_tio, scan_frid_str
 from .number import Quantity

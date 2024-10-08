@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from ..typing import MISSING
 from ..loader import load_frid_str
-from ..random import frid_random
+from ..helper import frid_random
 from .store import VSPutFlag, ValueStore
 from .basic import MemoryValueStore
 from .proxy import AsyncProxyValueStore, ValueProxyAsyncStore
