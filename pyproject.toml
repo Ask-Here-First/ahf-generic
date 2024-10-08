@@ -20,3 +20,11 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/Ask-Here-First/ahf-generic"
 Issues = "https://github.com/Ask-Here-First/ahf-generic/issues"
+
+[tool.ruff]
+line-length = 96
+target-version = "py310"
+ignore = ["E401"]
+
+[tool.pycodestyle]
+ignore = ["E301"]
