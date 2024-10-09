@@ -309,11 +309,13 @@ class VStoreTestRedis(_VStoreTestBase):
             loop.close()
 
 class VStoreTestDbsql(_VStoreTestBase):
-    def check_dbsql(self):
+    def check_dbsql(self) -> bool:
+        """Check if the store has all dependencies, and returns if echo is enabled."""
         try:
             import aiosqlite, sqlalchemy  # noqa: F401
         except ImportError:
             raise unittest.SkipTest("Skip Dbsql tests as sqlalchemy is not installed")
+        return logging.getLogger().level == 0 or os.getenv('FRID_LOG_LEVEL') in ('trace', '0')
     def create_tables(self, aio: bool,*, echo=False, **kwargs):
         from sqlalchemy import (
             MetaData, Table, Column, String, LargeBinary, Integer,
@@ -400,11 +402,10 @@ class VStoreTestDbsql(_VStoreTestBase):
             pass
 
     def test_dbsql_value_store(self):
-        self.check_dbsql()
+        echo = self.check_dbsql()
         from .dbsql import DbsqlValueStore
 
         # Log only in trace level
-        echo = logging.getLogger().level == 0 or os.getenv('FRID_LOG_LEVEL') in ('trace', '0')
         (dburl, dbfile, table1, table2) = self.create_tables(False, echo=echo)
 
         # Single frid columm
@@ -461,10 +462,9 @@ class VStoreTestDbsql(_VStoreTestBase):
         self.remove_tables(dburl, dbfile, table1.name, table2.name, False, echo=echo)
 
     def test_dbsql_async_store(self):
-        self.check_dbsql()
+        echo = self.check_dbsql()
         from .dbsql import DbsqlAsyncStore
 
-        echo = bool(load_frid_str(os.getenv("DBSQL_ECHO", '-')))
         (dburl, dbfile, table1, table2) = self.create_tables(True, echo=echo)
 
         loop = asyncio.new_event_loop()
