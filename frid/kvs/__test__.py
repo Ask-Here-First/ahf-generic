@@ -24,7 +24,6 @@ from logging import info
 from concurrent.futures import ThreadPoolExecutor
 
 from ..typing import MISSING
-from .._loads import load_frid_str
 from .._basic import frid_random
 from .store import VSPutFlag, ValueStore
 from .basic import MemoryValueStore
