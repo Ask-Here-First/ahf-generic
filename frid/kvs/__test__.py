@@ -404,7 +404,7 @@ class VStoreTestDbsql(_VStoreTestBase):
         from .dbsql import DbsqlValueStore
 
         # Log only in trace level
-        echo = logging.getLogger().level == 0
+        echo = logging.getLogger().level == 0 or os.getenv('FRID_LOG_LEVEL') in ('trace', '0')
         (dburl, dbfile, table1, table2) = self.create_tables(False, echo=echo)
 
         # Single frid columm
