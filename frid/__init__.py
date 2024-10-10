@@ -1,5 +1,5 @@
 from .typing import FridError, get_func_name, get_qual_name, get_type_name
-from ._basic import Comparator, Substitute, MergeFlags, frid_merge, frid_redact
+from ._basic import FridCompare, FridReplace, MingleFlags, frid_mingle, frid_redact
 from ._loads import load_frid_str, load_frid_tio, scan_frid_str, open_frid_tio
 from ._loads import FridParseError, FridTruncError
 from ._dumps import dump_frid_str, dump_frid_tio, dump_args_str, dump_args_tio
@@ -16,7 +16,7 @@ __all__ = [
     # From typing
     'FridError', 'get_func_name', 'get_type_name', 'get_qual_name',
     # From _basic
-    'Comparator', 'Substitute', "MergeFlags", 'frid_merge', 'frid_redact',
+    'FridCompare', 'FridReplace', "MingleFlags", 'frid_mingle', 'frid_redact',
     # From _loads
     'load_frid_str', 'load_frid_tio', 'scan_frid_str', 'open_frid_tio',
     # From _dumps
@@ -26,3 +26,9 @@ __all__ = [
     # Here
     'load_module_data',
 ]
+
+# Backward compatibility; to be removed in 0.5.0
+MergeFlags = MingleFlags
+frid_merge = frid_mingle
+Comparator = FridCompare
+Substitute = FridReplace

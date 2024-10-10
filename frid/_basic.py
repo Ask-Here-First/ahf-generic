@@ -18,8 +18,8 @@ T = TypeVar('T')
 PrimitiveCompFunc = Callable[Concatenate[T,FridValue,P],bool]
 RecursiveCompFunc = Callable[Concatenate[T,FridValue,Callable[...,bool],P],bool]
 
-class Comparator(Generic[P]):
-    """A flexiable data comparitor."""
+class FridCompare(Generic[P]):
+    """Compares data trees in a flexiable and configurable way."""
     def __init__(
             self, *, default: bool=False,
             compare_none: PrimitiveCompFunc[None,P]|None=None,
@@ -98,8 +98,8 @@ class Comparator(Generic[P]):
         return all(
             k in d2 and comparator(v, d2[k], *args, **kwargs) for k, v in d1.items()
         )
-class Substitute:
-    """Substitutes delimited variables in template strings into their values."""
+class FridReplace:
+    """Replaces delimited variables in template strings into their values."""
     def __init__(self, prefix: str="${", suffix: str="}",
                  *, present: str='?', missing: str=''):
         self.prefix = prefix
@@ -190,7 +190,7 @@ class Substitute:
             return self.present if result else self.missing
         return result
 
-class MergeFlags(Flag):
+class MingleFlags(Flag):
     NONE = 0
     BOOL = 0x1
     REAL = 0x2
@@ -202,46 +202,46 @@ class MergeFlags(Flag):
     LIST_AS_SET = 0x80
     ALL = BOOL | REAL | TEXT | BLOB | LIST | DICT | SET
 
-def frid_merge(old: T|MissingType, new: T, *, depth: int=16, flags=MergeFlags.ALL) -> T:
+def frid_mingle(old: T|MissingType, new: T, *, depth: int=16, flags=MingleFlags.ALL) -> T:
     if old is MISSING:
         return new
     if isinstance(new, bool):
-        if flags & MergeFlags.BOOL:
+        if flags & MingleFlags.BOOL:
             return bool(old) or new
     elif isinstance(new, int|float):
-        if flags & MergeFlags.REAL and isinstance(old, int|float|bool):
+        if flags & MingleFlags.REAL and isinstance(old, int|float|bool):
             return old + new
     elif isinstance(new, Mapping):
-        if flags & MergeFlags.DICT and isinstance(old, Mapping):
+        if flags & MingleFlags.DICT and isinstance(old, Mapping):
             if not new:
                 return old
             d = dict(old)
             for k, v in new.items():
                 old_v = d.get(k, MISSING)
                 if depth > 0:
-                    v = frid_merge(old_v, v, depth=(depth - 1), flags=flags)
+                    v = frid_mingle(old_v, v, depth=(depth - 1), flags=flags)
                 if v is not MISSING:
                     d[k] = v
             return cast(T, d)
     elif isinstance(new, str):
-        if flags & MergeFlags.TEXT and isinstance(old, str):
+        if flags & MingleFlags.TEXT and isinstance(old, str):
             if not new:
                 return old
             return old + new
     elif isinstance(new, BlobTypes):
-        if flags & MergeFlags.BLOB and isinstance(old, BlobTypes):
+        if flags & MingleFlags.BLOB and isinstance(old, BlobTypes):
             if not new:
                 return old
             return bytes(old) + new
     elif isinstance(new, Sequence):
-        if flags & MergeFlags.LIST:
+        if flags & MingleFlags.LIST:
             if isinstance(old, Sequence) and not isinstance(old, str|BlobTypes):
                 if not new:
                     return old
                 out = list(old)
             else:
                 out = [old]
-            if flags & MergeFlags.LIST_AS_SET:
+            if flags & MingleFlags.LIST_AS_SET:
                 out.extend(x for x in new if x not in old)
             else:
                 out.extend(new)

@@ -11,7 +11,7 @@ from .chrono import DateTimeDiff, DateTimeSpec, parse_datetime, parse_timeonly, 
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from .strops import StringEscapeDecode, StringEscapeEncode
 from .strops import escape_control_chars, revive_control_chars, str_transform, str_find_any
-from ._basic import Comparator, Substitute, frid_redact, frid_random
+from ._basic import FridCompare, FridReplace, frid_redact, frid_random
 from ._dumps import dump_args_str, dump_frid_tio, dump_frid_str
 from ._loads import FridParseError, load_frid_str, load_frid_tio, open_frid_tio, scan_frid_str
 
@@ -336,7 +336,7 @@ class TestStrops(unittest.TestCase):
 
 class TestBasic(unittest.TestCase):
     def test_comparator(self):
-        cmp = Comparator()
+        cmp = FridCompare()
         self.assertTrue(cmp(None, None))
         self.assertTrue(cmp(2, 2))
         self.assertFalse(cmp(1, "1"))
@@ -354,14 +354,14 @@ class TestBasic(unittest.TestCase):
         self.assertFalse(cmp(data, 3))
 
     def test_comparator_submap(self):
-        cmp = Comparator(compare_dict=Comparator.is_submap)
+        cmp = FridCompare(compare_dict=FridCompare.is_submap)
         self.assertTrue(cmp({'a': 1}, {'a': 1, 'b': 2}))
         self.assertFalse(cmp({'a': 1}, {'a': 3, 'b': 2}))
         self.assertFalse(cmp({'a': 1}, {}))
         self.assertFalse(cmp({'a': 1}, 3))
 
     def test_substitute(self):
-        sub = Substitute(present="+.", missing="-.")
+        sub = FridReplace(present="+.", missing="-.")
         self.assertEqual(sub(3), 3)
         self.assertEqual(sub("${a}", a=MISSING), "-.")
         self.assertEqual(sub("${a}", a=PRESENT), "+.")

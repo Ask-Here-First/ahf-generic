@@ -11,7 +11,7 @@ from ..typing import MISSING, FridBeing, FridTypeName, MissingType, frid_type_si
 from ..typing import FridArray, FridTypeSize, FridValue, StrKeyMap
 from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap, is_list_like
 from ..strops import escape_control_chars, revive_control_chars
-from .._basic import frid_merge
+from .._basic import frid_mingle
 from . import utils
 from .store import ValueStore, AsyncStore
 from .basic import BinaryStoreMixin
@@ -259,7 +259,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
            with self.get_lock():
                data: bytes|None = self._redis.get(redis_name) # type: ignore
                return self._check_bool(self._redis.set(redis_name, self._encode(
-                   frid_merge(self._decode(data), val, depth=0) if data is not None else val
+                   frid_mingle(self._decode(data), val, depth=0) if data is not None else val
                ), nx=nx, xx=xx))
         return self._check_bool(self._redis.set(
             redis_name, self._encode(val), nx=nx, xx=xx
@@ -500,7 +500,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
            async with self.get_lock():
                data = await self._aredis.get(redis_name)
                return self._check_bool(await self._aredis.set(redis_name, self._encode(
-                   frid_merge(self._decode(data), val, depth=0) if data is not None else val
+                   frid_mingle(self._decode(data), val, depth=0) if data is not None else val
                ), nx=nx, xx=xx))
         return self._check_bool(await self._aredis.set(
             redis_name, self._encode(val), nx=nx, xx=xx

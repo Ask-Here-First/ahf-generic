@@ -17,7 +17,7 @@ from ..typing import (
 )
 from ..guards import as_kv_pairs, is_frid_array, is_text_list_like
 from ..chrono import datetime, dateonly, timeonly
-from .._basic import frid_merge
+from .._basic import frid_mingle
 from .._dumps import dump_frid_str
 from .._loads import load_frid_str
 from .store import AsyncStore, ValueStore
@@ -498,7 +498,7 @@ class _SqlBaseStore:
         assert len(datarows) == 1
         (row_key, data) = self._extract_row_value(datarows[0], None)
         assert row_key is None
-        val = frid_merge(data, val, depth=0)
+        val = frid_mingle(data, val, depth=0)
         return [self._make_update_cmd(key, val)]
     def _put_frid_insert(self, key: VStoreKey, val: FridValue, /, flags: VSPutFlag,
                          datarows: Sequence[Row]|None) -> list[Insert]:
