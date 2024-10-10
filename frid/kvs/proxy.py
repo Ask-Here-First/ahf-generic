@@ -5,7 +5,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Concatenate, ParamSpec, TypeVar
 
 from ..typing import MISSING, BlobTypes, FridBeing, FridTypeName, FridTypeSize, FridValue
-from ..autils import collect_async_iterable
+from ..aio import gather_aiter
 from . import utils
 from .store import AsyncStore, ValueStore
 from .utils import KeySearch, VSDictSel, VSListSel, VSPutFlag, VStoreKey, VStoreSel, BulkInput
@@ -193,7 +193,7 @@ class AsyncProxyValueStore(ValueStore):
         self._del_loop()
         return result
     def get_keys(self, pat: KeySearch=None, /) -> Iterable[VStoreKey]:
-        return self._loop.run_until_complete(collect_async_iterable(self._store.get_keys(pat)))
+        return self._loop.run_until_complete(gather_aiter(self._store.get_keys(pat)))
     def get_meta(self, *args: VStoreKey,
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return self._loop.run_until_complete(self._store.get_meta(*args, keys=keys))

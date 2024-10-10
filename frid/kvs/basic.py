@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 from ..typing import MISSING, PRESENT, BlobTypes, MissingType, frid_type_size
 from ..typing import FridTypeName, FridTypeSize, FridValue, FridArray, FridBeing, StrKeyMap
-from ..autils import AsyncReentrantLock
+from ..aio import CountedAsyncLock
 from ..chrono import parse_datetime, strfr_datetime, datetime, timezone
 from ..guards import is_frid_array, is_frid_skmap
 from .._basic import frid_mingle
@@ -189,7 +189,7 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
     class StoreMeta:
         store: dict[str,FridValue] = field(default_factory=dict)
         tlock: threading.RLock = field(default_factory=threading.RLock)
-        alock: asyncio.Lock = field(default_factory=AsyncReentrantLock)
+        alock: asyncio.Lock = field(default_factory=CountedAsyncLock)
 
     DataSpaceType = dict[tuple[str,...],StoreMeta]
     def __init__(self, dataspace: DataSpaceType|None=None, namespace: tuple[str,...]=(), /):
