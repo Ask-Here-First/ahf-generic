@@ -3,8 +3,7 @@ from datetime import timezone, timedelta, tzinfo
 from typing import Literal, Mapping, overload
 
 from .typing import FridNameArgs, FridMixin, dateonly, timeonly, datetime, DateTypes
-from .lib import Quantity
-from .strops import str_find_any
+from .lib import Quantity, str_find_any
 
 date_only_re_str = r"(\d\d\d\d)-([01]\d)-([0-3]\d)"
 time_zone_re_str = r"[+-](\d\d)(?::?(\d\d))|Z"

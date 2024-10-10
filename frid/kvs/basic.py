@@ -14,7 +14,7 @@ from ..aio import CountedAsyncLock
 from ..chrono import parse_datetime, strfr_datetime, datetime, timezone
 from ..guards import is_frid_array, is_frid_skmap
 from .._basic import frid_mingle
-from ..strops import escape_control_chars, revive_control_chars
+from ..lib.texts import str_encode_nonprints, str_decode_nonprints
 from .._dumps import dump_frid_str
 from .._loads import load_frid_str
 from .store import AsyncStore, ValueStore
@@ -70,7 +70,7 @@ class _SimpleBaseStore(Generic[_E]):
             return key
         if isinstance(key, tuple):
             # Using the DEL key to escape
-            return '\t'.join(escape_control_chars(str(k), '\x7f') for k in key)
+            return '\t'.join(str_encode_nonprints(str(k), '\x7f') for k in key)
         raise ValueError(f"Invalid key type {type(key)}")
 
     def _get_sel(self, val: _E, sel: VStoreSel, /) -> FridValue|MissingType:
@@ -405,19 +405,19 @@ class BinaryStoreMixin:
         """
         out: list[bytes] = []
         for k, v in data.items():
-            line = escape_control_chars(k, '\x7f')
+            line = str_encode_nonprints(k, '\x7f')
             line += "\t" + (v.strfr() if isinstance(v, FridBeing) else dump_frid_str(v))
             out.append(line.encode())
         out.append(b'')
         return b'\n'.join(out)
     def _remove_dict(self, sel: VStoreSel, /) -> bytes:
         if isinstance(sel, str):
-            return (escape_control_chars(sel, '\x7f') + '\t' + MISSING.strfr()).encode()
+            return (str_encode_nonprints(sel, '\x7f') + '\t' + MISSING.strfr()).encode()
         assert isinstance(sel, Iterable)
         out: list[bytes] = []
         for k in sel:
             assert isinstance(k, str)
-            out.append((escape_control_chars(k, '\x7f') + '\t' + MISSING.strfr()).encode())
+            out.append((str_encode_nonprints(k, '\x7f') + '\t' + MISSING.strfr()).encode())
         out.append(b'')
         return b'\n'.join(out)
 
@@ -450,7 +450,7 @@ class BinaryStoreMixin:
         out = {}
         for line in val.splitlines():
             (key_str, tab_str, val_str) = line.decode().partition('\t')
-            key = revive_control_chars(key_str, '\x7f')
+            key = str_decode_nonprints(key_str, '\x7f')
             if tab_str:
                 being = FridBeing.parse(val_str)
                 if being is None:

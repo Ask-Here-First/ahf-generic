@@ -8,7 +8,7 @@ from .typing import MISSING, PRESENT, FridBasic, FridBeing, BlobTypes, FridNameA
 from .typing import FridMixin, FridValue, StrKeyMap
 from .chrono import DateTypes, strfr_datetime
 from .guards import is_frid_identifier, is_frid_quote_free
-from .strops import StringEscapeEncode
+from .lib.texts import StringEscapeEncode
 
 JSON_QUOTED_KEYSET = (
     'true', 'false', 'null',

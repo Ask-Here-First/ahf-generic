@@ -10,7 +10,7 @@ from .typing import (
 )
 from .guards import is_list_like
 from .chrono import timeonly, datetime, dateonly
-from .strops import str_transform
+from .lib.texts import str_scan_sub
 from ._dumps import dump_frid_str
 
 P = ParamSpec('P')
@@ -144,7 +144,7 @@ class FridReplace:
             expr = s[index:end]
             return (len(self.suffix) + end - start,
                     self.textuate(self.evaluate(expr, values)))
-        return str_transform(s, {self.prefix: _transform})[1]
+        return str_scan_sub(s, {self.prefix: _transform})[1]
     _T = TypeVar('_T', bound=FridValue)
     @overload
     def sub_data(self, data: StrKeyMap, values: StrKeyMap) -> dict[str,FridMapVT]: ...

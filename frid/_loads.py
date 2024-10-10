@@ -11,7 +11,8 @@ from .guards import (
     is_frid_identifier, is_frid_prime, is_frid_quote_free, is_frid_skmap,  is_quote_free_char
 )
 from .typing import FridError
-from .strops import escape_control_chars, str_find_any, StringEscapeDecode
+from .lib import str_encode_nonprints, str_find_any
+from .lib.texts import StringEscapeDecode
 from .chrono import parse_datetime
 from ._dumps import EXTRA_ESCAPE_PAIRS
 
@@ -305,8 +306,8 @@ class FridLoader:
                     if closing is None:
                         # If the closing is a newline, it is optional at end
                         return (self.length,''.join(content))
-                    self.error(index, ("Expecting '" + escape_control_chars(closing)
-                                       + " after '" + escape_control_chars(opening) + "'"))
+                    self.error(index, ("Expecting '" + str_encode_nonprints(closing)
+                                       + " after '" + str_encode_nonprints(opening) + "'"))
                 index = self.fetch(index, path)
         return (index, None)
 

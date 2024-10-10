@@ -10,7 +10,7 @@ from redis import asyncio as aredis
 from ..typing import MISSING, FridBeing, FridTypeName, MissingType, frid_type_size
 from ..typing import FridArray, FridTypeSize, FridValue, StrKeyMap
 from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap, is_list_like
-from ..strops import escape_control_chars, revive_control_chars
+from ..lib.texts import str_encode_nonprints, str_decode_nonprints
 from .._basic import frid_mingle
 from . import utils
 from .store import ValueStore, AsyncStore
@@ -53,7 +53,7 @@ class _RedisBaseStore(BinaryStoreMixin):
 
     def _key_name(self, key: VStoreKey):
         if isinstance(key, tuple):
-            key = '\t'.join(escape_control_chars(str(k), '\x7f') for k in key)
+            key = '\t'.join(str_encode_nonprints(str(k), '\x7f') for k in key)
         return self._name_prefix + key
     def _key_list(self, keys: Iterable[VStoreKey]) -> list[str]:
         return [self._key_name(k) for k in keys]
@@ -91,7 +91,7 @@ class _RedisBaseStore(BinaryStoreMixin):
         if not text.startswith(self._name_prefix):
             return None
         items = text[len(self._name_prefix):].split('\t')
-        key = tuple(revive_control_chars(x, '\x7f') for x in items)
+        key = tuple(str_decode_nonprints(x, '\x7f') for x in items)
         if not match_key(key, pat):
             return None
         if len(key) == 1:
