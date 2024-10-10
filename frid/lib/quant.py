@@ -2,8 +2,8 @@ import re
 from collections.abc import Mapping, Iterable, Callable
 from typing import NoReturn, TypeVar, overload
 
-from .typing import FridBasic
-from .guards import is_dict_like
+from ..typing import FridBasic
+from ..guards import is_dict_like
 
 _T = TypeVar('_T')
 

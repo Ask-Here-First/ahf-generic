@@ -200,7 +200,7 @@ def run_asgi_server_with_uvicorn(
     options = {**options, **kwargs}
     quiet = options.pop('quiet', False)
 
-    from ..lib import set_signal_handling, get_loglevel_string
+    from ..lib import use_signal_trap, get_loglevel_str
     try:
         import uvicorn
     except ImportError as e:
@@ -212,13 +212,13 @@ def run_asgi_server_with_uvicorn(
     server = uvicorn.Server(uvicorn.Config(
         AsgiWebApp(routes, assets), host=host, port=port,
         # Uvicorn has a "trace" level
-        log_level=get_loglevel_string(),
+        log_level=get_loglevel_str(),
         **options,
     ))
 
     def handler():
         server.should_exit = True
-    set_signal_handling(handler=handler)
+    use_signal_trap(handler=handler)
 
     info(f"[ASGi server] Starting service at {host}:{port} ...")
     try:

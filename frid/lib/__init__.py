@@ -1,9 +1,11 @@
 from .oslib import (
-    load_data_in_module, set_signal_handling, set_default_logging, get_loglevel_string
+    use_signal_trap, set_root_logging, get_loglevel_str
 )
-from .paths import os_path_to_url_path, url_path_to_os_path
+from .paths import path_to_url_path, url_path_to_path
+from .quant import Quantity
 
 __all__ = [
-    'load_data_in_module', 'set_signal_handling', 'set_default_logging', 'get_loglevel_string',
-    'os_path_to_url_path', 'url_path_to_os_path'
+    'use_signal_trap', 'set_root_logging', 'get_loglevel_str',
+    'path_to_url_path', 'url_path_to_path',
+    'Quantity',
 ]

@@ -1,6 +1,6 @@
-import os, sys, logging, unittest, importlib
+import sys, unittest, importlib
 
-from frid.lib.oslib import set_default_logging
+from .lib import set_root_logging
 
 try:
     # We have to import in the begining; otherwise static contents are not coveraged
@@ -21,10 +21,13 @@ if _cov is not None:
 else:
     print("Running unit tests ...")
 
-log_level = set_default_logging()
+log_level = set_root_logging()
 
 loader = unittest.TestLoader()
-suite = loader.loadTestsFromNames(["frid.__test__", "frid.kvs.__test__", "frid.web.__test__"])
+suite = loader.loadTestsFromNames([
+    # Note this is in the order of inter-dependencies
+    "frid.lib.__test__", "frid.__test__", "frid.kvs.__test__", "frid.web.__test__"
+])
 verbosity = 2 if log_level in ('trace', 'debug', 'info') else 1
 res = unittest.TextTestRunner(verbosity=verbosity).run(suite)
 

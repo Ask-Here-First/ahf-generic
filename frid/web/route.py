@@ -8,7 +8,7 @@ if sys.version_info >= (3, 11):
 else:
     from typing_extensions import NotRequired, Unpack  # noqa: F401
 
-from ..lib.oslib import load_data_in_module
+from ..osutil import load_module_data
 from ..typing import get_type_name, get_func_name
 from ..typing import FridNameArgs, FridValue, MissingType, MISSING
 from ..guards import is_frid_value
@@ -236,7 +236,7 @@ class ApiRouteManager:
             self._registry[''] = FileRouter(*assets)
         if routes is not None:
             self._registry.update(
-                (k, (load_data_in_module(v) if isinstance(v, str) else v))
+                (k, (load_module_data(v) if isinstance(v, str) else v))
                 for k, v in routes.items()
             )
         info("Current routes:")

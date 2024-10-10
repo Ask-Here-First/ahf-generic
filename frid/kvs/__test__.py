@@ -19,14 +19,14 @@ time DBSQL_ASYNC_STORE_TEST_URL='postgresql+asyncpg://postgres:PASSWORD@HOSTNAME
 ```
 """
 
-import os, time, random, asyncio, logging, unittest, subprocess
+import os, time, random, asyncio, unittest, subprocess
 from logging import info
 from concurrent.futures import ThreadPoolExecutor
 
 
 from ..typing import MISSING
 from .._basic import frid_random
-from ..lib import get_loglevel_string
+from ..lib import get_loglevel_str
 from .store import VSPutFlag, ValueStore
 from .basic import MemoryValueStore
 from .proxy import AsyncProxyValueStore, ValueProxyAsyncStore
@@ -316,7 +316,7 @@ class VStoreTestDbsql(_VStoreTestBase):
             import aiosqlite, sqlalchemy  # noqa: F401
         except ImportError:
             raise unittest.SkipTest("Skip Dbsql tests as sqlalchemy is not installed")
-        return get_loglevel_string() == 'trace'
+        return get_loglevel_str() == 'trace'
     def create_tables(self, aio: bool,*, echo=False, **kwargs):
         from sqlalchemy import (
             MetaData, Table, Column, String, LargeBinary, Integer,

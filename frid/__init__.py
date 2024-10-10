@@ -4,9 +4,9 @@ from ._loads import load_frid_str, load_frid_tio, scan_frid_str, open_frid_tio
 from ._loads import FridParseError, FridTruncError
 from ._dumps import dump_frid_str, dump_frid_tio, dump_args_str, dump_args_tio
 
-# For backward compatibility
-from . import lib as osutil
+from .osutil import load_module_data  # TODO: to to moved here
 
+# For Json-like compatibility but do not include them in public symbols
 loads = load_frid_str
 dumps = dump_frid_str
 load = load_frid_tio
@@ -18,11 +18,11 @@ __all__ = [
     # From _basic
     'Comparator', 'Substitute', "MergeFlags", 'frid_merge', 'frid_redact',
     # From _loads
-    'load_frid_str', 'load_frid_tio', 'scan_frid_str', 'open_frid_tio', 'loads', 'load',
+    'load_frid_str', 'load_frid_tio', 'scan_frid_str', 'open_frid_tio',
     # From _dumps
     'FridParseError', 'FridTruncError',
-    'dump_frid_str', 'dump_frid_tio', 'dump_args_str', 'dump_args_tio', 'dumps', 'dump',
+    'dump_frid_str', 'dump_frid_tio', 'dump_args_str', 'dump_args_tio',
 
-    # Backward compatibility:
-    'osutil'
+    # Here
+    'load_module_data',
 ]

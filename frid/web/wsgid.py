@@ -44,7 +44,7 @@ def run_wsgi_server_with_gunicorn(
     options = {**options, **kwargs}
     quiet = options.pop('quiet', False)
 
-    from ..lib import get_loglevel_string
+    from ..lib import get_loglevel_str
     # Note gunicorn handles signals as we need so we don't need to do anything
     try:
         from gunicorn.app.base import BaseApplication
@@ -71,7 +71,7 @@ def run_wsgi_server_with_gunicorn(
     server  = ServerApplication(WsgiWebApp(routes, assets), {
         'bind': f"{host}:{port}", 'timeout': timeout,
         # Gunicorn does not have trace level, so use debug instead
-        'loglevel': level if (level := get_loglevel_string()) != 'trace' else 'debug',
+        'loglevel': level if (level := get_loglevel_str()) != 'trace' else 'debug',
         **options
     })
     info(f"[WSGi gunicorn server] Starting service at {host}:{port} ...")
@@ -86,8 +86,8 @@ def run_wsgi_server_with_simple(
 ):
     # options = {**options, **kwargs}
 
-    from ..lib import set_signal_handling
-    set_signal_handling()
+    from ..lib import use_signal_trap
+    use_signal_trap()
 
     # wsgiref.simple_server does not support Connection: ...
     app = WsgiWebApp(routes, assets, set_connection=None)
