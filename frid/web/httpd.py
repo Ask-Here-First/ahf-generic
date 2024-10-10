@@ -60,11 +60,8 @@ class NoPrintHTTPServer(HTTPServer):
 def run_http_server(routes: dict[str,Any], assets: str|dict[str,str]|list[str]|None,
                     host: str, port: int, options: Mapping[str,Any]={}, **kwargs):
     # options = {**options, **kwargs}
-
-    import signal
-    def sigterm_handler(signum, frame):
-        sys.exit(1)
-    signal.signal(signal.SIGTERM, sigterm_handler)
+    from ..lib import set_signal_handling
+    set_signal_handling()
 
     manager = ApiRouteManager(routes, assets)
     class TestHTTPRequestHandler(FridHTTPRequestHandler, NoPrintHttpRequestHandler):

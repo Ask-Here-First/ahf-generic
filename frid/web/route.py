@@ -8,7 +8,7 @@ if sys.version_info >= (3, 11):
 else:
     from typing_extensions import NotRequired, Unpack  # noqa: F401
 
-from ..osutil import load_data_in_module
+from ..lib.oslib import load_data_in_module
 from ..typing import get_type_name, get_func_name
 from ..typing import FridNameArgs, FridValue, MissingType, MISSING
 from ..guards import is_frid_value
@@ -468,10 +468,6 @@ def echo_router(*args, _data: FridValue|MissingType=MISSING,
     return out
 
 def load_command_line_args() -> tuple[dict[str,str],str|list[str]|dict[str,str]|None,str,int]:
-    import logging, faulthandler
-    faulthandler.enable()
-    logging.basicConfig(level=logging.INFO)
-
     if len(sys.argv) < 2:
         argv0 = sys.argv[0] if sys.argv else "??"
         print(f"Usage: python3 {argv0} [HOST:]PORT [ROOT] [NAME=MODULE...]")

@@ -1,5 +1,7 @@
 import os, sys, logging, unittest, importlib
 
+from frid.lib.oslib import set_default_logging
+
 try:
     # We have to import in the begining; otherwise static contents are not coveraged
     print("Load the Python coverage package ...")
@@ -19,15 +21,12 @@ if _cov is not None:
 else:
     print("Running unit tests ...")
 
-log_level = {
-    'trace': 0, 'debug': logging.DEBUG, 'info': logging.INFO,
-    'warn': logging.WARNING, 'warning': logging.WARNING, 'error': logging.ERROR,
-}.get(os.getenv('FRID_LOG_LEVEL', 'warn').lower(), logging.INFO)
-logging.basicConfig(level=log_level)
+log_level = set_default_logging()
 
 loader = unittest.TestLoader()
 suite = loader.loadTestsFromNames(["frid.__test__", "frid.kvs.__test__", "frid.web.__test__"])
-res = unittest.TextTestRunner(verbosity=(2 if log_level <= logging.INFO else 1)).run(suite)
+verbosity = 2 if log_level in ('trace', 'debug', 'info') else 1
+res = unittest.TextTestRunner(verbosity=verbosity).run(suite)
 
 for x, y in [("Skipped", res.skipped), ("Bungled", res.failures), ("Crashed", res.errors)]:
     if y:

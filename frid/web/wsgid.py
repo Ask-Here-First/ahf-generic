@@ -1,9 +1,8 @@
-import sys, logging
+import sys
 import http.client
 from collections.abc import AsyncIterable, Callable, Mapping, Sequence
 from typing import Any
 from logging import info
-
 
 from .route import ApiRouteManager
 
@@ -45,7 +44,8 @@ def run_wsgi_server_with_gunicorn(
     options = {**options, **kwargs}
     quiet = options.pop('quiet', False)
 
-    # Note gunicorn handles signals as we need
+    from ..lib import get_loglevel_string
+    # Note gunicorn handles signals as we need so we don't need to do anything
     try:
         from gunicorn.app.base import BaseApplication
     except ImportError as e:
@@ -68,15 +68,10 @@ def run_wsgi_server_with_gunicorn(
                 self.cfg.set(key.lower(), value)
         def load(self):
             return self.application
-    log_level = logging.getLogger().level
-    if log_level < logging.DEBUG:
-        log_level = logging.DEBUG
     server  = ServerApplication(WsgiWebApp(routes, assets), {
         'bind': f"{host}:{port}", 'timeout': timeout,
-        # Gunicorn does not have trace level
-        'loglevel': (logging.getLevelName(level).lower() if (
-            level := logging.getLogger().level
-        ) >= logging.DEBUG else "debug"),
+        # Gunicorn does not have trace level, so use debug instead
+        'loglevel': level if (level := get_loglevel_string()) != 'trace' else 'debug',
         **options
     })
     info(f"[WSGi gunicorn server] Starting service at {host}:{port} ...")
@@ -91,10 +86,8 @@ def run_wsgi_server_with_simple(
 ):
     # options = {**options, **kwargs}
 
-    import sys, signal
-    def sigterm_handler(signum, frame):
-        sys.exit(1)
-    signal.signal(signal.SIGTERM, sigterm_handler)
+    from ..lib import set_signal_handling
+    set_signal_handling()
 
     # wsgiref.simple_server does not support Connection: ...
     app = WsgiWebApp(routes, assets, set_connection=None)

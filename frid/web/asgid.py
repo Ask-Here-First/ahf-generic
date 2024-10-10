@@ -1,7 +1,8 @@
-import sys, time, asyncio, logging, inspect, traceback
+import sys, time, asyncio, inspect, traceback
 from logging import info, error
 from collections.abc import AsyncIterable, Iterable, Mapping, Callable
 from typing import Any, Literal, TypedDict
+
 if sys.version_info >= (3, 11):
     from typing import NotRequired
 else:
@@ -199,6 +200,7 @@ def run_asgi_server_with_uvicorn(
     options = {**options, **kwargs}
     quiet = options.pop('quiet', False)
 
+    from ..lib import set_signal_handling, get_loglevel_string
     try:
         import uvicorn
     except ImportError as e:
@@ -210,16 +212,13 @@ def run_asgi_server_with_uvicorn(
     server = uvicorn.Server(uvicorn.Config(
         AsgiWebApp(routes, assets), host=host, port=port,
         # Uvicorn has a "trace" level
-        log_level=(logging.getLevelName(level).lower() if (
-            level := logging.getLogger().level
-        ) >= logging.DEBUG else "trace"),
+        log_level=get_loglevel_string(),
         **options,
     ))
 
-    import signal
-    def sigterm_handler(signum, frame):
+    def handler():
         server.should_exit = True
-    signal.signal(signal.SIGTERM, sigterm_handler)
+    set_signal_handling(handler=handler)
 
     info(f"[ASGi server] Starting service at {host}:{port} ...")
     try:

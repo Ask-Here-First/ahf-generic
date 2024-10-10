@@ -3,7 +3,9 @@ from ._basic import Comparator, Substitute, MergeFlags, frid_merge, frid_redact
 from ._loads import load_frid_str, load_frid_tio, scan_frid_str, open_frid_tio
 from ._loads import FridParseError, FridTruncError
 from ._dumps import dump_frid_str, dump_frid_tio, dump_args_str, dump_args_tio
-from . import typing, autils, chrono, guards, strops
+
+# For backward compatibility
+from . import lib as osutil
 
 loads = load_frid_str
 dumps = dump_frid_str
@@ -20,6 +22,7 @@ __all__ = [
     # From _dumps
     'FridParseError', 'FridTruncError',
     'dump_frid_str', 'dump_frid_tio', 'dump_args_str', 'dump_args_tio', 'dumps', 'dump',
-    # Exported sub packages (TODO: move chrono,and strops to lib, and autils to aio)
-    'typing', 'autils', 'chrono', 'guards', 'strops'
+
+    # Backward compatibility:
+    'osutil'
 ]
