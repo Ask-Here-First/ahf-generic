@@ -10,7 +10,7 @@ from .typing import (
 )
 from .guards import is_list_like
 from .chrono import timeonly, datetime, dateonly
-from .lib.texts import str_scan_sub
+from .lib import str_scan_sub
 from ._dumps import dump_frid_str
 
 P = ParamSpec('P')
