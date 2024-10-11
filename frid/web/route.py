@@ -400,7 +400,7 @@ class ApiRouteManager:
             request = HttpMixin.from_request(data, headers)
         except Exception as exc:
             return (HttpMixin.from_request(None, headers),
-                    HttpError(400, "ASGi: parsing input", cause=exc))
+                    HttpError(400, "Parsing input", cause=exc))
         if method == 'OPTIONS':
             return (request, self.handle_options(path, qstr))
         if method not in HTTP_SUPPORTED_METHODS:
@@ -417,7 +417,13 @@ class ApiRouteManager:
             if not isinstance(peer, str):
                 peer = peer[0]
             kwargs['peer'] = peer
-        return (request, route(request, **kwargs))
+        try:
+            return (request, route(request, **kwargs))
+        except HttpError as exc:
+            return (request, exc)
+        except Exception as exc:
+            traceback.print_exc()
+            return (request, route.to_http_error(exc, request, peer=peer))
     def process_result(self, request: HttpMixin, result: HttpMixin|FridValue) -> HttpMixin:
         """Process the result of the route execution and returns a response.
         - The response is an object of HttpMixin with body already prepared.

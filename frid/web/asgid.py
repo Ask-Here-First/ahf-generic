@@ -56,6 +56,8 @@ class AsgiWebApp(ApiRouteManager):
                 traceback.print_exc()
                 # msg =  route.get_log_str(request, peer=scope['client'])
                 result = HttpError(503, f"Timeout: {method} {scope['path']}", cause=exc)
+            except HttpError as exc:
+                result = exc
             except Exception as exc:
                 traceback.print_exc()
                 # result = route.to_http_error(exc, request, peer=scope['client'])
