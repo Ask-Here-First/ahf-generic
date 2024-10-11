@@ -313,7 +313,7 @@ class TestLoadsAndDumps(unittest.TestCase):
         # "'''tester's test''' """: "tester's test", # Do not support triple quotes yet
         # Blob
         "..": b'',      " ..": b'',         ".. ": b'',
-        "..YQ..": b"a", "..YWI.": b"ab",    "..YWJj": b"abc",
+        "..YQ": b"a", "..YWI": b"ab",    "..YWJj": b"abc",
         # List
         "[3, [4, 6], abc, [\"\"], [[[]]]]": [3,[4,6],"abc",[''],[[[]]]],
         "[3, [4, 6], abc , [,], [[[]]],  ] ": [3,[4,6],"abc",[''],[[[]]]],

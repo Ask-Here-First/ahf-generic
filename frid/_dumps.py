@@ -1,4 +1,4 @@
-import math, base64
+import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence, Set
 from typing import Any, Literal, TextIO
@@ -8,6 +8,7 @@ from .typing import MISSING, PRESENT, FridBasic, FridBeing, BlobTypes, FridNameA
 from .typing import FridMixin, FridValue, StrKeyMap
 from .chrono import DateTypes, strfr_datetime
 from .guards import is_frid_identifier, is_frid_quote_free
+from .lib import base64url_encode
 from .lib.texts import StringEscapeEncode
 
 JSON_QUOTED_KEYSET = (
@@ -249,13 +250,7 @@ class FridDumper(PrettyPrint):
     def blob_to_str(self, data: BlobTypes, path: str) -> str:
         """Convert a blob into string representation, quoted if needed."""
         # TODO: support line splitting and indentation
-        out = base64.urlsafe_b64encode(data).decode()
-        if not out.endswith("="):
-            out = ".." + out
-        elif out.endswith("=="):
-            out = ".." + out[:-2] + ".."
-        else:
-            out = ".." + out[:-1] + "."
+        out = ".." + base64url_encode(data)   # Do not do padding
         if not self.json_level:
             return out
         if self.escape_seq is not None:

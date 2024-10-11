@@ -1,7 +1,8 @@
-import math, base64
+import math
 from logging import warning
 from collections.abc import Callable, Iterator, Mapping, Sequence, Set
 from typing import  Any, Literal, NoReturn, TextIO, TypeVar, cast, overload
+
 
 from .typing import (
     PRESENT, MISSING, BlobTypes, DateTypes, FridArray, FridBasic, FridBeing, FridMapVT,
@@ -11,7 +12,7 @@ from .guards import (
     is_frid_identifier, is_frid_prime, is_frid_quote_free, is_frid_skmap,  is_quote_free_char
 )
 from .typing import FridError
-from .lib import str_encode_nonprints, str_find_any
+from .lib import str_encode_nonprints, str_find_any, base64url_decode
 from .lib.texts import StringEscapeDecode
 from .chrono import parse_datetime
 from ._dumps import EXTRA_ESCAPE_PAIRS
@@ -215,10 +216,11 @@ class FridLoader:
             s = s[2:]
             if self.parse_blob is not None:
                 return self.parse_blob(s)
-            if not s.endswith('.'):
-                return base64.urlsafe_b64decode(s)
-            data = s[:-2] + "==" if s.endswith('..') else s[:-1] + "="
-            return base64.urlsafe_b64decode(data)
+            return base64url_decode(s.rstrip('.'))
+            # if not s.endswith('.'):
+            #     return base64.urlsafe_b64decode(s)
+            # data = s[:-2] + "==" if s.endswith('..') else s[:-1] + "="
+            # return base64.urlsafe_b64decode(data)
         if self.parse_date:
             t = self.parse_date(s)
             if t is not None:
