@@ -3,7 +3,7 @@ from collections.abc import Callable, Sequence
 from typing import Literal, cast
 
 
-LOG_LINE_FMT = "%(asctime)s %(levelname)1s {%(process)d} %(message)s (%(filename)s:%(lineno)d)"
+LOG_LINE_FMT = "%(asctime)s %(levelname).1s {%(process)d} %(message)s (%(filename)s:%(lineno)d)"
 LOG_TIME_FMT = "%Y-%m-%dT%H%M%S"
 
 StrLogLevel = Literal['critical','error','warning','info','debug','trace']
@@ -80,17 +80,19 @@ def get_caller_info(depth: int=1, *, squash: bool=False) -> tuple[str,int,str]|N
     current_frame = inspect.currentframe()
     if current_frame is None:
         return None
-    last_filename = current_frame.f_code.co_filename
     try:
+        last_filename = current_frame.f_code.co_filename
         frame = current_frame.f_back  # Start with the caller
+        depth += 1            # One more level because the start is this method
         while frame is not None:
             filename = frame.f_code.co_filename
-            if squash and filename == last_filename:
-                continue
-            if depth <= 0:
-                return (filename, frame.f_lineno, frame.f_code.co_name)
+            line_num = frame.f_lineno
+            function = frame.f_code.co_name
+            if not squash or filename != last_filename:
+                depth -= 1
+                if depth <= 0:
+                    return (filename, line_num, function)
             frame = frame.f_back
-            depth -= 1
             last_filename = filename
     finally:
         del current_frame

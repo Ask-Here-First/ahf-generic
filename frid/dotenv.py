@@ -94,10 +94,10 @@ def _dotenv_start_path(name: str, /, *, start: PathLike|None=None) -> PathLike|N
     """
     if start is not None:
         return start
-    info = get_caller_info()
-    if info is None:
+    caller = get_caller_info(squash=True)
+    if caller is None:
         return None
-    return os.path.dirname(info[0])
+    return os.path.dirname(caller[0])
 
 def find_dotenv(name: str, /, **kwargs) -> str|None:
     (path, _) = os.path.split(name)
@@ -145,8 +145,9 @@ def load_dotenv(file: str|os.PathLike[str]|Sequence[str]|TextIO=".env",
         source = "[a file object]"
     count = 0
     for k, v in data.items():
-        if v is not None and (force or os.getenv(k) is not None):
-            os.putenv(k, v)
+        if v is not None and (force or os.getenv(k) is None):
+            os.environ[k] = v  # Note: do not use os.putenv() which only affects subprocesses
+            assert os.getenv(k) == v, f"Name {k} cannot be saved in environment"
             count += 1
             if echo:
                 print(f"{k} = {v}")
