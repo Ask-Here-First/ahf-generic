@@ -12,6 +12,7 @@ from .chrono import dateonly, timeonly, datetime, timezone, timedelta
 from ._basic import FridCompare, FridReplace, frid_redact, frid_random
 from ._dumps import dump_args_str, dump_frid_tio, dump_frid_str
 from ._loads import FridParseError, load_frid_str, load_frid_tio, open_frid_tio, scan_frid_str
+from .dotenv import read_dotenv
 
 class TestChrono(unittest.TestCase):
     def test_parse(self):
@@ -633,3 +634,19 @@ class TestLoadsAndDumps(unittest.TestCase):
             'a': PRESENT, 'b': [3], 'c': [], 'd': PRESENT, 'e': PRESENT,
         })
 
+class TestDotenv(unittest.TestCase):
+    def test_read_dotenv(self):
+        data = [x.lstrip()  for x in """# This is a test dotenv file
+        A = 4
+        B=3
+        C   ="first
+        second"
+        D=    "ab${B}c"
+        E = "---
+        multiline
+        ---"
+        """.splitlines(keepends=True)]
+        self.assertEqual(read_dotenv(data), {
+            'A': "4", 'B': '3', 'C': "first\nsecond", 'D': "ab3c",
+            'E': "---\nmultiline\n---",
+        })

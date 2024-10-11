@@ -1,5 +1,4 @@
-
-import os, sys, logging, signal, faulthandler
+import os, sys, logging, signal, inspect, faulthandler
 from collections.abc import Callable, Sequence
 from typing import Literal, cast
 
@@ -69,3 +68,30 @@ def use_signal_trap(
     elif signums is not None:
         for sig in signums:
             signal.signal(sig, signal_handler)
+
+def get_caller_info(depth: int=1, *, squash: bool=False) -> tuple[str,int,str]|None:
+    """Gets the caller's information: a triplet of file name, line number, and function name.
+    - `depth`: number of additional call frames to go back.
+        + With `depth=0`, it returns the information of caller itself.
+        + By default, with `depth=1`, it returns the caller of the caller (which is desired).
+    - `squash`: if set to true, caller frames from the same file will be
+       squashed into one.
+    """
+    current_frame = inspect.currentframe()
+    if current_frame is None:
+        return None
+    last_filename = current_frame.f_code.co_filename
+    try:
+        frame = current_frame.f_back  # Start with the caller
+        while frame is not None:
+            filename = frame.f_code.co_filename
+            if squash and filename == last_filename:
+                continue
+            if depth <= 0:
+                return (filename, frame.f_lineno, frame.f_code.co_name)
+            frame = frame.f_back
+            depth -= 1
+            last_filename = filename
+    finally:
+        del current_frame
+    return None
