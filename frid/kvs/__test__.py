@@ -313,7 +313,7 @@ class VStoreTestDbsql(_VStoreTestBase):
     def check_dbsql(self) -> bool:
         """Check if the store has all dependencies, and returns if echo is enabled."""
         try:
-            import aiosqlite, sqlalchemy  # noqa: F401
+            import aiosqlite, sqlalchemy, greenlet  # noqa: F401
         except ImportError:
             raise unittest.SkipTest("Skip Dbsql tests as sqlalchemy is not installed")
         return get_loglevel_str() == 'trace'
@@ -403,7 +403,11 @@ class VStoreTestDbsql(_VStoreTestBase):
             pass
 
     def test_dbsql_value_store(self):
-        echo = self.check_dbsql()
+        try:
+            import aiosqlite  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("Skip Dbsql tests as sqlalchemy is not installed")
+        echo = get_loglevel_str() == 'trace'
         from .dbsql import DbsqlValueStore
 
         # Log only in trace level
@@ -463,7 +467,11 @@ class VStoreTestDbsql(_VStoreTestBase):
         self.remove_tables(dburl, dbfile, table1.name, table2.name, False, echo=echo)
 
     def test_dbsql_async_store(self):
-        echo = self.check_dbsql()
+        try:
+            import aiosqlite, sqlalchemy, greenlet  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("Skip Dbsql async tests; it needs sqlalchemy & others")
+        echo = get_loglevel_str() == 'trace'
         from .dbsql import DbsqlAsyncStore
 
         (dburl, dbfile, table1, table2) = self.create_tables(True, echo=echo)
