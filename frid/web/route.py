@@ -209,8 +209,6 @@ class ApiRouteManager:
         'Cache-Control': "no-cache",
         # 'Connection': "keep-alive",
         'Content-Encoding': "none",
-        'Access-Control-Allow-Headers': "X-Requested-With",
-        'Access-Control-Max-Age': "1728000",
     }  # TODO: add CORS & cache constrol headers
 
     def __init__(
@@ -357,18 +355,17 @@ class ApiRouteManager:
         return HttpError(405, f"[{prefix}]: no action matches '{suffix}'")
 
     def handle_options(self, path: str, qstr: str|None) -> HttpMixin:
-        if path == '*':
-            return HttpMixin(ht_status=203, http_head={
-                'access-control-allow-methods': ", ".join(HTTP_SUPPORTED_METHODS) + ", OPTIONS"
-            })
-        result = self.fetch_router(path, qstr)
-        if isinstance(result, HttpError):
-            return result
-        if result is None:
-            return HttpError(404, f"Invalid request OPTIONS {path}")
-        return HttpMixin(ht_status=203, http_head={
+        if path != '*':
+            result = self.fetch_router(path, qstr)
+            if isinstance(result, HttpError):
+                return result
+            if result is None:
+                return HttpError(404, f"Invalid request OPTIONS {path}")
+        return HttpMixin(ht_status=200, http_head={
             # TODO find out what methods are suppoted
-            'access-control-allow-methods': "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+            'Access-Control-Allow-Methods': ", ".join(HTTP_SUPPORTED_METHODS) + ", OPTIONS",
+            'Access-Control-Allow-Headers': "X-Requested-With, Content-Type, Authorization, Accept",
+            'Access-Control-Max-Age': "1728000",
         })
     def update_headers(self, response: HttpMixin, request: HttpMixin):
         """Adding extra headers to response; mostly for CORS, cache, and access control."""
@@ -381,6 +378,8 @@ class ApiRouteManager:
         origin = request.http_head.get('origin')
         if origin and (origin in self.accept_origins or host in ('127.0.0.1', 'localhost')):
             headers['Access-Control-Allow-Origin'] = origin
+        if isinstance(response.http_data, AsyncIterable):
+            headers['Access-Control-Allow-Credentials'] = "true"
         if isinstance(response.http_data, AsyncIterable):
             headers['X-Accel-Buffering'] = "no"
         if self.set_connection is not None:
