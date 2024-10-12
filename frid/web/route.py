@@ -3,6 +3,7 @@ from logging import info
 from dataclasses import dataclass
 from collections.abc import AsyncIterable, Iterable, Mapping, Callable, Sequence
 from typing import Any, Literal, TypedDict
+from functools import partial
 if sys.version_info >= (3, 11):
     from typing import NotRequired, Unpack
 else:
@@ -211,6 +212,15 @@ class ApiRouteManager:
         'Content-Encoding': "none",
     }  # TODO: add CORS & cache constrol headers
 
+    @classmethod
+    def __init_subclass__(cls):
+        try:
+            import markdown
+            cls._markdown: Callable[[str],str]|None = markdown.Markdown(
+                extensions=['tables', 'fenced_code']
+            ).convert
+        except ImportError:
+            cls._markdown = None
     def __init__(
             self, routes: Mapping[str,str|Any]|None=None,
             assets: str|Iterable[str]|Mapping[str,str]|None=None,
@@ -337,6 +347,15 @@ class ApiRouteManager:
             else:
                 medial = suffix
                 new_suffix = ""
+            # Special medials
+            match medial:
+                case '-':
+                    if method not in ('GET', 'HEAD'):
+                        return HttpError(405, f"[{prefix}]: action {medial} is GET only")
+                    if not router.__doc__:
+                        return HttpError(400, f"[{prefix}]: no docstring to use")
+                    return (partial(cls.show_docstring, router.__doc__), medial, new_suffix, 0)
+            # Search for medials
             for rp in cls._route_prefixes[method]:
                 full_name = rp + medial
                 if not hasattr(router, full_name):
@@ -354,6 +373,12 @@ class ApiRouteManager:
             return (action, '', suffix, cls._num_fixed_args[rp])
         return HttpError(405, f"[{prefix}]: no action matches '{suffix}'")
 
+    @classmethod
+    def show_docstring(cls, doc: str, *args, **kwargs):
+        if cls._markdown is not None:
+            return HttpMixin(http_data=cls._markdown(doc), mime_type='html')
+        return HttpMixin(http_data=doc, mime_type='text')
+
     def handle_options(self, path: str, qstr: str|None) -> HttpMixin:
         if path != '*':
             result = self.fetch_router(path, qstr)
@@ -364,7 +389,8 @@ class ApiRouteManager:
         return HttpMixin(ht_status=200, http_head={
             # TODO find out what methods are suppoted
             'Access-Control-Allow-Methods': ", ".join(HTTP_SUPPORTED_METHODS) + ", OPTIONS",
-            'Access-Control-Allow-Headers': "X-Requested-With, Content-Type, Authorization, Accept",
+            'Access-Control-Allow-Headers':
+                "X-Requested-With, Content-Type, Authorization, Accept",
             'Access-Control-Max-Age': "1728000",
         })
     def update_headers(self, response: HttpMixin, request: HttpMixin):
