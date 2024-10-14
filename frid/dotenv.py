@@ -117,7 +117,7 @@ def find_dotenv(name: str, /, **kwargs) -> str|None:
         return None
     path = find_in_ancestor(name, start)
     if path is None:
-        warn(f"Cannot find the dotenv {name} from the directory or ancesters of {start}")
+        info(f"Cannot find the dotenv {name} from the directory or ancesters of {start}")
         return None
     info(f"Searching for {name} starting at {start}, found {path}")
     return path
