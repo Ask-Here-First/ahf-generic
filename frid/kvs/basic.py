@@ -104,17 +104,17 @@ class _SimpleBaseStore(Generic[_E]):
 class SimpleValueStore(_SimpleBaseStore[_E], ValueStore):
     """This is the base class of simple value store that loads and saves records in full."""
     @abstractmethod
-    def _get(self, key: str) -> _E|MissingType:
+    def _get(self, key: str, /) -> _E|MissingType:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    def _put(self, key: str, val: _E) -> bool:
+    def _put(self, key: str, val: _E, /) -> bool:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
     def _rmw(self, key: str, mod: ModFunc[_E,_P],
              /, flags: VSPutFlag, *args: _P.args, **kwargs: _P.kwargs) -> bool:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    def _del(self, key: str) -> bool:
+    def _del(self, key: str, /) -> bool:
         raise NotImplementedError  # pragma: no cover
 
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
@@ -144,17 +144,17 @@ class SimpleValueStore(_SimpleBaseStore[_E], ValueStore):
 class SimpleAsyncStore(_SimpleBaseStore[_E], AsyncStore):
     """This is the base class of simple async store that loads and saves records in full."""
     @abstractmethod
-    async def _get(self, key: str) -> _E|MissingType:
+    async def _get(self, key: str, /) -> _E|MissingType:  # type: ignore -- changing to async
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    async def _put(self, key: str, val: _E) -> bool:
+    async def _put(self, key: str, val: _E, /) -> bool:   # type: ignore -- changing to async
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    async def _rmw(self, key: str, mod: ModFunc[_E,_P],
+    async def _rmw(self, key: str, mod: ModFunc[_E,_P],   # type: ignore -- changing to async
                    /, flags: VSPutFlag, *args: _P.args, **kwargs: _P.kwargs) -> bool:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    async def _del(self, key: str) -> bool:
+    async def _del(self, key: str, /) -> bool:   # type: ignore -- changing to async
         raise NotImplementedError  # pragma: no cover
 
     async def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
@@ -515,7 +515,8 @@ class StreamStoreMixin(BinaryStoreMixin, _SimpleBaseStore[bytes]):
         return val[self._header_size:]
 
     ModReturnType = tuple[bytes,bool|None]|FridBeing
-    def _add_new(self, old: bytes|MissingType, new: FridValue) -> ModReturnType:
+    def _add_new(self, old: bytes|MissingType,  # type: ignore -- changing return type
+                 new: FridValue) -> ModReturnType:
         """Combines the `new` value into the `old` values depending on the `flags`.
         - Returns either of the following:
             + PRESENT: use the existing value without change.
@@ -537,7 +538,8 @@ class StreamStoreMixin(BinaryStoreMixin, _SimpleBaseStore[bytes]):
         if isinstance(new_val, FridBeing):
             return new_val
         return (new_val, False)
-    def _del_sel(self, val: bytes|MissingType, sel: VStoreSel, /) -> ModReturnType:
+    def _del_sel(self, val: bytes|MissingType,   # type: ignore -- changing return type
+                 sel: VStoreSel, /) -> ModReturnType:
         if val is not MISSING:
             if isinstance(val, Mapping) and self._get_header_type(val) == 'dict':
                 return (self._remove_dict(sel), True)
