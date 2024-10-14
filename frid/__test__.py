@@ -539,7 +539,7 @@ class TestLoadsAndDumps(unittest.TestCase):
             super().__init__()
             self._args = args
             self._kwds = kwds
-        def frid_repr(self) -> FridNameArgs:
+        def frid_repr(self, **kwargs) -> FridNameArgs:
             return FridNameArgs(get_type_name(self), self._args, self._kwds)
         def __repr__(self):
             return dump_args_str(self.frid_repr())
@@ -550,20 +550,19 @@ class TestLoadsAndDumps(unittest.TestCase):
                 return False
             return self._args == other._args and self._kwds == other._kwds
     class TestMixinClass2(TestMixinClass):
-        def __init__(self, opt1, *args, opt2, **kwds):
+        def __init__(self, *args, opt, **kwds):
             super().__init__(*args, **kwds)
-            self._opt1 = opt1
-            self._opt2 = opt2
+            self._opt = opt
         @classmethod
-        def frid_from(cls, data: FridNameArgs, opt1, /, *, opt2):
-            return cls(opt1, *data.args, opt2=opt2, **data.kwds)
-        def frid_repr(self, opt1, /, *, opt2) -> FridNameArgs:
-            assert opt1 == self._opt1 and opt2 == self._opt2
+        def frid_from(cls, data: FridNameArgs, /, *, opt, **kwargs):
+            return cls(*data.args, opt=opt, **data.kwds)
+        def frid_repr(self, *, opt, **kwargs) -> FridNameArgs:
+            assert opt == self._opt
             return super().frid_repr()
         def __eq__(self, other):
             if not super().__eq__(other):
                 return False
-            return self._opt1 == other._opt1 and self._opt2 == other._opt2
+            return self._opt == other._opt
 
     def test_mixins(self):
         test = self.TestMixinClass()
@@ -586,9 +585,9 @@ class TestLoadsAndDumps(unittest.TestCase):
             json, frid_mixin=[self.TestMixinClass], json_level=1, escape_seq="#!"
         ), test)
 
-        test = self.TestMixinClass2("1", "Test", opt2=2, a=3)
+        test = self.TestMixinClass2("Test", opt=2, a=3)
         frid = "TestMixinClass2(Test, a=3)"
-        mixin_list = [ValueArgs(self.TestMixinClass2, "1", opt2=2)]
+        mixin_list = [ValueArgs(self.TestMixinClass2, opt=2)]
         self.assertEqual(dump_frid_str(test, mixin_args=mixin_list), frid)
         self.assertEqual(load_frid_str(frid, frid_mixin=mixin_list), test)
         json = """{"": ["#!TestMixinClass2", "Test"], "a": 3}"""

@@ -94,10 +94,10 @@ class FridMixin(ABC):
         return [cls.__name__]
 
     @classmethod
-    def frid_from(cls: type[_M], data: 'FridNameArgs|FridArray|StrKeyMap', /, **kwargs) -> _M:
+    def frid_from(cls: type[_M], data: 'FridNameArgs', /, **kwargs) -> _M:
         """Construct an instance with given name and arguments.
         - `data`: An array for a positional arguments or a map for keywords
-          arguemtns, or a combination of them in the type of `FridNameArgs`.
+          arguments, or a combination of them in the type of `FridNameArgs`.
         - `dc_ignore_extra` (only effective for dataclasses): if set, ignore
           extra positional arguments and non-matching keyward arguments;
           if set to a callback function, also call this function for each of
@@ -330,7 +330,7 @@ class FridError(FridMixin, Exception):
             raise ValueError(f"Invalid trace type {type(trace)}")
 
     @classmethod
-    def frid_from(cls, data: FridNameArgs, /):
+    def frid_from(cls, data: FridNameArgs, /, **kwargs):
         # The `trace` and `cause` are not accepting TrackbackType and BaseException;
         # and `error` is passed as the first argument.
         assert data.name in cls.frid_keys()
