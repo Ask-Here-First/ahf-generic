@@ -143,6 +143,8 @@ def load_dotenv(file: str|os.PathLike[str]|Sequence[str]|TextIO=".env",
     elif hasattr(file, 'readline') and callable(f := getattr(file, 'readline')):
         data = read_dotenv(_str_gen(f))
         source = "[a file object]"
+    else:
+        raise ValueError(f"Invalid first argument type: {type(file)}")
     count = 0
     for k, v in data.items():
         if v is not None and (force or os.getenv(k) is None):
