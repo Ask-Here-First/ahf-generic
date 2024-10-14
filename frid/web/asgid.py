@@ -12,11 +12,11 @@ from ..typing import get_type_name
 from ..lib.texts import str_encode_nonprints
 from ..typing import FridValue
 from .mixin import HttpError
-from .route import ApiRouteManager, HTTP_METHODS_WITH_BODY
+from .route import HttpMethod, ApiRouteManager, HTTP_METHODS_WITH_BODY
 
 class AsgiScopeType(TypedDict):
     type: Literal['http','websocket']
-    method: Literal['HEAD','GET','PUT','POST','DELETE','PATCH','OPTIONS','CONNECT','TRACE']
+    method: HttpMethod
     asgi: Mapping[str,str]
     http_version: str
     scheme: NotRequired[str]

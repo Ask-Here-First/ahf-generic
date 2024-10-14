@@ -24,6 +24,7 @@ from .files import FileRouter
 # - If call type is a string, it is call with (call_type, data, *opargs, **kwargs)
 # - If call type is true, it is call with (data, *opargs, **kwargs)
 # - If call type is false, it is call just with just (*opargs, **kwargs)
+HttpMethod = Literal['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS','CONNECT','TRACE']
 ApiCallType = Literal['get','set','put','add','del']
 _api_call_types: dict[str,ApiCallType] = {
     'HEAD': 'get', 'GET': 'get', 'POST': 'set', 'PUT': 'put',
@@ -78,7 +79,7 @@ class ApiRoute:
         + `_call`: if the API call is not 'get'; the callee should use a default value
           of `get` if accepting it.
     """
-    method: str
+    method: HttpMethod
     pfrags: list[str]
     qsargs: list[tuple[str,str]|str]
     router: Any
@@ -194,7 +195,7 @@ class ApiRouteManager:
     however, a file router can be served from multiple directories or paths
     in zip files, allowing overlay between them.
     """
-    _route_prefixes = {
+    _route_prefixes: Mapping[HttpMethod,Sequence[str]] = {
         'HEAD': ['get_', 'run_'],
         'GET': ['get_', 'run_'],
         'POST': ['set_', 'post_', 'run_'],
@@ -202,9 +203,14 @@ class ApiRouteManager:
         'PATCH': ['add_', 'patch_', 'run_'],
         'DELETE': ['del_', 'delete_', 'run_'],
     }
-    _num_fixed_args: dict[str,Literal[0,1,2]] = {
+    _num_fixed_args: Mapping[str,Literal[0,1,2]] = {
         'get_': 0, 'set_': 1, 'put_': 1, 'add_': 1, 'del_': 0, 'run_': 2,
         'post_': 1, 'patch_': 1, 'delete_': 0,
+    }
+    _rprefix_revmap: Mapping[str,Sequence[HttpMethod]] = {
+        'get_': ['GET'], 'set_': ['POST'], 'put_': ['PUT'], 'add_': ['PATCH'],
+        'del_': ['DELETE'], 'run_': ['GET', 'HEAD', 'POST', 'PUT', 'PATCH'],
+        'post_': ['PUT'], 'patch_': ['PATCH'], 'delete_': ['DELETE'],
     }
     _common_headers = {
         'Cache-Control': "no-cache",
@@ -256,7 +262,7 @@ class ApiRouteManager:
             else:
                 r = get_func_name(v)
             info(f"|   {k or '[ROOT]'} => {r}")
-    def create_route(self, method: str, path: str, qstr: str|None) -> ApiRoute|HttpError:
+    def create_route(self, method: HttpMethod, path: str, qstr: str|None) -> ApiRoute|HttpError:
         assert isinstance(path, str)
         result = self.fetch_router(path, qstr)
         if isinstance(result, HttpError):
@@ -333,7 +339,7 @@ class ApiRouteManager:
         return None
     @classmethod
     def fetch_action(
-        cls, router, method: str, prefix: str, suffix: str, qstr: str|None
+        cls, router, method: HttpMethod, prefix: str, suffix: str, qstr: str|None
     ) -> tuple[Callable,str,str,Literal[0,1,2]]|HttpError:
         """Find the end point in the router according to the path.
         - First try using prefixes concatenated with the first path element as names;
@@ -347,14 +353,10 @@ class ApiRouteManager:
             else:
                 medial = suffix
                 new_suffix = ""
-            # Special medials
-            match medial:
-                case '-':
-                    if method not in ('GET', 'HEAD'):
-                        return HttpError(405, f"[{prefix}]: action {medial} is GET only")
-                    if not router.__doc__:
-                        return HttpError(400, f"[{prefix}]: no docstring to use")
-                    return (partial(cls.show_docstring, router.__doc__), medial, new_suffix, 0)
+            # Special actions when this medial string starting with '-'
+            if medial.startswith('-'):
+                return (partial(cls.special_action, method, router, prefix, medial),
+                        medial, new_suffix, 2)
             # Search for medials
             for rp in cls._route_prefixes[method]:
                 full_name = rp + medial
@@ -374,10 +376,55 @@ class ApiRouteManager:
         return HttpError(405, f"[{prefix}]: no action matches '{suffix}'")
 
     @classmethod
-    def show_docstring(cls, doc: str, *args, **kwargs):
-        if cls._markdown is not None:
-            return HttpMixin(http_data=cls._markdown(doc), mime_type='html')
-        return HttpMixin(http_data=doc, mime_type='text')
+    def search_actions(cls, router) -> list[tuple[str,Sequence[HttpMethod],Callable]]:
+        out: list[tuple[str,Sequence[HttpMethod],Callable]] = []
+        for name in dir(router):
+            try:
+                attr = getattr(router, name)
+            except AttributeError:
+                continue
+            if not callable(attr):
+                continue
+            index = name.find('_')
+            if index <= 0:
+                continue
+            index += 1
+            http_methods = cls._rprefix_revmap.get(name[:index])
+            if http_methods is None:
+                continue
+            out.append((name[index:], http_methods, attr))
+        out.sort(key=(lambda x: x[0]))  # In alphabet order with empty action name at the first
+        return out
+    @classmethod
+    def special_action(cls, method: str, router, prefix: str, medial: str,
+                       *args, **kwargs):
+        if method != 'GET':
+            return HttpError(405, f"[{prefix}]: the special action {medial} is for GET only")
+        match medial:
+            case '-h'|'--help':
+                doc = ["# " + prefix + "\n\n"]
+                if router.__doc__:
+                    doc.append(router.__doc__)
+                if prefix.endswith('/'):
+                    for name, methods, action in cls.search_actions(router):
+                        doc.append("## " + "/".join(methods) + " " + prefix + name + "\n\n")
+                        if action.__doc__:
+                            doc.append(action.__doc__)
+                if cls._markdown is None:
+                    return HttpMixin(http_data="\n\n".join(doc), mime_type='text')
+                return HttpMixin(http_data=cls._markdown("\n\n".join(doc)), mime_type='html')
+            case '-l'|'--list':
+                if not prefix.endswith('/'):
+                    return {'': ['GET', '...']}  # TODO: use inspect to exclude HTTP methods
+                out: dict[str,list[HttpMethod]] = {}
+                for name, methods, _ in cls.search_actions(router):
+                    value = out.get(name)
+                    if value is None:
+                        out[name] = list(methods)
+                    else:
+                        out[name].extend(x for x in methods if x not in value)
+                return out
+        return HttpError(404, f"[{prefix}]: unsupported special command '{medial}'")
 
     def handle_options(self, path: str, qstr: str|None) -> HttpMixin:
         if path != '*':
@@ -413,7 +460,7 @@ class ApiRouteManager:
         return headers
 
     def handle_request(
-            self, method: str, data: bytes|None, headers: InputHttpHead,
+            self, method: HttpMethod, data: bytes|None, headers: InputHttpHead,
             *, path: str, qstr: str|None, peer: str|tuple[str,int]|None,
     ) -> tuple[HttpMixin,HttpMixin|FridValue]:
         """Create a request object and run the route.

@@ -4,14 +4,14 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from logging import info
 
-from .route import ApiRouteManager
+from .route import HttpMethod, ApiRouteManager
 
 class FridHTTPRequestHandler(BaseHTTPRequestHandler):
     def __init__(self, *args, manager: ApiRouteManager, **kwargs):
         self._manager = manager
         super().__init__(*args, **kwargs)
         self.protocol_version = "HTTP/1.1"
-    def do_request(self, method: str, with_body: bool=True):
+    def do_request(self, method: HttpMethod, with_body: bool=True):
         # Processing URL parameters and
         (path, qstr) = self.path.split('?', 1) if '?' in self.path else (self.path, None)
         # Read the input data
