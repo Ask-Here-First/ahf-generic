@@ -18,6 +18,8 @@ class FileRouter:
         '.jpeg': "image/jpeg",
         '.gif': "image/gif",
         '.yaml': "application/yaml",
+        '.txt': "text/plain",
+        '.md': "text/markdown",
     }
     _other_mime_type = "application/octet-stream"
 
