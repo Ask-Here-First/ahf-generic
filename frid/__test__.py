@@ -426,7 +426,7 @@ class TestLoadsAndDumps(unittest.TestCase):
                 self.assertEqual(data, load_frid_str(s, json_level=json_level, **load_args),
                                  msg=f"{json_level=} {len(s)=}")
             # Test with only all possible frid values
-            json_level = rng.choice([0, 1, 5])
+            json_level: Literal[0,1,5] = rng.choice([0, 1, 5])
             for escape_seq in ('~', "#!"):
                 data = frid_random(rng, tree, for_json=0)
                 s = dump_frid_str(data, json_level=json_level,
@@ -439,22 +439,22 @@ class TestLoadsAndDumps(unittest.TestCase):
                               escape_seq=escape_seq, **dump_args)
                 self.assertEqual(s, t.getvalue())
                 self.assertEqual(data, load_frid_tio(
-                    io.StringIO(s), page=rng.randint(1, 5), json_level=1, escape_seq=escape_seq,
+                    io.StringIO(s), rng.randint(1, 5), json_level=1, escape_seq=escape_seq,
                     **load_args
                 ), msg=f"{len(s)=}")
                 # With loose mode
                 self.assertEqual(data, load_frid_tio(
-                    io.StringIO(s), page=rng.randint(1, 5), json_level=1, escape_seq=escape_seq,
+                    io.StringIO(s), rng.randint(1, 5), json_level=1, escape_seq=escape_seq,
                     loose_mode=True, **load_args
                 ), msg=f"{len(s)=}")
-                # With indentitation and newlines
+                # With indentitation and lineends
                 s = dump_frid_str(data, json_level=json_level, indent=4,
                                   escape_seq=escape_seq, **dump_args)
                 self.assertEqual(data, load_frid_str(
                     s, json_level=json_level, escape_seq=escape_seq, **load_args
                 ), msg=f"{len(s)=}")
                 self.assertEqual(data, load_frid_tio(
-                    io.StringIO(s), page=64, json_level=json_level, escape_seq=escape_seq,
+                    io.StringIO(s), 64, json_level=json_level, escape_seq=escape_seq,
                     **load_args
                 ), msg=f"{len(s)=}")
 
@@ -488,7 +488,7 @@ class TestLoadsAndDumps(unittest.TestCase):
     def test_negative_json_dump(self):
         for i, k in enumerate(self.negative_json_dump_cases):
             with self.assertRaises(ValueError, msg=f"[{i}]: {k}"):
-                dump_frid_str(k, json_level=True)
+                dump_frid_str(k, json_level=1)
 
     expression_cases = {
         "()": "", "(())": "()", "(')')": "')'",
@@ -496,7 +496,7 @@ class TestLoadsAndDumps(unittest.TestCase):
     }
     def test_expression(self):
         for i, (k, v) in enumerate(self.expression_cases.items()):
-            w = load_frid_str(k, parse_expr=lambda x, p: x)
+            w = load_frid_str(k, parse_expr=(lambda x, p: x))
             self.assertEqual(v, w, msg=f"[{i}]: {k}")
 
     comment_cases = {
@@ -587,14 +587,14 @@ class TestLoadsAndDumps(unittest.TestCase):
 
         test = self.TestMixinClass2("Test", opt=2, a=3)
         frid = "TestMixinClass2(Test, a=3)"
-        mixin_list = [ValueArgs(self.TestMixinClass2, opt=2)]
-        self.assertEqual(dump_frid_str(test, mixin_args=mixin_list), frid)
-        self.assertEqual(load_frid_str(frid, frid_mixin=mixin_list), test)
+        value_args: ValueArgs[type[FridMixin]] = ValueArgs(self.TestMixinClass2, opt=2)
+        self.assertEqual(dump_frid_str(test, mixin_args=[value_args]), frid)
+        self.assertEqual(load_frid_str(frid, frid_mixin=[value_args]), test)
         json = """{"": ["#!TestMixinClass2", "Test"], "a": 3}"""
-        self.assertEqual(dump_frid_str(test, mixin_args=mixin_list,
+        self.assertEqual(dump_frid_str(test, mixin_args=[value_args],
                                        json_level=1, escape_seq="#!"), json)
         self.assertEqual(load_frid_str(
-            json, frid_mixin=mixin_list, json_level=1, escape_seq="#!"
+            json, frid_mixin=[value_args], json_level=1, escape_seq="#!"
         ), test)
 
     def test_identation(self):

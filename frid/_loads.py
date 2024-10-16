@@ -1,12 +1,15 @@
 import math
+from dataclasses import dataclass, field
 from logging import warning
-from collections.abc import Callable, Iterator, Mapping, Sequence, Set
-from typing import  Any, Literal, NoReturn, TextIO, TypeVar, cast, overload
+from collections.abc import Callable, Iterable, Mapping, Sequence, Set
+from typing import  Any, Literal, NoReturn, TextIO, TypeVar, TypedDict, cast, overload
 
 
+from .typing import Unpack
 from .typing import (
-    PRESENT, MISSING, BlobTypes, DateTypes, FridArray, FridBasic, FridBeing, FridMapVT,
-    FridMixin, FridPrime, FridSeqVT, FridValue, FridNameArgs, StrKeyMap, ValueArgs
+    PRESENT, MISSING, BlobTypes, DateTypes,
+    FridArray, FridBasic, FridBeing, FridMapVT,
+    FridMixin, FridPrime, FridSeqVT, FridValue, FridNameArgs, StrKeyMap, ValueArgs,
 )
 from .guards import (
     is_frid_identifier, is_frid_prime, is_frid_quote_free, is_frid_skmap,  is_quote_free_char
@@ -50,6 +53,8 @@ class DummyMixin(FridMixin):
 BasicTypeSpec = type[FridBasic]|ValueArgs[type[FridBasic]]
 MixinTypeSpec = type[FridMixin]|ValueArgs[type[FridMixin]]
 
+# Unforntately Unpack does not support dataclasses so we have to repeat
+
 class FridLoader:
     """This class loads data in buffer into Frid-allowed data structures.
 
@@ -61,6 +66,13 @@ class FridLoader:
       huge number of buffer is not given.
     - `offset`: the offset of the beginning of the buffer. Hence, `offset+length`
       is an upper bound of total length (and equals once the total length is known).
+
+    Keywoard parameters:
+    - `comments`: a list of comment specifications; each of them can be
+        + A string: the openning string of comments to the line ends (see `lineends`)
+        + A pair of strings: first is the opening string and the second is the closing
+          string of comments.
+    - `lineends`: the characters that are considered as line ends.
     - `json_level`: an integer indicating the json compatibility level; possible values:
         + 0: frid format (default)
         + 1: JSON format
@@ -73,55 +85,79 @@ class FridLoader:
     - `parse_real`, `parse_date`, `parse_blob`: parse int/float, date/time/datetime,
       and binary types respectively, accepting a single string as input and return
       value of parsed type, or None if data is not the type.
-    - `parse_expr`: callback to parse data in parentheses; must return a FridMixin
-      type of data. The function accepts an additional path parameter for path
-      in the tree.
+    - `parse_expr`: callback to parse data in parentheses; must return a FridValue.
+      The function accepts an additional path parameter for path in the tree.
+      Note that if the user wants to preserve the original expression, the return
+      value can be a FridBasic.
     - `parse_misc`: Callback to parse any unparsable data; must return a Frid
       compatible type. The function accepts an additional path parameter for path
       in the tree.
+
+    Note: `frid_mixin` is more strict than what is in `FridLoaderParams`.
     """
+    @dataclass
+    class Config:
+        comments: Sequence[str|tuple[str,str]]=()
+        lineends: str="\n\v\f"
+        json_level: Literal[0,1,5] = 0
+        escape_seq: str|None = None
+        loose_mode: bool = False
+        frid_basic: Iterable[BasicTypeSpec] = field(default_factory=tuple)
+        frid_mixin: Mapping[str,MixinTypeSpec] = field(default_factory=dict) # ***
+        parse_real: Callable[[str],int|float|None]|None = None
+        parse_date: Callable[[str],DateTypes|None]|None = None
+        parse_blob: Callable[[str],BlobTypes|None]|None = None
+        parse_expr: Callable[[str,str],FridValue]|None = None
+        parse_misc: Callable[[str,str],FridValue]|None = None
+
+        class _Params(TypedDict, total=False):
+            comments: Sequence[str|tuple[str,str]]
+            lineends: str
+            json_level: Literal[0,1,5]
+            escape_seq: str
+            loose_mode: bool
+            frid_basic: Iterable[BasicTypeSpec]
+            parse_real: Callable[[str],int|float|None]
+            parse_date: Callable[[str],DateTypes|None]
+            parse_blob: Callable[[str],BlobTypes|None]
+            parse_expr: Callable[[str,str],FridValue]
+            parse_misc: Callable[[str,str],FridValue]
+
+        def __post_init__(self):
+            if not all(item if isinstance(item, str) else (
+                isinstance(item, tuple) and len(item) == 2
+                and all(isinstance(x, str) for x in item)
+            ) for item in self.comments):
+                raise ValueError(f"Invalid comments configuration: {self.comments}")
+
+        @classmethod
+        def from_dict(
+                cls, frid_mixin: Mapping[str,MixinTypeSpec]|Iterable[MixinTypeSpec]|None=None,
+                **kwargs: Unpack[_Params]
+        ):
+            mixin: dict[str,MixinTypeSpec] = {}
+            if isinstance(frid_mixin, Mapping):
+                mixin.update(cast(Mapping[str,MixinTypeSpec], frid_mixin))
+            elif frid_mixin is not None:
+                for entry in frid_mixin:
+                    data = entry.data if isinstance(entry, ValueArgs) else entry
+                    for key in data.frid_keys():
+                        mixin[key] = entry
+            return cls(frid_mixin=mixin, **kwargs)
+
+    class Params(Config._Params, total=False):
+        frid_mixin: Mapping[str,MixinTypeSpec]|Iterable[MixinTypeSpec]
+
     def __init__(
             self, buffer: str|None=None, length: int|None=None, offset: int=0, /,
-            *, comments: Sequence[tuple[str,str]]=(), newlines: str="\n\v\f",
-            json_level: Literal[0,1,5]=0,
-            escape_seq: str|None=None, loose_mode: bool=False,
-            frid_basic: Iterator[BasicTypeSpec]|None=None,
-            frid_mixin: Mapping[str,MixinTypeSpec]|Iterator[MixinTypeSpec]|None=None,
-            parse_real: Callable[[str],int|float|None]|None=None,
-            parse_date: Callable[[str],DateTypes|None]|None=None,
-            parse_blob: Callable[[str],BlobTypes|None]|None=None,
-            parse_expr: Callable[[str,str],FridMixin]|None=None,
-            parse_misc: Callable[[str,str],FridValue]|None=None,
+            **kwargs: Unpack[Params],
     ):
         self.buffer = buffer or ""
         self.offset = offset
         self.length = length if length is not None else 1<<62 if buffer is None else len(buffer)
         self.anchor: int|None = None   # A place where the location is marked
-        if not all(item if isinstance(item, str) else (
-            isinstance(item, tuple) and len(item) == 2 and all(isinstance(x, str) for x in item)
-        ) for item in comments):
-            raise ValueError(f"Invalid comments configuration: {comments}")
-        self.comments: Sequence[tuple[str,str]|str] = comments
-        self.newlines = newlines
-        # The following are all constants
-        self.json_level = json_level
-        self.escape_seq = escape_seq
-        self.loose_mode = loose_mode
-        self.parse_real = parse_real
-        self.parse_date = parse_date
-        self.parse_blob = parse_blob
-        self.parse_expr = parse_expr
-        self.parse_misc = parse_misc
-        self.frid_basic = list(frid_basic) if frid_basic else None
-        self.frid_mixin: dict[str,MixinTypeSpec] = {}
-        if isinstance(frid_mixin, Mapping):
-            self.frid_mixin.update(frid_mixin)
-        elif frid_mixin is not None:
-            for entry in frid_mixin:
-                mixin = entry.data if isinstance(entry, ValueArgs) else entry
-                for key in mixin.frid_keys():
-                    self.frid_mixin[key] = entry
-        self.se_decoder = StringEscapeDecode(
+        self.config = self.Config.from_dict(**kwargs)
+        self.decode = StringEscapeDecode(
             EXTRA_ESCAPE_PAIRS + ''.join(x + x for x in ALLOWED_QUOTES),
             '\\', ('x', 'u', 'U')
         )
@@ -168,7 +204,7 @@ class FridLoader:
         """
         if not s:
             return default
-        if self.json_level:
+        if self.config.json_level:
             match s:
                 case 'true':
                     return True
@@ -214,23 +250,23 @@ class FridLoader:
         if s.startswith('..'):
             # Base64 URL safe encoding with padding with dot. Space in between is allowed.
             s = s[2:]
-            if self.parse_blob is not None:
-                return self.parse_blob(s)
+            if self.config.parse_blob is not None:
+                return self.config.parse_blob(s)
             return base64url_decode(s.rstrip('.'))
             # if not s.endswith('.'):
             #     return base64.urlsafe_b64decode(s)
             # data = s[:-2] + "==" if s.endswith('..') else s[:-1] + "="
             # return base64.urlsafe_b64decode(data)
-        if self.parse_date:
-            t = self.parse_date(s)
+        if self.config.parse_date:
+            t = self.config.parse_date(s)
             if t is not None:
                 return t
         else:
             t = parse_datetime(s)
             if t is not None:
                 return t
-        if self.parse_real:
-            r = self.parse_real(s)
+        if self.config.parse_real:
+            r = self.config.parse_real(s)
             if r is not None:
                 return r
         else:
@@ -242,8 +278,8 @@ class FridLoader:
                 return float(s)
             except Exception:
                 pass
-        if self.frid_basic:
-            for t in self.frid_basic:
+        if self.config.frid_basic:
+            for t in self.config.frid_basic:
                 try:
                     if isinstance(t, ValueArgs):
                         result = t.data.frid_from(s, *t.args, **t.kwds)
@@ -282,7 +318,7 @@ class FridLoader:
     def skip_comments(self, index: int, path: str) -> tuple[int,str|None]:
         """Skip the comments in pairs."""
         content = []
-        for item in self.comments:
+        for item in self.config.comments:
             if isinstance(item, tuple):
                 (opening, closing) = item
             else:
@@ -295,7 +331,7 @@ class FridLoader:
             index = self.skip_fixed_size(index, path, len(opening))
             while True:
                 if closing is None:
-                    end_idx = str_find_any(self.buffer, self.newlines, index)
+                    end_idx = str_find_any(self.buffer, self.config.lineends, index)
                 else:
                     end_idx = self.buffer.find(closing, index)
                 if end_idx >= 0:
@@ -352,7 +388,7 @@ class FridLoader:
                         accept=NO_QUOTE_CHARS) -> tuple[int,FridValue]:
         """Scans the unquoted data that are identifier chars plus the est given by `accept`."""
         # For loose mode, scan to the first , or : or any close delimiters.
-        if self.loose_mode:
+        if self.config.loose_mode:
             start = index
             (index, data) = self.scan_data_until(index, path, ")]},:", True)
         else:
@@ -373,7 +409,7 @@ class FridLoader:
             return (index, empty)
         value = self.parse_prime_str(data, ...)
         if value is ...:
-            if self.loose_mode:
+            if self.config.loose_mode:
                 return (index, data)
             self.error(start, f"Fail to parse unquoted value {data}")
         return (index, value)
@@ -403,7 +439,7 @@ class FridLoader:
         """Scans a text string with escape sequences."""
         while True:
             try:
-                (count, value) = self.se_decoder(self.buffer, stop, index, self.length)
+                (count, value) = self.decode(self.buffer, stop, index, self.length)
                 if count < 0:
                     index = self.fetch(index, path)
                     continue
@@ -429,8 +465,8 @@ class FridLoader:
             out.append(value)
             index = self.skip_prefix_str(index, path, token)
         data = ''.join(out)
-        if self.escape_seq and data.startswith(self.escape_seq):
-            data = data[len(self.escape_seq):]
+        if self.config.escape_seq and data.startswith(self.config.escape_seq):
+            data = data[len(self.config.escape_seq):]
             if not data:
                 return (index, PRESENT)
             if data.endswith("()"):
@@ -448,7 +484,7 @@ class FridLoader:
             self, index: int, path: str,
             /, name: str, args: FridArray, kwds: StrKeyMap,
     ) -> FridMixin:
-        entry = self.frid_mixin.get(name)
+        entry = self.config.frid_mixin.get(name)
         if entry is None:
             self.error(index, f"Cannot find constructor called '{name}'")
         if not isinstance(entry, ValueArgs):
@@ -474,7 +510,7 @@ class FridLoader:
     def try_mixin_in_map(
             self, data: dict[str,FridMapVT], index: int, path: str
     ) -> FridMixin|dict[str,FridMapVT]:
-        if not self.escape_seq:
+        if not self.config.escape_seq:
             return data
         first = data.get('')
         if not isinstance(first, DummyMixin):
@@ -491,7 +527,7 @@ class FridLoader:
             (index, value) = self.scan_frid_value(
                 index, path, empty=...,
                 # Only check for mixin for the first item (`not out``) and with escape
-                check_mixin=(not out and bool(self.escape_seq))
+                check_mixin=(not out and bool(self.config.escape_seq))
             )
             index = self.skip_whitespace(index, path)
             (index, token) = self.peek_fixed_size(index, path, 1)
@@ -499,7 +535,7 @@ class FridLoader:
                 break
             if token == sep[0]:
                 index = self.skip_fixed_size(index, path, 1)
-            elif self.loose_mode and not is_frid_prime(value):
+            elif self.config.loose_mode and not is_frid_prime(value):
                 self.alert(index, "Loose mode: adding missing ','")
             else:
                 self.error(index, f"Unexpected '{token}' after list entry #{len(out)}: {path=}")
@@ -555,7 +591,7 @@ class FridLoader:
                 self.error(index, f"Invalid key type {type(key).__name__} of a map: {path=}")
             index = self.skip_fixed_size(index, path, 1)
             (index, value) = self.scan_frid_value(
-                index, path + '/' + key, check_mixin=(not key and bool(self.escape_seq))
+                index, path + '/' + key, check_mixin=(not key and bool(self.config.escape_seq))
             )
             out[key] = value
             index = self.skip_whitespace(index, path)
@@ -564,7 +600,9 @@ class FridLoader:
                 break
             if token == sep[0]:
                 index = self.skip_fixed_size(index, path, 1)
-            elif self.loose_mode and not (is_frid_prime(value) or isinstance(value, FridBeing)):
+            elif self.config.loose_mode and not (
+                is_frid_prime(value) or isinstance(value, FridBeing)
+            ):
                 self.alert(index, "Loose mode: adding missing ','")
             else:
                 self.error(index, f"Expect '{sep[0]}' after the value for '{key}': {path=}")
@@ -577,7 +615,7 @@ class FridLoader:
         if not is_frid_skmap(out):
             self.error(index, f"Not a set but keys are not all string: {path=}")
         # Now we check if this is a mixin
-        if self.escape_seq:
+        if self.config.escape_seq:
             x = self.try_mixin_in_map(cast(dict[str,FridMapVT], out), index, path)
             if x is not out:
                 return (index, x)
@@ -617,7 +655,7 @@ class FridLoader:
                 break
             if token == sep[0]:
                 index = self.skip_fixed_size(index, path, 1)
-            elif self.loose_mode and not is_frid_prime(value):
+            elif self.config.loose_mode and not is_frid_prime(value):
                 self.alert(index, "Loose mode: adding missing ','")
             else:
                 self.error(index, f"Expect '{sep[0]}' after the value for '{name}': {path=}")
@@ -643,11 +681,11 @@ class FridLoader:
             return self.scan_quoted_seq(
                 index, path, quotes=ALLOWED_QUOTES, check_mixin=bool(check_mixin)
             )
-        if token == '(' and self.parse_expr is not None:
+        if token == '(' and self.config.parse_expr is not None:
             index = self.skip_fixed_size(index, path, 1)
             (index, value) = self.scan_data_until(index, path, ')')
             index = self.skip_prefix_str(index, path, ')')
-            return (index, self.parse_expr(value, path))
+            return (index, self.config.parse_expr(value, path))
         # Now scan regular non quoted data
         self.anchor = index
         try:
@@ -657,7 +695,7 @@ class FridLoader:
             offset = index - self.anchor
             index = self.skip_whitespace(index, path)
             (index, token) = self.peek_fixed_size(index, path, 1)
-            if self.frid_mixin and token == '(' and is_frid_identifier(value):
+            if self.config.frid_mixin and token == '(' and is_frid_identifier(value):
                 index = self.skip_fixed_size(index, path, 1)
                 name = value
                 (index, args, kwds) = self.scan_naked_args(index, path, ')')
@@ -666,9 +704,9 @@ class FridLoader:
             return (self.anchor + offset, value)
         except FridParseError:
             index = self.anchor
-            if self.parse_misc:
+            if self.config.parse_misc:
                 (index, value) = self.scan_data_until(index, path, ",)]}")
-                return (index, self.parse_misc(value, path))
+                return (index, self.config.parse_misc(value, path))
             raise
         finally:
             self.anchor = None
@@ -691,8 +729,8 @@ class FridLoader:
                 value = ValueArgs(path, *args, **kwds)
             case _:
                 self.error(start, f"Invalid input {top_dtype}")
-        # Skip to the end of the line (newlines in the comments are ignored)
-        newlines = until_eol if isinstance(until_eol, str) else '\n\v\f'
+        # Skip to the end of the line (lineends in the comments are ignored)
+        lineends = until_eol if isinstance(until_eol, str) else '\n\v\f'
         while True:
             index = self.skip_characters(index, path, char_set=' \r\t')
             (index, comments) = self.skip_comments(index, path)
@@ -701,7 +739,7 @@ class FridLoader:
         # Check if the following character is a newline
         if index < self.length:
             (index, c) = self.peek_fixed_size(index, path, 1)
-            if c in newlines:
+            if c in lineends:
                 index = self.skip_fixed_size(index, path, 1)
             elif until_eol:
                 self.error(index, "Trailing data at the end of line")
@@ -720,46 +758,51 @@ class FridLoader:
         return value
 
 @overload
-def load_frid_str(s: str, *args, init_path: str='',
-                  top_dtype: None=None, **kwargs) -> FridValue: ...
+def load_frid_str(s: str, *args, init_path: str='', top_dtype: None=None,
+                  **kwargs: Unpack[FridLoader.Params]) -> FridValue: ...
 @overload
-def load_frid_str(s: str, *args, init_path: str='',
-                  top_dtype: Literal['list'], **kwargs) -> FridArray: ...
+def load_frid_str(s: str, *args, init_path: str='', top_dtype: Literal['list'],
+                  **kwargs: Unpack[FridLoader.Params]) -> FridArray: ...
 @overload
-def load_frid_str(s: str, *args, init_path: str='',
-                  top_dtype: Literal['dict'], **kwargs) -> StrKeyMap: ...
+def load_frid_str(s: str, *args, init_path: str='', top_dtype: Literal['dict'],
+                  **kwargs: Unpack[FridLoader.Params]) -> StrKeyMap: ...
 @overload
-def load_frid_str(s: str, *args, init_path: str='',
-                  top_dtype: Literal['args'], **kwargs) -> ValueArgs[str]: ...
+def load_frid_str(s: str, *args, init_path: str='', top_dtype: Literal['args'],
+                  **kwargs: Unpack[FridLoader.Params]) -> ValueArgs[str]: ...
 def load_frid_str(
-        s: str, *args, init_path: str='',
-        top_dtype: Literal['list','dict','args']|None=None, **kwargs
+        s: str, *args, init_path: str='', top_dtype: Literal['list','dict','args']|None=None,
+        **kwargs: Unpack[FridLoader.Params]
 ) -> FridValue|ValueArgs[str]:
     return FridLoader(s, *args, **kwargs).load(init_path, top_dtype=top_dtype)
 
 @overload
 def scan_frid_str(
         s: str, start: int, *args, init_path: str='', end_chars: str='',
-        until_eol: str|bool=False, top_dtype: None=None, **kwargs
+        until_eol: str|bool=False, top_dtype: None=None,
+        **kwargs: Unpack[FridLoader.Params]
 ) -> tuple[FridValue,int]: ...
 @overload
 def scan_frid_str(
         s: str, start: int, *args, init_path: str='', end_chars: str='',
-        until_eol: str|bool=False, top_dtype: Literal['list'], **kwargs
+        until_eol: str|bool=False, top_dtype: Literal['list'],
+        **kwargs: Unpack[FridLoader.Params]
 ) -> tuple[FridArray,int]: ...
 @overload
 def scan_frid_str(
         s: str, start: int, *args, init_path: str='', end_chars: str='',
-        until_eol: str|bool=False, top_dtype: Literal['dict'], **kwargs
+        until_eol: str|bool=False, top_dtype: Literal['dict'],
+        **kwargs: Unpack[FridLoader.Params]
 ) -> tuple[StrKeyMap,int]: ...
 @overload
 def scan_frid_str(
         s: str, start: int, *args, init_path: str='', end_chars: str='',
-        until_eol: str|bool=False, top_dtype: Literal['args'], **kwargs
+        until_eol: str|bool=False, top_dtype: Literal['args'],
+        **kwargs: Unpack[FridLoader.Params]
 ) -> tuple[ValueArgs[str],int]: ...
 def scan_frid_str(
         s: str, start: int, *args, init_path: str='', end_chars: str='',
-        until_eol: str|bool=False, top_dtype: Literal['list','dict','args']|None=None, **kwargs
+        until_eol: str|bool=False, top_dtype: Literal['list','dict','args']|None=None,
+        **kwargs: Unpack[FridLoader.Params]
 ) -> tuple[FridValue|ValueArgs[str],int]:
     """Note: this function will raise TruncError if the string ends prematurely.
     For other parsing issues, a regular ParseError is returned.
@@ -771,7 +814,7 @@ def scan_frid_str(
 
 
 class FridTextIOLoader(FridLoader):
-    def __init__(self, t: TextIO, page: int = 16384, **kwargs):
+    def __init__(self, t: TextIO, page: int = 16384, **kwargs: Unpack[FridLoader.Params]):
         super().__init__("", 1<<62, 0, **kwargs)  # Do not pass any positional parameters; using default
         self.file: TextIO|None = t
         self.page: int = page
@@ -813,20 +856,20 @@ class FridTextIOLoader(FridLoader):
         return index
 
 @overload
-def load_frid_tio(t: TextIO, *args, init_path: str='',
-                  top_dtype: None=None, **kwargs) -> FridValue: ...
+def load_frid_tio(t: TextIO, *args, init_path: str='', top_dtype: None=None,
+                  **kwargs: Unpack[FridLoader.Params]) -> FridValue: ...
 @overload
-def load_frid_tio(t: TextIO, *args, init_path: str='',
-                  top_dtype: Literal['list'], **kwargs) -> FridArray: ...
+def load_frid_tio(t: TextIO, *args, init_path: str='', top_dtype: Literal['list'],
+                  **kwargs: Unpack[FridLoader.Params]) -> FridArray: ...
 @overload
-def load_frid_tio(t: TextIO, *args, init_path: str='',
-                  top_dtype: Literal['dict'], **kwargs) -> StrKeyMap: ...
+def load_frid_tio(t: TextIO, *args, init_path: str='', top_dtype: Literal['dict'],
+                  **kwargs: Unpack[FridLoader.Params]) -> StrKeyMap: ...
 @overload
-def load_frid_tio(t: TextIO, *args, init_path: str='',
-                  top_dtype: Literal['args'], **kwargs) -> ValueArgs[str]: ...
+def load_frid_tio(t: TextIO, *args, init_path: str='', top_dtype: Literal['args'],
+                  **kwargs: Unpack[FridLoader.Params]) -> ValueArgs[str]: ...
 def load_frid_tio(
         t: TextIO, *args, init_path: str='',
-        top_dtype: Literal['list','dict','args']|None=None, **kwargs
+        top_dtype: Literal['list','dict','args']|None=None, **kwargs: Unpack[FridLoader.Params]
 ) -> FridValue|ValueArgs[str]:
     """Loads the frid data from the text I/O stream `t`.
     - `*args` and `**kwargs` are passed to the constructor of `FridTextIOLoader`.
@@ -835,19 +878,9 @@ def load_frid_tio(
     """
     return FridTextIOLoader(t, *args, **kwargs).load(init_path, top_dtype=top_dtype)
 
-@overload
-def open_frid_tio(t: TextIO, *args, top_dtype: None=None,
-                  **kwargs) -> Callable[...,FridValue]:...
-@overload
-def open_frid_tio(t: TextIO, *args, top_dtype: Literal['list'],
-                  **kwargs) -> Callable[...,FridArray]:...
-@overload
-def open_frid_tio(t: TextIO, *args, top_dtype: Literal['dict'],
-                  **kwargs) -> Callable[...,StrKeyMap]:...
-@overload
-def open_frid_tio(t: TextIO, *args, top_dtype: Literal['args'],
-                  **kwargs) -> Callable[...,ValueArgs[str]]:...
-def open_frid_tio(t: TextIO, *args, **kwargs) -> Callable[...,FridValue|ValueArgs[str]]:
+def open_frid_tio(
+        t: TextIO, *args, **kwargs: Unpack[FridLoader.Params]
+) -> Callable[...,FridValue|ValueArgs[str]]:
     """Scans possibly multiple data from the text I/O stream `t`.
     - `*args` and `**kwargs` are passed to the constructor of `FridTextIOLoader`.
     - `init_path` is passed to `FridTextIOLoader.load()` as `path`.

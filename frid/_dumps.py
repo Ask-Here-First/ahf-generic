@@ -1,9 +1,10 @@
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence, Set
-from typing import Any, Literal, TextIO
+from typing import Any, Literal, TextIO, TypedDict
 from enum import Enum, auto
 
+from .typing import Unpack
 from .typing import MISSING, PRESENT, FridBasic, FridBeing, BlobTypes, FridNameArgs, ValueArgs
 from .typing import FridMixin, FridValue, StrKeyMap
 from .chrono import DateTypes, strfr_datetime
@@ -70,6 +71,12 @@ class PPToTextIOMixin(PrettyPrint):
         self.stream.write(token)
 
 class MultilineFormatMixin(PrettyPrint):
+    class PPParams(TypedDict, total=False):
+        indent: int|str
+        extra_comma: bool
+        break_quoted: bool
+        newline: str
+        newline_after: str
     def __init__(self, *args, indent: int|str|None=None, extra_comma=False,
                  break_quoted: bool=False,
                  newline: str='\n', newline_after: str="{[", **kwargs):
@@ -175,6 +182,15 @@ class FridDumper(PrettyPrint):
     - `print_user`: a user callback to convert any unrecognized data types to string.
     - Other constructor parameter as supported by `PrettyPrint` class
     """
+    class Params(TypedDict, total=False):
+        json_level: Literal[0,1,5]
+        escape_seq: str
+        ascii_only: bool
+        mixin_args: Iterable[ValueArgs[type[FridMixin]]]
+        print_real: Callable[[int|float],str|None]
+        print_date: Callable[[DateTypes],str|None]
+        print_blob: Callable[[BlobTypes],str|None]
+        print_user: Callable[[Any,str],str|None]
     def __init__(self, *args, json_level: Literal[0,1,5]=0, escape_seq: str|None=None,
                  ascii_only: bool=False,
                  mixin_args: Iterable[ValueArgs[type[FridMixin]]]|None=None,
@@ -459,6 +475,9 @@ class FridDumper(PrettyPrint):
         else:
             raise ValueError(f"Invalid type {type(data)} for json={self.json_level} at {path=}")
 
+class FridMultilineDumperParams(FridDumper.Params, MultilineFormatMixin.PPParams, total=False):
+    pass
+
 class FridStringDumper(PPToStringMixin, MultilineFormatMixin, FridDumper):
     pass
 
@@ -466,24 +485,25 @@ class FridTextIODumper(PPToTextIOMixin, MultilineFormatMixin, FridDumper):
     pass
 
 def dump_frid_str(data: FridValue, /, *args, init_path: str='',
-                  top_delim: bool=True, **kwargs) -> str:
+                  top_delim: bool=True, **kwargs: Unpack[FridMultilineDumperParams]) -> str:
     dumper = FridStringDumper(*args, **kwargs)
     dumper.print_frid_value(data, init_path, top_delim=top_delim)
     return str(dumper)
 
 def dump_frid_tio(data: FridValue, /, file: TextIO, *args, init_path: str='',
-                  top_delim: bool=True, **kwargs) -> TextIO:
+                  top_delim: bool=True, **kwargs: Unpack[FridMultilineDumperParams]) -> TextIO:
     dumper = FridTextIODumper(file, *args, **kwargs)
     dumper.print_frid_value(data, init_path, top_delim=top_delim)
     return file
 
-def dump_args_str(named_args: FridNameArgs, *args, **kwargs) -> str:
+def dump_args_str(named_args: FridNameArgs, *args,
+                  **kwargs: Unpack[FridMultilineDumperParams]) -> str:
     dumper = FridStringDumper(*args, **kwargs)
     dumper.print_named_args(named_args, '')
     return str(dumper)
 
-def dump_args_tio(named_args: FridNameArgs, /, file: TextIO, *args, **kwargs) -> TextIO:
+def dump_args_tio(named_args: FridNameArgs, /, file: TextIO, *args,
+                  **kwargs: Unpack[FridMultilineDumperParams]) -> TextIO:
     dumper = FridTextIODumper(file, *args, **kwargs)
     dumper.print_named_args(named_args, '')
     return file
-
