@@ -126,7 +126,7 @@ class ValueProxyAsyncStore(AsyncStore):
         if depth > 0:
             return await self._asyncrun(self._store.finalize, depth - 1)
     def get_lock(self, name: str|None=None):
-        return self._store.get_lock(name)
+        raise NotImplementedError
     async def get_keys(self, pat: KeySearch=None, /) -> AsyncIterable[VStoreKey]:
         for key in self._store.get_keys(pat):
             yield key
@@ -189,6 +189,8 @@ class AsyncProxyValueStore(ValueStore):
     def finalize(self, depth=0):
         if depth > 0:
             result = self._loop.run_until_complete(self._store.finalize(depth - 1))
+        else:
+            result = None
         self._del_loop()
         return result
     def get_keys(self, pat: KeySearch=None, /) -> Iterable[VStoreKey]:
