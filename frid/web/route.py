@@ -4,17 +4,14 @@ from dataclasses import dataclass
 from collections.abc import AsyncIterable, Iterable, Mapping, Callable, Sequence
 from typing import Any, Literal, TypedDict
 from functools import partial
-if sys.version_info >= (3, 11):
-    from typing import NotRequired, Unpack
-else:
-    from typing_extensions import NotRequired, Unpack  # noqa: F401
 
-from ..osutil import load_module_data
-from ..typing import get_type_name, get_func_name
+from ..typing import Unpack   # Python 3.11 only feature
 from ..typing import FridNameArgs, FridValue, MissingType, MISSING
+from ..typing import get_type_name, get_func_name
 from ..guards import is_frid_value
 from .._basic import frid_redact
 from .._dumps import dump_args_str
+from .._utils import load_module_data
 from .mixin import HttpError, HttpMixin, InputHttpHead, parse_url_query, parse_url_value
 from .files import FileRouter
 

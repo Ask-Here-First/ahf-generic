@@ -1,20 +1,26 @@
+import os, sys, traceback, dataclasses
 from functools import partial
-import os, traceback, dataclasses
 from abc import ABC
 from datetime import date as dateonly, time as timeonly, datetime
 from collections.abc import Mapping, Sequence, Set, Callable
 from enum import Enum
 from types import TracebackType
 from typing import Any, Generic, Literal, NamedTuple, TypeGuard, TypeVar, final
+if sys.version_info >= (3, 11):
+    from typing import NotRequired, Required, Unpack
+else:
+    from typing_extensions import NotRequired, Required, Unpack  # noqa: F401
 
-
-FRID_ERROR_VENUE = os.getenv('FRID_ERROR_VENUE')
+# === Generic type definitions ===
 
 # Quick union types used in many places
 BlobTypes = bytes|bytearray|memoryview
 DateTypes = dateonly|timeonly|datetime   # Note that datetime in Python is deriveed from date
 
-# FRID types follow (Flexibly represented inteactive data)
+# === FRID types follow (Flexibly represented inteactive data) ===
+
+# This is a configurable value to be assigned to the "venue" field of HttpError
+FRID_ERROR_VENUE = os.getenv('FRID_ERROR_VENUE')
 
 _T = TypeVar('_T')
 _B = TypeVar('_B', bound='FridBasic')

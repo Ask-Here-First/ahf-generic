@@ -3,11 +3,7 @@ from logging import info, error
 from collections.abc import AsyncIterable, Iterable, Mapping, Callable
 from typing import Any, Literal, TypedDict
 
-if sys.version_info >= (3, 11):
-    from typing import NotRequired
-else:
-    from typing_extensions import NotRequired  # noqa: F401
-
+from ..typing import NotRequired   # Python 3.11 only feature
 from ..typing import get_type_name
 from ..lib.texts import str_encode_nonprints
 from ..typing import FridValue
