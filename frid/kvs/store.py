@@ -17,7 +17,7 @@ _Self = TypeVar('_Self', bound='_BaseStore')  # TODO: remove this in 3.11
 
 class _BaseStore(ABC):
     @classmethod
-    def from_url(cls: type[_Self], url: str, /, *args, **kwargs) -> _Self:
+    def from_url(cls: type[_Self], url: str, /, *args, **kwargs):
         """Create an store accorind to an URL.
         - Optional positional arguments may be needed but they are not passed
           unchecked to constructor.
@@ -25,7 +25,7 @@ class _BaseStore(ABC):
         """
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    def substore(self: _Self, name: str, *args: str) -> _Self:
+    def substore(self, name: str, *args: str):
         """Returns a substore ValueStore as given by a list of names."""
         raise NotImplementedError  # pragma: no cover
 
@@ -35,20 +35,18 @@ class _BaseStore(ABC):
           `finalize(depth - 1)` of the backend.
         """
         raise NotImplementedError  # pragma: no cover
-    def get_lock(self, name: str|None=None, /) -> AbstractContextManager:
+    def get_lock(self, name: str|None=None, /):
         """Returns an reentrant lock for desired concurrency."""
         raise NotImplementedError  # pragma: no cover
     def get_keys(self, pat: KeySearch=None, /):
         """Returns a list of keys according to the key search string."""
         raise NotImplementedError  # pragma: no cover
-    def get_meta(self, *args: VStoreKey,
-                 keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
+    def get_meta(self, *args: VStoreKey, keys: Iterable[VStoreKey]|None=None):
         """Gets the meta data of a list of `keys` and returns a map for existing keys.
         Notes: There is no atomicity guarantee for this method.
         """
         raise NotImplementedError  # pragma: no cover
-    def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
-                 /, dtype: FridTypeName='') -> FridValue|MissingType:
+    def get_frid(self, key: VStoreKey, sel: VStoreSel=None, /, dtype: FridTypeName=''):
         """Gets the value of the given `key` in the value store.
         - If `sel` is specified, uses the selection rule to select the partial data to return.
         - If `dtype` is set, use it as a type hint for the data type
@@ -60,53 +58,51 @@ class _BaseStore(ABC):
         those methods separately, or even call those functions using `sel` as a hint.
         """
         raise NotImplementedError  # pragma: no cover
-    def put_frid(self, key: VStoreKey, val: FridValue, /, flags=VSPutFlag.UNCHECKED) -> bool:
+    def put_frid(self, key: VStoreKey, val: FridValue, /, flags=VSPutFlag.UNCHECKED):
         """Puts the value `val` into the store for the given `key`.
         - Returns true iff the storage changes.
         """
         raise NotImplementedError  # pragma: no cover
-    def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
+    def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /):
         """Deletes the data associated with the given `key` from the store.
         - Returns true iff the storage changes.
         """
         raise NotImplementedError  # pragma: no cover
-    def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridValue|_T]:
+    def get_bulk(self, keys: Iterable[VStoreKey], /, alt=MISSING):
         """Returns the data associated with a list of keys in the store."""
         raise NotImplementedError  # pragma: no cover
-    def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED) -> int:
+    def put_bulk(self, data: BulkInput, /, flags=VSPutFlag.UNCHECKED):
         """Puts the data in the into the store.
         - `data`: either a key/value pairs or a list of tuple of key/value pairs
         """
         raise NotImplementedError  # pragma: no cover
-    def del_bulk(self, keys: Iterable[VStoreKey]) -> int:
+    def del_bulk(self, keys: Iterable[VStoreKey], /):
         """Deletes the keys from the storage and returns the number of keys deleted.
         - Returns the number of keys deleted from the store.
         """
         raise NotImplementedError  # pragma: no cover
 
-    def get_text(self, key: VStoreKey, /, alt: _T=None) -> str|_T:
+    def get_text(self, key: VStoreKey, /, alt=None):
         """Gets the text value associated with the given `key`.
         - If the entry exists but is not of text type, it can either return
           the string representation of the value, or reaise an exception.
         - Returns the `alt` value if the entry is missing.
         """
         raise NotImplementedError  # pragma: no cover
-    def get_blob(self, key: VStoreKey, /, alt: _T=None) -> BlobTypes|_T:
+    def get_blob(self, key: VStoreKey, /, alt=None):
         """Gets the blob value associated with the given `key`.
         - If the entry exists but is not of blob type, it can either return
           the binary representation of the value, or reaise an exception.
         - Returns the `alt` value if the entry is missing.
         """
         raise NotImplementedError  # pragma: no cover
-    def get_list(self, key: VStoreKey, sel: VSListSel=None,
-                 /, alt: _T=None) -> list[FridValue]|FridValue|_T:
+    def get_list(self, key: VStoreKey, sel: VSListSel=None, /, alt=None):
         """Gets the list value associated with the given `key`.
         - If the selector `sel` is specified, it will be applied to the value.
         - Returns the `alt` value if the entry is missing.
         """
         raise NotImplementedError  # pragma: no cover
-    def get_dict(self, key: VStoreKey, sel: VSDictSel=None,
-                 /, alt: _T=None) -> dict[str,FridValue]|FridValue|_T:
+    def get_dict(self, key: VStoreKey, sel: VSDictSel=None, /, alt=None):
         """Gets the dict value associated with the given `key`.
         - If the selector `sel` is specified, it will be applied to the value.
         - Returns the `alt` value if the entry is missing.
@@ -148,7 +144,7 @@ class ValueStore(_BaseStore):
                 return 0
             # If Atomicity for bulk is set and any other flags are set, we need to check
             return sum(int(self.put_frid(k, v, flags)) for k, v in pairs)
-    def del_bulk(self, keys: Iterable[VStoreKey]) -> int:
+    def del_bulk(self, keys: Iterable[VStoreKey], /) -> int:
         with self.get_lock():
             return sum(int(self.del_frid(k)) for k in keys)
     def get_text(self, key: VStoreKey, /, alt: _T=None) -> str|_T:
@@ -203,6 +199,7 @@ class AsyncStore(_BaseStore):
     @abstractmethod
     async def get_keys(self, pat: KeySearch=None, /) -> AsyncIterable[VStoreKey]:
         raise NotImplementedError  # pragma: no cover
+        yield   # Just to make sure the type is correct because most derived class uses yield
     @abstractmethod
     async def get_meta(self, *args: VStoreKey,
                        keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:

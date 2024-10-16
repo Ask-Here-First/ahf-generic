@@ -4,7 +4,7 @@ from concurrent.futures import Executor
 from contextlib import AbstractAsyncContextManager
 from typing import Concatenate, ParamSpec, TypeVar
 
-from ..typing import MISSING, BlobTypes, FridBeing, FridTypeName, FridTypeSize, FridValue
+from ..typing import MISSING, MissingType, BlobTypes, FridTypeName, FridTypeSize, FridValue
 from ..aio import gather_aiter
 from . import utils
 from .store import AsyncStore, ValueStore
@@ -30,12 +30,11 @@ class ValueProxyStore(ValueStore):
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return self._store.get_meta(*args, keys=keys)
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
-                 /, dtype: FridTypeName='') -> FridValue|FridBeing:
+                 /, dtype: FridTypeName='') -> FridValue|MissingType:
         return self._store.get_frid(key, sel, dtype)
-    def put_frid(self, key: VStoreKey, val: FridValue,
-                 /, flags=VSPutFlag.UNCHECKED) -> int|bool:
+    def put_frid(self, key: VStoreKey, val: FridValue, /, flags=VSPutFlag.UNCHECKED) -> bool:
         return self._store.put_frid(key, val, flags)
-    def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
+    def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         return self._store.del_frid(key, sel)
     def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridValue|_T]:
         return self._store.get_bulk(keys, alt)
@@ -71,12 +70,12 @@ class AsyncProxyStore(AsyncStore):
                        keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return await self._store.get_meta(*args, keys=keys)
     async def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
-                       /, dtype: FridTypeName='') -> FridValue|FridBeing:
+                       /, dtype: FridTypeName='') -> FridValue|MissingType:
         return await self._store.get_frid(key, sel, dtype)
     async def put_frid(self, key: VStoreKey, val: FridValue,
-                        /, flags=VSPutFlag.UNCHECKED) -> int|bool:
+                        /, flags=VSPutFlag.UNCHECKED) -> bool:
         return await self._store.put_frid(key, val, flags)
-    async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
+    async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         return await self._store.del_frid(key, sel)
     async def get_bulk(self, keys: Iterable[VStoreKey],
                        /, alt: _T=MISSING) -> list[FridValue|_T]:
@@ -135,12 +134,12 @@ class ValueProxyAsyncStore(AsyncStore):
                        keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return await self._asyncrun(self._store.get_meta, *utils.list_concat(args, keys))
     async def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
-                       /, dtype: FridTypeName='') -> FridValue|FridBeing:
+                       /, dtype: FridTypeName='') -> FridValue|MissingType:
         return await self._asyncrun(self._store.get_frid, key, sel, dtype)
     async def put_frid(self, key: VStoreKey, val: FridValue,
-                        /, flags=VSPutFlag.UNCHECKED) -> int|bool:
+                        /, flags=VSPutFlag.UNCHECKED) -> bool:
         return await self._asyncrun(self._store.put_frid, key, val, flags)
-    async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
+    async def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         return await self._asyncrun(self._store.del_frid, key, sel)
     async def get_bulk(self, keys: Iterable[VStoreKey],
                        /, alt: _T=MISSING) -> list[FridValue|_T]:
@@ -198,12 +197,11 @@ class AsyncProxyValueStore(ValueStore):
                  keys: Iterable[VStoreKey]|None=None) -> Mapping[VStoreKey,FridTypeSize]:
         return self._loop.run_until_complete(self._store.get_meta(*args, keys=keys))
     def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
-                 /, dtype: FridTypeName='') -> FridValue|FridBeing:
+                 /, dtype: FridTypeName='') -> FridValue|MissingType:
         return self._loop.run_until_complete(self._store.get_frid(key, sel, dtype))
-    def put_frid(self, key: VStoreKey, val: FridValue,
-                 /, flags=VSPutFlag.UNCHECKED) -> int|bool:
+    def put_frid(self, key: VStoreKey, val: FridValue, /, flags=VSPutFlag.UNCHECKED) -> bool:
         return self._loop.run_until_complete(self._store.put_frid(key, val, flags))
-    def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> int|bool:
+    def del_frid(self, key: VStoreKey, sel: VStoreSel=None, /) -> bool:
         return self._loop.run_until_complete(self._store.del_frid(key, sel))
     def get_bulk(self, keys: Iterable[VStoreKey], /, alt: _T=MISSING) -> list[FridValue|_T]:
         return self._loop.run_until_complete(self._store.get_bulk(keys, alt))

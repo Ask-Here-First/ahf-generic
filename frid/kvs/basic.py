@@ -87,7 +87,7 @@ class _SimpleBaseStore(Generic[_E]):
         if new_data is old_data:
             return PRESENT
         return self._encode(new_data)
-    def _del_sel(self, val: _E|MissingType, sel: VStoreSel) -> _E|FridBeing:
+    def _del_sel(self, val: _E|MissingType, sel: VStoreSel, /) -> _E|FridBeing:
         """Deletes the selected items in general.
         - Return he updated value (with PRESENT for no change and MISSING to delete entry).
         """
