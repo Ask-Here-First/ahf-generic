@@ -374,7 +374,7 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
         if data is None:
             return None
         return frid_type_size(self._decode(data))
-    async def get_keys(self, pat: KeySearch) -> AsyncIterator[VStoreKey]:
+    async def get_keys(self, pat: KeySearch=None) -> AsyncIterator[VStoreKey]:
         # TODO: speed up to convert KeySearch to a minimal superset Redis pattern
         keys = await self._aredis.keys()
         if not isinstance(keys, Iterable):

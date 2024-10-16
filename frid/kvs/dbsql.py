@@ -782,7 +782,7 @@ class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
 
     def get_lock(self, name: str|None=None):
         raise NotImplementedError
-    async def get_keys(self, pat: KeySearch) -> AsyncIterable[VStoreKey]:
+    async def get_keys(self, pat: KeySearch=None) -> AsyncIterable[VStoreKey]:
         cmd = self._get_keys_select(pat)
         async with self._engine.begin() as conn:
             for x in self._get_keys_result(await conn.execute(cmd), pat):

@@ -201,7 +201,7 @@ class AsyncStore(_BaseStore):
     def get_lock(self, name: str|None=None, /) -> AbstractAsyncContextManager:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    def get_keys(self, pat: KeySearch=None, /) -> AsyncIterable[VStoreKey]:
+    async def get_keys(self, pat: KeySearch=None, /) -> AsyncIterable[VStoreKey]:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
     async def get_meta(self, *args: VStoreKey,
