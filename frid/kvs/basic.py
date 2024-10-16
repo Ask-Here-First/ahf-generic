@@ -5,9 +5,10 @@ import asyncio, threading
 from dataclasses import dataclass, field
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping
-from typing import Any, Concatenate, Generic, ParamSpec, TypeVar
+from typing import Any, Concatenate, Generic, ParamSpec, TypeVar, TypedDict
 from urllib.parse import urlparse
 
+from ..typing import Unpack
 from ..typing import MISSING, PRESENT, BlobTypes, MissingType, frid_type_size
 from ..typing import FridTypeName, FridTypeSize, FridValue, FridArray, FridBeing, StrKeyMap
 from ..aio import CountedAsyncLock
@@ -36,14 +37,14 @@ class _SimpleBaseStore(Generic[_E]):
         """Decodes the data from a generic encoded `val` (bytes, string, etc)."""
         raise NotImplementedError
 
-    def _get(self, key: str, /) -> _E|MissingType:
+    def _get(self, key: str, /):
         """Get the whole data from the store associated to the given `key`."""
         raise NotImplementedError  # pragma: no cover
-    def _put(self, key: str, val: _E, /) -> bool:
+    def _put(self, key: str, val: _E, /):
         """Write the whole data into the store associated to the given `key`."""
         raise NotImplementedError  # pragma: no cover
     def _rmw(self, key: str, mod: ModFunc[_E,_P],
-             /, flags: VSPutFlag, *args: _P.args, **kwargs: _P.kwargs) -> bool:
+             /, flags: VSPutFlag, *args: _P.args, **kwargs: _P.kwargs):
         """The read-modify-write process for the value of the `key` in the store.
         - `mod`: the callback function to be called with:
             + The current value as the first argument (or MISSING);
@@ -56,7 +57,7 @@ class _SimpleBaseStore(Generic[_E]):
         - This method returns True iff the storage is changed.
         """
         raise NotImplementedError  # pragma: no cover
-    def _del(self, key: str, /) -> bool:
+    def _del(self, key: str, /):
         """Delete the data in the store associated to the given `key`.
         - Returns boolean to indicate if the key is deleted (or if the store is changed).
         """
@@ -144,17 +145,17 @@ class SimpleValueStore(_SimpleBaseStore[_E], ValueStore):
 class SimpleAsyncStore(_SimpleBaseStore[_E], AsyncStore):
     """This is the base class of simple async store that loads and saves records in full."""
     @abstractmethod
-    async def _get(self, key: str, /) -> _E|MissingType:  # type: ignore -- changing to async
+    async def _get(self, key: str, /) -> _E|MissingType:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    async def _put(self, key: str, val: _E, /) -> bool:   # type: ignore -- changing to async
+    async def _put(self, key: str, val: _E, /) -> bool:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    async def _rmw(self, key: str, mod: ModFunc[_E,_P],   # type: ignore -- changing to async
+    async def _rmw(self, key: str, mod: ModFunc[_E,_P],
                    /, flags: VSPutFlag, *args: _P.args, **kwargs: _P.kwargs) -> bool:
         raise NotImplementedError  # pragma: no cover
     @abstractmethod
-    async def _del(self, key: str, /) -> bool:   # type: ignore -- changing to async
+    async def _del(self, key: str, /) -> bool:
         raise NotImplementedError  # pragma: no cover
 
     async def get_frid(self, key: VStoreKey, sel: VStoreSel=None,
@@ -287,32 +288,34 @@ class BinaryStoreMixin:
     Also _insert_prefix() and _remove_prefix() can be overridden to handle
     prefix matching add/or to extra information after the prefix.
     """
-    def __init__(
-            self, *, frid_prefix: bytes=b'',
-            text_prefix: bytes|None=None, blob_prefix: bytes|None=None,
-            list_prefix: bytes|None=None, dict_prefix: bytes|None=None,
-            frid_loader_params: FridLoader.Params={}, frid_dumper_params: FridDumper.Params={},
-            **kwargs
-    ):
-        super().__init__(**kwargs)
-        self._frid_prefix = frid_prefix
-        self._text_prefix = text_prefix
-        self._blob_prefix = blob_prefix
-        self._list_prefix = list_prefix
-        self._dict_prefix = dict_prefix
-        self._frid_loader_params = frid_loader_params
-        self._frid_dumper_params = frid_dumper_params
+    class Params(TypedDict, total=False):
+        frid_prefix: bytes
+        text_prefix: bytes
+        blob_prefix: bytes
+        list_prefix: bytes
+        dict_prefix: bytes
+        frid_loader_params: FridLoader.Params
+        frid_dumper_params: FridDumper.Params
+    def __init__(self, **kwargs: Unpack[Params]):
+        self._frid_prefix = kwargs.pop('frid_prefix', b'')
+        self._text_prefix = kwargs.pop('text_prefix', None)
+        self._blob_prefix = kwargs.pop('blob_prefix', None)
+        self._list_prefix = kwargs.pop('list_prefix', None)
+        self._dict_prefix = kwargs.pop('dict_prefix', None)
+        self._frid_loader_params: FridLoader.Params = kwargs.pop('frid_loader_params', {})
+        self._frid_dumper_params: FridDumper.Params = kwargs.pop('frid_dumper_params', {})
+        super().__init__(**kwargs)  # type: ignore --- need dict Unpacker
         decoders: list[tuple[bytes,Callable[[bytes],FridValue]]] = []
-        if frid_prefix is not None:
-            decoders.append((frid_prefix, self._decode_frid))
-        if text_prefix is not None:
-            decoders.append((text_prefix, self._decode_text))
-        if blob_prefix is not None:
-            decoders.append((blob_prefix, self._decode_blob))
-        if list_prefix is not None:
-            decoders.append((list_prefix, self._decode_list))
-        if dict_prefix is not None:
-            decoders.append((dict_prefix, self._decode_dict))
+        if self._frid_prefix is not None:
+            decoders.append((self._frid_prefix, self._decode_frid))
+        if self._text_prefix is not None:
+            decoders.append((self._text_prefix, self._decode_text))
+        if self._blob_prefix is not None:
+            decoders.append((self._blob_prefix, self._decode_blob))
+        if self._list_prefix is not None:
+            decoders.append((self._list_prefix, self._decode_list))
+        if self._dict_prefix is not None:
+            decoders.append((self._dict_prefix, self._decode_dict))
         decoders.sort(reverse=True, key=lambda x: len(x[0]))
         self._decoders = dict(decoders)
         if len(self._decoders) < len(decoders):
@@ -477,13 +480,23 @@ class StreamStoreMixin(BinaryStoreMixin, _SimpleBaseStore[bytes]):
 
     Appendable data types includes text, blob, list, and dict.
     """
-    def __init__(self, *, header_head=b"#!", header_link=b"@[", header_tail=b"]\f", **kwargs):
+    class Params(BinaryStoreMixin.Params, total=False):
+        header_head: bytes
+        header_link: bytes
+        header_tail: bytes
+        frid_loader_params: FridLoader.Params
+        frid_dumper_params: FridDumper.Params
+    def __init__(self, **kwargs: Unpack[Params]):
+        header_head = kwargs.pop('header_head', b"#!")
+        header_link = kwargs.pop('header_link', b"@[")
+        header_tail = kwargs.pop('header_tail', b"]\f")
         super().__init__(
             frid_prefix=header_head,
             text_prefix=(header_head + b'text' + header_link),
             blob_prefix=(header_head + b'blob' + header_link),
             list_prefix=(header_head + b'list' + header_link),
             dict_prefix=(header_head + b'dict' + header_link),
+            **kwargs  # type: ignore -- need dict unpacker
         )
         self._header_head = header_head
         self._header_link = header_link

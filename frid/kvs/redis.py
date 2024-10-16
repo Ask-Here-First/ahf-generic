@@ -1,12 +1,13 @@
 import os, traceback
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
 from collections.abc import AsyncIterator, Iterable, Iterator, Mapping, Sequence
-from typing import Any, TypeVar, cast, overload
+from typing import TypeVar, TypedDict, cast, overload
 from logging import error
 
 import redis
 from redis import asyncio as aredis
 
+from ..typing import Unpack
 from ..typing import MISSING, FridBeing, FridTypeName, MissingType, frid_type_size
 from ..typing import FridArray, FridTypeSize, FridValue, StrKeyMap
 from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap, is_list_like
@@ -22,25 +23,30 @@ _T = TypeVar('_T')
 
 class _RedisBaseStore(BinaryStoreMixin):
     NAMESPACE_SEP = '\t'
-    def __init__(self, name_prefix: str='', *, frid_prefix: bytes=b'#!',
-                 text_prefix: bytes|None=b'', blob_prefix: bytes|None=b'#=',
-                 **kwargs):
-        super().__init__(frid_prefix=frid_prefix, text_prefix=text_prefix,
-                         blob_prefix=blob_prefix, **kwargs)
-        self._name_prefix = name_prefix
+    class EnvParams(TypedDict, total=False):
+        host: str
+        port: int
+        username: str
+        password: str
+    class Params(BinaryStoreMixin.Params, EnvParams, total=False):
+        name_prefix: str
+    def __init__(self,  **kwargs: Unpack[Params]):
+        self._name_prefix = kwargs.pop('name_prefix', '')
+        kwargs.setdefault('frid_prefix', b'#!')
+        kwargs.setdefault('text_prefix', b'')
+        kwargs.setdefault('blob_prefix', b'#=')
+        super().__init__(**kwargs)
     @classmethod
-    def _redis_args(cls, kwargs: dict[str,Any]) -> dict[str,Any]:
-        env_set = {
-            'FRID_REDIS_HOST': 'host',
-            'FRID_REDIS_PORT': 'port',
-            'FRID_REDIS_USER': 'username',
-            'FRID_REDIS_PASS': 'password',
-        }
-        out = {}
-        for key, val in env_set.items():
-            data = kwargs.pop(val, os.getenv(key))
-            if data is not None:
-                out[val] = data
+    def _redis_args(cls, kwargs: Params) -> EnvParams:
+        out: _RedisBaseStore.EnvParams = {}
+        if (host := kwargs.pop('host', os.getenv('FRID_REDIS_HOST'))) is not None:
+            out['host'] = host
+        if (port := kwargs.pop('port', os.getenv('FRID_REDIS_PORT'))) is not None:
+            out['port'] = int(port)
+        if (username := kwargs.pop('username', os.getenv('FRID_REDIS_USER'))) is not None:
+            out['username'] = username
+        if (password := kwargs.pop('password', os.getenv('FRID_REDIS_PASS'))) is not None:
+            out['password'] = password
         return out
     @classmethod
     def _build_name_prefix(cls, base: str, name: str, *args: str) -> str:
@@ -100,11 +106,13 @@ class _RedisBaseStore(BinaryStoreMixin):
 
 class RedisValueStore(_RedisBaseStore, ValueStore):
     URL_SCHEME = 'redis'
-    def __init__(self, *args, _redis: redis.Redis|None=None, **kwargs):
+    def __init__(self, *args, _redis: redis.Redis|None=None,
+                 **kwargs: Unpack[_RedisBaseStore.Params]):
         self._redis = redis.Redis(**self._redis_args(kwargs)) if _redis is None else _redis
         super().__init__(*args, **kwargs)
     @classmethod
-    def from_url(cls, url: str, *args, **kwargs) -> 'RedisValueStore':
+    def from_url(cls, url: str, *args,
+                 **kwargs: Unpack[_RedisBaseStore.Params]) -> 'RedisValueStore':
         # Allow passing an URL through but the content is not checked
         assert url.startswith('redis://')
         redis_kwargs = cls._redis_args(kwargs)
@@ -133,7 +141,7 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
             return ('list', self._check_type(self._redis.llen(name), int, 0))
         if t == 'hash':
             return ('dict', self._check_type(self._redis.hlen(name), int, 0))
-        data: bytes|None = self._redis.get(name) # type: ignore
+        data: bytes|None = self._redis.get(name)  # type: ignore
         if data is None:
             return None
         return frid_type_size(self._decode(data))
@@ -332,11 +340,13 @@ class RedisValueStore(_RedisBaseStore, ValueStore):
         ), int, 0)
 
 class RedisAsyncStore(_RedisBaseStore, AsyncStore):
-    def __init__(self, *args, _aredis: aredis.Redis|None=None, **kwargs):
+    def __init__(self, *args, _aredis: aredis.Redis|None=None,
+                 **kwargs: Unpack[_RedisBaseStore.Params]):
         self._aredis = aredis.Redis(**self._redis_args(kwargs)) if _aredis is None else _aredis
         super().__init__(*args, **kwargs)
     @classmethod
-    async def from_url(cls, url: str, *args, **kwargs) -> 'RedisAsyncStore':
+    async def from_url(cls, url: str, *args,
+                       **kwargs: Unpack[_RedisBaseStore.Params]) -> 'RedisAsyncStore':
         # Allow passing an URL through but the content is not checked
         assert url.startswith('redis://')
         redis_kwargs = cls._redis_args(kwargs)

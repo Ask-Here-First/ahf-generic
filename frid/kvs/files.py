@@ -6,6 +6,7 @@ from logging import error
 from typing import BinaryIO, ParamSpec, TypeVar
 from urllib.parse import quote, unquote, urlparse
 
+from ..typing import Unpack
 from ..typing import MISSING, PRESENT, BlobTypes, FridBeing, FridTypeSize, MissingType
 from ..typing import frid_type_size
 from ..lib import url_path_to_path
@@ -190,7 +191,7 @@ class FileIOValueStore(StreamValueStore):
     LCK_FILE_EXT = ".lck"
     KVS_FILE_EXT = ".kvs"
     TMP_FILE_EXT = ".tmp"
-    def __init__(self, root: os.PathLike|str, /, **kwargs):
+    def __init__(self, root: os.PathLike|str, /, **kwargs: Unpack[StreamValueStore.Params]):
         super().__init__(**kwargs)
         if isinstance(root, str) and root.startswith("file://"):
             root = url_path_to_path(root[7:])
@@ -198,7 +199,8 @@ class FileIOValueStore(StreamValueStore):
         if not os.path.isdir(self._root):
             os.makedirs(self._root, exist_ok=True)
     @classmethod
-    def from_url(cls, url: str, **kwargs) -> 'FileIOValueStore':
+    def from_url(cls, url: str,
+                 **kwargs: Unpack[StreamValueStore.Params]) -> 'FileIOValueStore':
         # Allow passing an URL through but the content is not checked
         result = urlparse(url)
         if result.scheme != cls.URL_SCHEME:
@@ -211,7 +213,7 @@ class FileIOValueStore(StreamValueStore):
                             *(self._encode_name(x) + self.SUBSTORE_EXT for x in args))
         return self.__class__(root)
 
-    def get_keys(self, pat: KeySearch=None, /) -> Iterable[VStoreKey]: # type: ignore
+    def get_keys(self, pat: KeySearch=None, /) -> Iterable[VStoreKey]:
         for (path, dirs, files) in os.walk(self._root):
             relpath = os.path.relpath(path, self._root)
             if '!' in relpath:

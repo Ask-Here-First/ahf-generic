@@ -674,7 +674,8 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
 
     @classmethod
     def from_url(cls, url: str, table: Table|str, /,
-                 *, engine_args: Mapping[str,Any]|None=None, **kwargs):
+                 *, engine_args: Mapping[str,Any]|None=None,
+                 **kwargs: Unpack[_SqlBaseStore.Params]):
         """The exmples for URL format for SQL Value Stores are:
         - SQLite: "sqlite+pysqlite:////abs/path/to/file"
         - PostgreSQL: "postgresql+psycopg://postgres:PASSWORD@HOST"
@@ -773,7 +774,8 @@ class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
         super().__init__(table, **kwargs)
     @classmethod
     async def from_url(cls, url: str, table_name: Table|str, /,
-                       *, engine_args: Mapping[str,Any]|None=None, **kwargs):
+                       *, engine_args: Mapping[str,Any]|None=None,
+                       **kwargs: Unpack[_SqlBaseStore.Params]):
         """The exmples for URL format for SQL Async Stores are:
         - SQLite: "sqlite+aiosqlite:////abs/path/to/file"
           (requires `pip3 install aiosqlite`)
