@@ -15,8 +15,8 @@ from ..chrono import parse_datetime, strfr_datetime, datetime, timezone
 from ..guards import is_frid_array, is_frid_skmap
 from .._basic import frid_mingle
 from ..lib.texts import str_encode_nonprints, str_decode_nonprints
-from .._dumps import dump_frid_str
-from .._loads import load_frid_str
+from .._dumps import dump_frid_str, FridDumper
+from .._loads import load_frid_str, FridLoader
 from .store import AsyncStore, ValueStore
 from .utils import KeySearch, VSPutFlag, VStoreKey, VStoreSel, frid_delete, frid_select, list_concat, match_key
 
@@ -287,15 +287,21 @@ class BinaryStoreMixin:
     Also _insert_prefix() and _remove_prefix() can be overridden to handle
     prefix matching add/or to extra information after the prefix.
     """
-    def __init__(self, *, frid_prefix: bytes=b'',
-                 text_prefix: bytes|None=None, blob_prefix: bytes|None=None,
-                 list_prefix: bytes|None=None, dict_prefix: bytes|None=None, **kwargs):
+    def __init__(
+            self, *, frid_prefix: bytes=b'',
+            text_prefix: bytes|None=None, blob_prefix: bytes|None=None,
+            list_prefix: bytes|None=None, dict_prefix: bytes|None=None,
+            frid_loader_params: FridLoader.Params={}, frid_dumper_params: FridDumper.Params={},
+            **kwargs
+    ):
         super().__init__(**kwargs)
         self._frid_prefix = frid_prefix
         self._text_prefix = text_prefix
         self._blob_prefix = blob_prefix
         self._list_prefix = list_prefix
         self._dict_prefix = dict_prefix
+        self._frid_loader_params = frid_loader_params
+        self._frid_dumper_params = frid_dumper_params
         decoders: list[tuple[bytes,Callable[[bytes],FridValue]]] = []
         if frid_prefix is not None:
             decoders.append((frid_prefix, self._decode_frid))
@@ -385,7 +391,7 @@ class BinaryStoreMixin:
         """Encodes general frid-supported data.
         - This method is used no specific encoding is specified.
         """
-        return dump_frid_str(data).encode()
+        return dump_frid_str(data, **self._frid_dumper_params).encode()
     def _encode_blob(self, data: BlobTypes, /) -> bytes:
         """Encodes blob (binary data)."""
         return bytes(data)
@@ -394,7 +400,8 @@ class BinaryStoreMixin:
         return data.encode()
     def _encode_list(self, data: FridArray, /) -> bytes:
         """Encodes a list as lines."""
-        out: list[bytes] = [dump_frid_str(item).encode() for item in data]
+        out: list[bytes] = [dump_frid_str(item, **self._frid_dumper_params).encode()
+                            for item in data]
         out.append(b'')
         return b'\n'.join(out)
     def _encode_dict(self, data: StrKeyMap, /) -> bytes:
@@ -406,7 +413,8 @@ class BinaryStoreMixin:
         out: list[bytes] = []
         for k, v in data.items():
             line = str_encode_nonprints(k, '\x7f')
-            line += "\t" + (v.strfr() if isinstance(v, FridBeing) else dump_frid_str(v))
+            line += "\t" + (v.strfr() if isinstance(v, FridBeing)
+                            else dump_frid_str(v, **self._frid_dumper_params))
             out.append(line.encode())
         out.append(b'')
         return b'\n'.join(out)
@@ -435,7 +443,7 @@ class BinaryStoreMixin:
         raise ValueError(f"Invalid byte encoding of {len(val)} bytes")
     def _decode_frid(self, val: bytes, /) -> FridValue:
         """Decode the value as the generic frid representation."""
-        return load_frid_str(val.decode())
+        return load_frid_str(val.decode(), **self._frid_dumper_params)
     def _decode_text(self, val: bytes, /) -> str:
         """Decode the value as the string representation."""
         return val.decode()
@@ -444,7 +452,8 @@ class BinaryStoreMixin:
         return val
     def _decode_list(self, val: bytes, /) -> FridArray:
         """Decode the value as the representation for a list."""
-        return [load_frid_str(line.decode()) for line in val.splitlines()]
+        return [load_frid_str(line.decode(), **self._frid_loader_params)
+                for line in val.splitlines()]
     def _decode_dict(self, val: bytes, /) -> StrKeyMap:
         """Decode the value as the representation for a dict."""
         out = {}
@@ -454,7 +463,7 @@ class BinaryStoreMixin:
             if tab_str:
                 being = FridBeing.parse(val_str)
                 if being is None:
-                    out[key] = load_frid_str(val_str)
+                    out[key] = load_frid_str(val_str, **self._frid_loader_params)
                 elif being:
                     out[key] = PRESENT
                 else:

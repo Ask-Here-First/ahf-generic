@@ -8,7 +8,7 @@ from urllib.parse import quote, unquote, urlparse
 
 from ..typing import MISSING, PRESENT, BlobTypes, FridBeing, FridTypeSize, MissingType
 from ..typing import frid_type_size
-from ..lib.paths import url_path_to_path
+from ..lib import url_path_to_path
 from .utils import KeySearch, VSPutFlag, VStoreKey, list_concat, match_key
 from .basic import ModFunc, SimpleValueStore, StreamStoreMixin
 

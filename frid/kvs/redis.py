@@ -10,7 +10,7 @@ from redis import asyncio as aredis
 from ..typing import MISSING, FridBeing, FridTypeName, MissingType, frid_type_size
 from ..typing import FridArray, FridTypeSize, FridValue, StrKeyMap
 from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap, is_list_like
-from ..lib.texts import str_encode_nonprints, str_decode_nonprints
+from ..lib import str_encode_nonprints, str_decode_nonprints
 from .._basic import frid_mingle
 from . import utils
 from .store import ValueStore, AsyncStore

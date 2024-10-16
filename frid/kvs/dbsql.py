@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterable, Collection, Iterable, Mapping, Sequence
 from logging import error
-from typing import Any, TypeGuard, TypeVar
+from typing import Any, TypeGuard, TypeVar, TypedDict
 
 from sqlalchemy import (
     Engine, Connection, MetaData, Table, Row, Column, ColumnElement, CursorResult,
@@ -11,6 +11,7 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine, AsyncConnection
 from sqlalchemy import types
 
+from ..typing import Unpack
 from ..typing import (
     MISSING, BlobTypes, DateTypes, FridArray, FridBeing,
     FridTypeName, FridTypeSize, FridValue, MissingType, StrKeyMap, frid_type_size, get_type_name
@@ -18,8 +19,8 @@ from ..typing import (
 from ..guards import as_kv_pairs, is_frid_array, is_text_list_like
 from ..chrono import datetime, dateonly, timeonly
 from .._basic import frid_mingle
-from .._dumps import dump_frid_str
-from .._loads import load_frid_str
+from .._dumps import dump_frid_str, FridDumper
+from .._loads import load_frid_str, FridLoader
 from .store import AsyncStore, ValueStore
 from .utils import (
     BulkInput, KeySearch, VSPutFlag, VStoreKey, VStoreSel, is_dict_sel, is_list_sel,
@@ -36,45 +37,67 @@ class _SqlBaseStore:
     # https://docs.sqlalchemy.org/en/21/core/pooling.html#disconnect-handling-pessimistic
     # Also see https://stackoverflow.com/questions/55457069
     engine_args = {'pool_pre_ping': True, 'pool_recycle': 300}
-    def __init__(
-            self, table: Table,
-            *, key_fields: Sequence[str]|str|None=None, val_fields: Sequence[str]|str|None=None,
-            frid_field: str|bool=False, text_field: str|bool=False, blob_field: str|bool=False,
-            row_filter: Mapping[str,SqlTypes]|None=None,
-            col_values: Mapping[str,SqlTypes]|None=None,
-            seq_subkey: str|bool=False, map_subkey: str|bool=False,
-    ):
+
+    class Params(TypedDict, total=False):
+        key_fields: Sequence[str]|str
+        val_fields: Sequence[str]|str
+        frid_field: str|bool
+        text_field: str|bool
+        blob_field: str|bool
+        row_filter: Mapping[str,SqlTypes]
+        col_values: Mapping[str,SqlTypes]
+        seq_subkey: str|bool
+        map_subkey: str|bool
+        frid_loader_params: FridLoader.Params
+        frid_dumper_params: FridDumper.Params
+    def __init__(self, table: Table, **kwargs: Unpack[Params]):
         self._table = table
+        row_filter = kwargs.get('row_filter')
+        col_values = kwargs.get('col_values')
         self._where_conds: list[ColumnElement[bool]] = self._build_where(table, row_filter)
         self._insert_data: Mapping[str,SqlTypes] = dict_concat(row_filter, col_values)
         # For keys
-        self._seq_key_col: Column|None = self._find_sub_key_col(table, seq_subkey, True)
-        self._map_key_col: Column|None = self._find_sub_key_col(table, map_subkey, False)
+        self._seq_key_col: Column|None = self._find_sub_key_col(
+            table, kwargs.get('seq_subkey', False), True
+        )
+        self._map_key_col: Column|None = self._find_sub_key_col(
+            table, kwargs.get('map_subkey', False), False
+        )
         exclude: list[str] = []
         if self._seq_key_col is not None:
             exclude.append(self._seq_key_col.name)
         if self._map_key_col is not None:
             exclude.append(self._map_key_col.name)
-        self._key_columns: list[Column] = self._find_key_columns(table, key_fields, exclude)
+        self._key_columns: list[Column] = self._find_key_columns(
+            table, kwargs.get('key_fields'), exclude
+        )
         exclude.extend(col.name for col in self._key_columns)
         # For values
-        if frid_field is True and text_field is True:
+        if kwargs.get('frid_field') is True and kwargs.get('text_field') is True:
             raise ValueError("frid_field and text_field cannot both be true; use column names")
         if col_values:
             exclude.extend(col_values.keys())
-        self._frid_column: Column|None = self._find_column(table, frid_field, exclude,
-                                                           types.String)
+        self._frid_column: Column|None = self._find_column(
+            table, kwargs.get('frid_field', False), exclude, types.String
+        )
         if self._frid_column is not None:
             exclude.append(self._frid_column.name)
-        self._text_column: Column|None = self._find_column(table, text_field, exclude,
-                                                           types.String)
+        self._text_column: Column|None = self._find_column(
+            table, kwargs.get('text_field', False), exclude, types.String
+        )
         if self._text_column is not None:
             exclude.append(self._text_column.name)
-        self._blob_column: Column|None = self._find_column(table, blob_field, exclude,
-                                                           types.LargeBinary)
+        self._blob_column: Column|None = self._find_column(
+            table, kwargs.get('blob_field', False), exclude, types.LargeBinary
+        )
         if self._blob_column is not None:
             exclude.append(self._blob_column.name)
-        self._val_columns: list[Column] = self._find_val_columns(table, val_fields, exclude)
+        self._val_columns: list[Column] = self._find_val_columns(
+            table, kwargs.get('val_fields'), exclude
+        )
+
+        self._frid_loader_params: FridLoader.Params = kwargs.get('frid_loader_params', {})
+        self._frid_dumper_params: FridDumper.Params = kwargs.get('frid_dumper_params', {})
         # TODO: if row is autoincrement integer is part of primary key then it is for a list
         # If set to True, find such a column
         # self._multi_rows = table.c[multi_rows] if isinstance(multi_rows, str) else multi_rows
@@ -280,7 +303,7 @@ class _SqlBaseStore:
             if not val:
                 return out
         if self._frid_column is not None:
-            out[self._frid_column.name] = dump_frid_str(val)
+            out[self._frid_column.name] = dump_frid_str(val, **self._frid_dumper_params)
             return out
         raise ValueError(f"No column to store data of type {type(val)}")
     def _extract_row_value(
@@ -315,7 +338,7 @@ class _SqlBaseStore:
                 continue
             if self._frid_column is not None and col.name == self._frid_column.name:
                 if val and isinstance(val, str):
-                    frid_val = load_frid_str(val)
+                    frid_val = load_frid_str(val, **self._frid_loader_params)
                 else:
                     error(f"Data in column {col.name} is not types.String: {type(val)}")
                 continue
@@ -644,10 +667,10 @@ class _SqlBaseStore:
 class DbsqlValueStore(_SqlBaseStore, ValueStore):
     def __init__(self, conn_url: str, table: Table, /,
                  *, engine_args: Mapping[str,Any]|None=None, _engine: Engine|None=None,
-                 **kwargs):
+                 **kwargs: Unpack[_SqlBaseStore.Params]):
         eng_args = dict_concat(self.engine_args, engine_args)
         self._engine = create_engine(conn_url, **eng_args) if _engine is None else _engine
-        super().__init__(table=table, **kwargs)
+        super().__init__(table, **kwargs)
 
     @classmethod
     def from_url(cls, url: str, table: Table|str, /,
@@ -744,7 +767,7 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
 class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
     def __init__(self, conn_url: str, table: Table, /,
                  *, engine_args: Mapping[str,Any]|None=None, _engine: AsyncEngine|None=None,
-                 **kwargs):
+                 **kwargs: Unpack[_SqlBaseStore.Params]):
         eng_args = dict_concat(self.engine_args, engine_args)
         self._engine = create_async_engine(conn_url, **eng_args) if _engine is None else _engine
         super().__init__(table, **kwargs)
