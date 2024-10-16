@@ -77,15 +77,15 @@ class MultilineFormatMixin(PrettyPrint):
         break_quoted: bool
         newline: str
         newline_after: str
-    def __init__(self, *args, indent: int|str|None=None, extra_comma=False,
-                 break_quoted: bool=False,
-                 newline: str='\n', newline_after: str="{[", **kwargs):
-        super().__init__(*args, **kwargs)
-        self.indent = ' ' * indent if isinstance(indent, int) else indent
-        self.newline = newline
-        self.extra_comma = extra_comma
-        self.break_quoted = break_quoted
-        self.newline_after = newline_after
+    def __init__(self, *args, **kwargs: Unpack[PPParams]):
+        self.indent = ' ' * indent if isinstance((
+            indent := kwargs.pop('indent', None)
+        ), int) else indent
+        self.newline = kwargs.pop('newline', '\n')
+        self.extra_comma = kwargs.pop('extra_comma', False)
+        self.break_quoted = kwargs.pop('break_quoted', False)
+        self.newline_after = kwargs.pop('newline_after', "{[")
+        super().__init__(*args, **kwargs)  # type: ignore  -- No deconstructor/unpacker for map
         self._level = 0
         self._delta: list[bool] = []
         self._indented_back = False
@@ -191,36 +191,29 @@ class FridDumper(PrettyPrint):
         print_date: Callable[[DateTypes],str|None]
         print_blob: Callable[[BlobTypes],str|None]
         print_user: Callable[[Any,str],str|None]
-    def __init__(self, *args, json_level: Literal[0,1,5]=0, escape_seq: str|None=None,
-                 ascii_only: bool=False,
-                 mixin_args: Iterable[ValueArgs[type[FridMixin]]]|None=None,
-                 print_real: Callable[[int|float],str|None]|None=None,
-                 print_date: Callable[[DateTypes],str|None]|None=None,
-                 print_blob: Callable[[BlobTypes],str|None]|None=None,
-                 print_user: Callable[[Any,str],str|None]|None=None,
-                 **kwargs):
-        super().__init__(*args, **kwargs)
-        self.json_level = json_level
-        self.escape_seq = escape_seq
-        self.ascii_only = ascii_only
-        self.print_real = print_real
-        self.print_date = print_date
-        self.print_blob = print_blob
-        self.print_user = print_user
+    def __init__(self, *args, **kwargs: Unpack[Params]):
+        self.json_level = kwargs.pop('json_level', 0)
+        self.escape_seq = kwargs.pop('escape_seq', None)
+        self.ascii_only = kwargs.pop('ascii_only', False)
+        self.print_real = kwargs.pop('print_real', None)
+        self.print_date = kwargs.pop('print_date', None)
+        self.print_blob = kwargs.pop('print_blob', None)
+        self.print_user = kwargs.pop('print_user', None)
         self.mixin_args: dict[type[FridMixin],ValueArgs[type[FridMixin]]] = {}
-        if mixin_args:
+        if (mixin_args := kwargs.pop('mixin_args', None)):
             for item in mixin_args:
                 self.mixin_args[item.data] = item
+        super().__init__(*args, **kwargs)  # type: ignore -- wait until dict unpack in Python
         if not self.json_level:
             pairs = EXTRA_ESCAPE_PAIRS
             hex_prefix = ('x', 'u', 'U')
-        elif json_level == 5:
+        elif self.json_level == 5:
             pairs = JSON5_ESCAPE_PAIRS
             hex_prefix = ('x', 'u', None)
         else:
             pairs = JSON1_ESCAPE_PAIRS
             hex_prefix = (None, 'u', None)
-        if ascii_only:
+        if self.ascii_only:
             self.se_encoder = StringEscapeEncode(pairs, '\\')
         else:
             self.se_encoder = StringEscapeEncode(pairs, '\\', hex_prefix)

@@ -1,5 +1,4 @@
 import math
-from dataclasses import dataclass, field
 from logging import warning
 from collections.abc import Callable, Iterable, Mapping, Sequence, Set
 from typing import  Any, Literal, NoReturn, TextIO, TypeVar, TypedDict, cast, overload
@@ -55,6 +54,51 @@ MixinTypeSpec = type[FridMixin]|ValueArgs[type[FridMixin]]
 
 # Unforntately Unpack does not support dataclasses so we have to repeat
 
+class FridLoaderConfig:
+    class Params(TypedDict, total=False):
+        comments: Sequence[str|tuple[str,str]]
+        lineends: str
+        json_level: Literal[0,1,5]
+        escape_seq: str
+        loose_mode: bool
+        frid_basic: Iterable[BasicTypeSpec]
+        frid_mixin: Mapping[str,MixinTypeSpec]|Iterable[MixinTypeSpec]
+        parse_real: Callable[[str],int|float|None]
+        parse_date: Callable[[str],DateTypes|None]
+        parse_blob: Callable[[str],BlobTypes|None]
+        parse_expr: Callable[[str,str],FridValue]
+        parse_misc: Callable[[str,str],FridValue]
+
+    def __init__(self, **kwargs: Unpack[Params]):
+        self.comments = kwargs.get('comments', ())
+        if not all(item if isinstance(item, str) else (
+            isinstance(item, tuple) and len(item) == 2
+            and all(isinstance(x, str) for x in item)
+        ) for item in self.comments):
+            raise ValueError(f"Invalid comments configuration: {self.comments}")
+
+        self.lineends = kwargs.get('lineends', "\n\v\f")
+        self.json_level = kwargs.get('json_level', 0)
+        self.escape_seq = kwargs.get('escape_seq')
+        self.loose_mode = kwargs.get('loose_mode', False)
+        self.frid_basic = kwargs.get('frid_basic', ())
+
+        frid_mixin = kwargs.get('frid_mixin')
+        self.frid_mixin: Mapping[str,MixinTypeSpec] = {}
+        if isinstance(frid_mixin, Mapping):
+            self.frid_mixin.update(cast(Mapping[str,MixinTypeSpec], frid_mixin))
+        elif frid_mixin is not None:
+            for entry in frid_mixin:
+                data = entry.data if isinstance(entry, ValueArgs) else entry
+                for key in data.frid_keys():
+                    self.frid_mixin[key] = entry
+
+        self.parse_real = kwargs.get('parse_real')
+        self.parse_date = kwargs.get('parse_date')
+        self.parse_blob = kwargs.get('parse_blob')
+        self.parse_expr = kwargs.get('parse_expr')
+        self.parse_misc = kwargs.get('parse_misc')
+
 class FridLoader:
     """This class loads data in buffer into Frid-allowed data structures.
 
@@ -92,62 +136,9 @@ class FridLoader:
     - `parse_misc`: Callback to parse any unparsable data; must return a Frid
       compatible type. The function accepts an additional path parameter for path
       in the tree.
-
-    Note: `frid_mixin` is more strict than what is in `FridLoaderParams`.
     """
-    @dataclass
-    class Config:
-        comments: Sequence[str|tuple[str,str]]=()
-        lineends: str="\n\v\f"
-        json_level: Literal[0,1,5] = 0
-        escape_seq: str|None = None
-        loose_mode: bool = False
-        frid_basic: Iterable[BasicTypeSpec] = field(default_factory=tuple)
-        frid_mixin: Mapping[str,MixinTypeSpec] = field(default_factory=dict) # ***
-        parse_real: Callable[[str],int|float|None]|None = None
-        parse_date: Callable[[str],DateTypes|None]|None = None
-        parse_blob: Callable[[str],BlobTypes|None]|None = None
-        parse_expr: Callable[[str,str],FridValue]|None = None
-        parse_misc: Callable[[str,str],FridValue]|None = None
 
-        class _Params(TypedDict, total=False):
-            comments: Sequence[str|tuple[str,str]]
-            lineends: str
-            json_level: Literal[0,1,5]
-            escape_seq: str
-            loose_mode: bool
-            frid_basic: Iterable[BasicTypeSpec]
-            parse_real: Callable[[str],int|float|None]
-            parse_date: Callable[[str],DateTypes|None]
-            parse_blob: Callable[[str],BlobTypes|None]
-            parse_expr: Callable[[str,str],FridValue]
-            parse_misc: Callable[[str,str],FridValue]
-
-        def __post_init__(self):
-            if not all(item if isinstance(item, str) else (
-                isinstance(item, tuple) and len(item) == 2
-                and all(isinstance(x, str) for x in item)
-            ) for item in self.comments):
-                raise ValueError(f"Invalid comments configuration: {self.comments}")
-
-        @classmethod
-        def from_dict(
-                cls, frid_mixin: Mapping[str,MixinTypeSpec]|Iterable[MixinTypeSpec]|None=None,
-                **kwargs: Unpack[_Params]
-        ):
-            mixin: dict[str,MixinTypeSpec] = {}
-            if isinstance(frid_mixin, Mapping):
-                mixin.update(cast(Mapping[str,MixinTypeSpec], frid_mixin))
-            elif frid_mixin is not None:
-                for entry in frid_mixin:
-                    data = entry.data if isinstance(entry, ValueArgs) else entry
-                    for key in data.frid_keys():
-                        mixin[key] = entry
-            return cls(frid_mixin=mixin, **kwargs)
-
-    class Params(Config._Params, total=False):
-        frid_mixin: Mapping[str,MixinTypeSpec]|Iterable[MixinTypeSpec]
-
+    Params = FridLoaderConfig.Params
     def __init__(
             self, buffer: str|None=None, length: int|None=None, offset: int=0, /,
             **kwargs: Unpack[Params],
@@ -156,7 +147,7 @@ class FridLoader:
         self.offset = offset
         self.length = length if length is not None else 1<<62 if buffer is None else len(buffer)
         self.anchor: int|None = None   # A place where the location is marked
-        self.config = self.Config.from_dict(**kwargs)
+        self.config = FridLoaderConfig(**kwargs)
         self.decode = StringEscapeDecode(
             EXTRA_ESCAPE_PAIRS + ''.join(x + x for x in ALLOWED_QUOTES),
             '\\', ('x', 'u', 'U')
