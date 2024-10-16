@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import AsyncGenerator, AsyncIterable, Callable, Iterable
-from typing import Concatenate, TypeVar, ParamSpec
+from typing import Concatenate, Literal, TypeVar, ParamSpec
 
 _T = TypeVar('_T')
 _R = TypeVar('_R')
@@ -12,7 +12,7 @@ class CountedAsyncLock(asyncio.Lock):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._count = 0
-    async def acquire(self) -> bool:
+    async def acquire(self) -> Literal[True]:
         if not self._count:
             await super().acquire()
         self._count += 1

@@ -1,6 +1,6 @@
-from frid import load_module_data
+# TODO: DELETE this file at 0.5.0.
 
-# TODO: DELETE this file in 0.5.0.
+from frid import load_module_data
 
 # This is for backward compatibility to be removed at 0.5.0
 from .lib import path_to_url_path, url_path_to_path  # noqa: F401
