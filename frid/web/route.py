@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from collections.abc import AsyncIterable, Iterable, Mapping, Callable, Sequence
 from typing import Any, Literal, TypedDict
 from functools import partial
+from fnmatch import fnmatch
 
 from ..typing import Unpack   # Python 3.11 only feature
 from ..typing import FridNameArgs, FridValue, MissingType, MISSING
@@ -184,6 +185,7 @@ class ApiRouteManager:
         + A map from paths to URL path prefixes.
       For each unique prefixes, a single file router is created.
     - `accept_origins`: the list of origins that can be accepted.
+      One can use hostname only (no https:// or http://) and use glob patterns.
       The header 'Access-Control-Allow-Origin' is set if the origin is in the list.
     - `set_connection`: if not None, `Connection: keep-alive` (for true value) or
       `Connection: close` (for false value) is added to the header.
@@ -214,6 +216,9 @@ class ApiRouteManager:
         # 'Connection': "keep-alive",
         'Content-Encoding': "none",
     }  # TODO: add CORS & cache constrol headers
+    _localhost_list = [
+        "localhost", "127.0.0.1", "[::1]",
+    ]
 
     @classmethod
     def __init_subclass__(cls):
@@ -437,6 +442,22 @@ class ApiRouteManager:
                 "X-Requested-With, Content-Type, Authorization, Accept",
             'Access-Control-Max-Age': "1728000",
         })
+    def origin_allowed(self, origin: str) -> bool:
+        if not self.accept_origins:
+            return False
+        origin_no_scheme = split[1] if len(split := origin.split("://")) == 2 else origin
+        for pat in self.accept_origins:
+            if not pat:
+                continue
+            name = origin if "://" in pat else origin_no_scheme
+            # Patter can not be starting with [ or ending with ] because it is IPv6 host
+            if '*' in pat or '?' in pat or ('[' in pat[1:] and ']' in pat[:-1]):
+                if fnmatch(name, pat):
+                    return True
+            else:
+                if pat == name:
+                    return True
+        return False
     def update_headers(self, response: HttpMixin, request: HttpMixin):
         """Adding extra headers to response; mostly for CORS, cache, and access control."""
         headers = response.http_head
@@ -446,7 +467,7 @@ class ApiRouteManager:
         if ':' in host:
             host = host.split(':')[0]
         origin = request.http_head.get('origin')
-        if origin and (origin in self.accept_origins or host in ('127.0.0.1', 'localhost')):
+        if origin and (host in self._localhost_list or self.origin_allowed(origin)):
             headers['Access-Control-Allow-Origin'] = origin
         if isinstance(response.http_data, AsyncIterable):
             headers['Access-Control-Allow-Credentials'] = "true"
