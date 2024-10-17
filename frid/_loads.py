@@ -69,21 +69,21 @@ class FridLoaderConfig:
         parse_expr: Callable[[str,str],FridValue]
         parse_misc: Callable[[str,str],FridValue]
 
-    def __init__(self, **kwargs: Unpack[Params]):
-        self.comments = kwargs.get('comments', ())
+    def __init__(self, config: Params):
+        self.comments = config.get('comments', ())
         if not all(item if isinstance(item, str) else (
             isinstance(item, tuple) and len(item) == 2
             and all(isinstance(x, str) for x in item)
         ) for item in self.comments):
             raise ValueError(f"Invalid comments configuration: {self.comments}")
 
-        self.lineends = kwargs.get('lineends', "\n\v\f")
-        self.json_level = kwargs.get('json_level', 0)
-        self.escape_seq = kwargs.get('escape_seq')
-        self.loose_mode = kwargs.get('loose_mode', False)
-        self.frid_basic = kwargs.get('frid_basic', ())
+        self.lineends = config.pop('lineends', "\n\v\f")
+        self.json_level = config.pop('json_level', 0)
+        self.escape_seq = config.pop('escape_seq', None)
+        self.loose_mode = config.pop('loose_mode', False)
+        self.frid_basic = config.pop('frid_basic', ())
 
-        frid_mixin = kwargs.get('frid_mixin')
+        frid_mixin = config.pop('frid_mixin', None)
         self.frid_mixin: Mapping[str,MixinTypeSpec] = {}
         if isinstance(frid_mixin, Mapping):
             self.frid_mixin.update(cast(Mapping[str,MixinTypeSpec], frid_mixin))
@@ -93,11 +93,11 @@ class FridLoaderConfig:
                 for key in data.frid_keys():
                     self.frid_mixin[key] = entry
 
-        self.parse_real = kwargs.get('parse_real')
-        self.parse_date = kwargs.get('parse_date')
-        self.parse_blob = kwargs.get('parse_blob')
-        self.parse_expr = kwargs.get('parse_expr')
-        self.parse_misc = kwargs.get('parse_misc')
+        self.parse_real = config.pop('parse_real', None)
+        self.parse_date = config.pop('parse_date', None)
+        self.parse_blob = config.pop('parse_blob', None)
+        self.parse_expr = config.pop('parse_expr', None)
+        self.parse_misc = config.pop('parse_misc', None)
 
 class FridLoader:
     """This class loads data in buffer into Frid-allowed data structures.
@@ -141,17 +141,18 @@ class FridLoader:
     Params = FridLoaderConfig.Params
     def __init__(
             self, buffer: str|None=None, length: int|None=None, offset: int=0, /,
-            **kwargs: Unpack[Params],
+            *args, **kwargs: Unpack[Params],
     ):
         self.buffer = buffer or ""
         self.offset = offset
         self.length = length if length is not None else 1<<62 if buffer is None else len(buffer)
         self.anchor: int|None = None   # A place where the location is marked
-        self.config = FridLoaderConfig(**kwargs)
+        self.config = FridLoaderConfig(kwargs)
         self.decode = StringEscapeDecode(
             EXTRA_ESCAPE_PAIRS + ''.join(x + x for x in ALLOWED_QUOTES),
             '\\', ('x', 'u', 'U')
         )
+        super().__init__(*args, **kwargs)  # type: ignore
 
     def alert(self, index: int, error: str):
         warning(error + ": " + self.buffer[max(index-32, 0):index]
