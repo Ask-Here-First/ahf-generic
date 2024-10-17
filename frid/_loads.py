@@ -478,7 +478,8 @@ class FridLoader:
     ) -> FridMixin:
         entry = self.config.frid_mixin.get(name)
         if entry is None:
-            self.error(index, f"Cannot find constructor called '{name}': {path=}")
+            keys = ", ".join(self.config.frid_mixin.keys())
+            self.error(index, f"Cannot find constructor '{name}' in {{{keys}}}: {path=}")
         if not isinstance(entry, ValueArgs):
             return entry.frid_from(FridNameArgs(name, args, kwds))
         return entry.data.frid_from(FridNameArgs(name, args, kwds), *entry.args, **entry.kwds)
