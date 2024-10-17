@@ -1,10 +1,11 @@
+from collections.abc import Mapping
 import os, io, sys, math, json, base64, unittest
 from random import Random
 from typing import Any, Literal, cast
 from functools import partial
 
 from .typing import (
-    MISSING, PRESENT, FridBeing, FridMixin, FridValue, FridNameArgs, StrKeyMap, ValueArgs,
+    MISSING, PRESENT, FridBeing, FridError, FridMixin, FridValue, FridNameArgs, StrKeyMap, ValueArgs,
     get_func_name, get_type_name, get_qual_name
 )
 from .chrono import DateTimeDiff, DateTimeSpec, parse_datetime, parse_timeonly, strfr_datetime
@@ -596,6 +597,13 @@ class TestLoadsAndDumps(unittest.TestCase):
         self.assertEqual(load_frid_str(
             json, frid_mixin=[value_args], json_level=1, escape_seq="#!"
         ), test)
+
+    def test_frid_error(self):
+        data = {'error': FridError("Test")}
+        s = dump_frid_str(data)
+        self.assertEqual(s, "{error: FridError(error=Test)}")
+        t = load_frid_str(s, frid_mixin=[FridError])
+        self.assertTrue(isinstance(t, Mapping) and isinstance(t.get('error'), FridError))
 
     def test_identation(self):
         data = {'x': ["a", "b", []], 'y': 2, 'z': self.TestMixinClass(3, 4, b=5)}

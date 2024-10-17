@@ -146,7 +146,7 @@ class FridLoader:
         self.buffer = buffer or ""
         self.offset = offset
         self.length = length if length is not None else 1<<62 if buffer is None else len(buffer)
-        self.anchor: int|None = None   # A place where the location is marked
+        self.anchor: list[int] = []   # A place where the location is marked
         self.config = FridLoaderConfig(kwargs)
         self.decode = StringEscapeDecode(
             EXTRA_ESCAPE_PAIRS + ''.join(x + x for x in ALLOWED_QUOTES),
@@ -478,7 +478,7 @@ class FridLoader:
     ) -> FridMixin:
         entry = self.config.frid_mixin.get(name)
         if entry is None:
-            self.error(index, f"Cannot find constructor called '{name}'")
+            self.error(index, f"Cannot find constructor called '{name}': {path=}")
         if not isinstance(entry, ValueArgs):
             return entry.frid_from(FridNameArgs(name, args, kwds))
         return entry.data.frid_from(FridNameArgs(name, args, kwds), *entry.args, **entry.kwds)
@@ -679,12 +679,12 @@ class FridLoader:
             index = self.skip_prefix_str(index, path, ')')
             return (index, self.config.parse_expr(value, path))
         # Now scan regular non quoted data
-        self.anchor = index
+        self.anchor.append(index)
         try:
             (index, value) = self.scan_prime_data(index, path, empty=empty)
             if index >= self.length or not isinstance(value, str):
                 return (index, value)
-            offset = index - self.anchor
+            offset = index - self.anchor[-1]
             index = self.skip_whitespace(index, path)
             (index, token) = self.peek_fixed_size(index, path, 1)
             if self.config.frid_mixin and token == '(' and is_frid_identifier(value):
@@ -692,16 +692,16 @@ class FridLoader:
                 name = value
                 (index, args, kwds) = self.scan_naked_args(index, path, ')')
                 index = self.skip_prefix_str(index, path, ')')
-                return (index, self.construct_mixin(self.anchor, path, name, args, kwds))
-            return (self.anchor + offset, value)
+                return (index, self.construct_mixin(self.anchor[-1], path, name, args, kwds))
+            return (self.anchor[-1] + offset, value)
         except FridParseError:
-            index = self.anchor
+            index = self.anchor[-1]
             if self.config.parse_misc:
                 (index, value) = self.scan_data_until(index, path, ",)]}")
                 return (index, self.config.parse_misc(value, path))
             raise
         finally:
-            self.anchor = None
+            self.anchor.pop()
 
     def scan(
             self, start: int=0, /, path: str='', stop: str='',
@@ -828,15 +828,15 @@ class FridTextIOLoader(FridLoader):
         old_offset = self.offset
         new_start = index - half_page # Keep the past page
         if new_start > half_page:
-            if self.anchor is not None and new_start > self.anchor:
-                new_start = self.anchor
+            if self.anchor and new_start > self.anchor[0]:
+                new_start = self.anchor[0]
             if new_start > half_page:
                 # Remove some of the past text
                 self.buffer = self.buffer[new_start:]
                 self.offset = old_offset + new_start
                 index -= new_start
-                if self.anchor is not None:
-                    self.anchor -= new_start
+                for i in range(len(self.anchor)):
+                    self.anchor[i] -= new_start
         data = self.file.read(self.page)
         self.buffer += data
         if len(data) < self.page:
