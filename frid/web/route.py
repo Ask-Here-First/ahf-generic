@@ -12,7 +12,7 @@ from ..guards import is_frid_value
 from .._basic import frid_redact
 from .._dumps import dump_args_str
 from .._utils import load_module_data
-from .mixin import HttpError, HttpMixin, InputHttpHead, parse_url_query, parse_url_value
+from .mixin import HttpError, HttpMixin, HttpInputHead, parse_url_query, parse_url_value
 from .files import FileRouter
 
 
@@ -32,7 +32,7 @@ _api_call_types: dict[str,ApiCallType] = {
 HTTP_SUPPORTED_METHODS = ('HEAD', 'GET', 'PUT', 'POST', 'DELETE', 'PATCH')
 HTTP_METHODS_WITH_BODY = ('POST', 'PUT', 'PATCH')
 
-class HttpInfo(TypedDict, total=False):
+class HttpInput(TypedDict, total=False):
     path: str               # The path to in the URL
     qstr: str               # The query string in the URL
     frag: list[str]         # Three element list after path fragmentation
@@ -85,7 +85,7 @@ class ApiRoute:
     kwargs: dict[str,FridValue]
     numfpa: Literal[0,1,2]
 
-    def __call__(self, req: HttpMixin, **kwargs: Unpack[HttpInfo]):
+    def __call__(self, req: HttpMixin, **kwargs: Unpack[HttpInput]):
         # Fetch authorization status
         peer = kwargs.get('peer')
         auth = req.http_head.get('authorization')
@@ -100,24 +100,24 @@ class ApiRoute:
         info(msg)
         # Generates the HttpInfo structure users might need
         assert not isinstance(req.http_data, AsyncIterable)
-        http_info: HttpInfo = {
+        http_input: HttpInput = {
             'call': _api_call_types[self.method], **kwargs, 'head': req.http_head,
             'frag': self.pfrags,
         }
         if req.http_data is not MISSING:
-            http_info['data'] = req.http_data
+            http_input['data'] = req.http_data
         if req.mime_type is not None:
-            http_info['mime'] = req.mime_type
+            http_input['mime'] = req.mime_type
         if req.http_body is not None:
             assert not isinstance(req.http_body, AsyncIterable)
-            http_info['body'] = req.http_body
+            http_input['body'] = req.http_body
         if auth is not None:
-            http_info['auth'] = auth
+            http_input['auth'] = auth
         try:
             args = self._get_vpargs(req.http_data)
             kwds = self._get_kwargs(req.http_data)
             try:
-                return self.action(*args, **kwds, _http=http_info)
+                return self.action(*args, **kwds, _http=http_input)
             except TypeError:
                 pass
             return self.action(*args, **kwds)
@@ -457,7 +457,7 @@ class ApiRouteManager:
         return headers
 
     def handle_request(
-            self, method: HttpMethod, data: bytes|None, headers: InputHttpHead,
+            self, method: HttpMethod, data: bytes|None, headers: HttpInputHead,
             *, path: str, qstr: str|None, peer: str|tuple[str,int]|None,
     ) -> tuple[HttpMixin,HttpMixin|FridValue]:
         """Create a request object and run the route.
@@ -479,7 +479,7 @@ class ApiRouteManager:
         route = self.create_route(method, path, qstr)
         if isinstance(route, HttpError):
             return (request, route)
-        kwargs: HttpInfo = {'path': path}
+        kwargs: HttpInput = {'path': path}
         if qstr is not None:
             kwargs['qstr'] = qstr
         if peer is not None:
@@ -520,7 +520,7 @@ class ApiRouteManager:
         return response
 
 def echo_router(*args, _data: FridValue|MissingType=MISSING,
-                _call: str='get', _http: HttpInfo={}, **kwds):
+                _call: str='get', _http: HttpInput={}, **kwds):
     args = list(args)
     if _call == 'get':
         if not kwds:

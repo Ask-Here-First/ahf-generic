@@ -15,7 +15,7 @@ DEF_ESCAPE_SEQ = os.getenv('FRID_ESCAPE_SEQ', "#!")
 FRID_MIME_TYPE = "text/vnd.askherefirst.frid"
 
 ShortMimeType = Literal['text','html','form','blob','json','frid']
-InputHttpHead = (
+HttpInputHead = (
     Mapping[str,str]|Mapping[bytes,bytes]|Iterable[tuple[str|bytes,str|bytes]]|Message
 )
 
@@ -89,7 +89,7 @@ class HttpMixin:
         self.http_head: dict[str,str] = dict(http_head) if http_head is not None else {}
 
     @classmethod
-    def from_request(cls, rawdata: bytes|None, headers: InputHttpHead,
+    def from_request(cls, rawdata: bytes|None, headers: HttpInputHead,
                      *args, **kwargs) -> 'HttpMixin':
         """Processing the HTTP request headers and data and create an object.
         - `rawdata` the HTTP body data (from POST or PUT, for example)
