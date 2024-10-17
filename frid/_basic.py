@@ -1,6 +1,6 @@
-import math, string
+import sys, math, string
 from random import Random
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from enum import Flag
 from typing import Concatenate, Generic, ParamSpec, TypeVar, cast, overload
 
@@ -201,6 +201,16 @@ class MingleFlags(Flag):
     SET = 0x40
     LIST_AS_SET = 0x80
     ALL = BOOL | REAL | TEXT | BLOB | LIST | DICT | SET
+
+def frid_sizeof(data: FridValue|FridBeing) -> int:
+    if data is None or isinstance(data, bool|FridBeing):
+        return 0   # Do not count these singletons
+    size = sys.getsizeof(data)
+    if isinstance(data, Mapping):
+        size += sum(sys.getsizeof(k) + frid_sizeof(v) for k, v in data.items())
+    elif isinstance(data, Collection) and not isinstance(data, str|BlobTypes):
+        size += sum(frid_sizeof(v) for v in data)
+    return size
 
 def frid_mingle(old: T|MissingType, new: T, *, depth: int=16, flags=MingleFlags.ALL) -> T:
     if old is MISSING:
