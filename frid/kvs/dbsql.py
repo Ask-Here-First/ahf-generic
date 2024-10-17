@@ -52,16 +52,16 @@ class _SqlBaseStore:
         frid_dumper_params: FridDumper.Params
     def __init__(self, table: Table, **kwargs: Unpack[Params]):
         self._table = table
-        row_filter = kwargs.get('row_filter')
-        col_values = kwargs.get('col_values')
+        row_filter = kwargs.pop('row_filter', None)
+        col_values = kwargs.pop('col_values', None)
         self._where_conds: list[ColumnElement[bool]] = self._build_where(table, row_filter)
         self._insert_data: Mapping[str,SqlTypes] = dict_concat(row_filter, col_values)
         # For keys
         self._seq_key_col: Column|None = self._find_sub_key_col(
-            table, kwargs.get('seq_subkey', False), True
+            table, kwargs.pop('seq_subkey', False), True
         )
         self._map_key_col: Column|None = self._find_sub_key_col(
-            table, kwargs.get('map_subkey', False), False
+            table, kwargs.pop('map_subkey', False), False
         )
         exclude: list[str] = []
         if self._seq_key_col is not None:
@@ -69,7 +69,7 @@ class _SqlBaseStore:
         if self._map_key_col is not None:
             exclude.append(self._map_key_col.name)
         self._key_columns: list[Column] = self._find_key_columns(
-            table, kwargs.get('key_fields'), exclude
+            table, kwargs.pop('key_fields', None), exclude
         )
         exclude.extend(col.name for col in self._key_columns)
         # For values
@@ -78,29 +78,30 @@ class _SqlBaseStore:
         if col_values:
             exclude.extend(col_values.keys())
         self._frid_column: Column|None = self._find_column(
-            table, kwargs.get('frid_field', False), exclude, types.String
+            table, kwargs.pop('frid_field', False), exclude, types.String
         )
         if self._frid_column is not None:
             exclude.append(self._frid_column.name)
         self._text_column: Column|None = self._find_column(
-            table, kwargs.get('text_field', False), exclude, types.String
+            table, kwargs.pop('text_field', False), exclude, types.String
         )
         if self._text_column is not None:
             exclude.append(self._text_column.name)
         self._blob_column: Column|None = self._find_column(
-            table, kwargs.get('blob_field', False), exclude, types.LargeBinary
+            table, kwargs.pop('blob_field', False), exclude, types.LargeBinary
         )
         if self._blob_column is not None:
             exclude.append(self._blob_column.name)
         self._val_columns: list[Column] = self._find_val_columns(
-            table, kwargs.get('val_fields'), exclude
+            table, kwargs.pop('val_fields', None), exclude
         )
 
-        self._frid_loader_params: FridLoader.Params = kwargs.get('frid_loader_params', {})
-        self._frid_dumper_params: FridDumper.Params = kwargs.get('frid_dumper_params', {})
+        self._frid_loader_params: FridLoader.Params = kwargs.pop('frid_loader_params', {})
+        self._frid_dumper_params: FridDumper.Params = kwargs.pop('frid_dumper_params', {})
         # TODO: if row is autoincrement integer is part of primary key then it is for a list
         # If set to True, find such a column
         # self._multi_rows = table.c[multi_rows] if isinstance(multi_rows, str) else multi_rows
+        super().__init__(**kwargs)  # type: ignore
 
         self._select_cols: list[Column] = self._select_args()
 
