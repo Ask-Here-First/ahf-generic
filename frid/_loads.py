@@ -70,7 +70,7 @@ class FridLoaderConfig:
         parse_misc: Callable[[str,str],FridValue]
 
     def __init__(self, config: Params):
-        self.comments = config.get('comments', ())
+        self.comments = config.pop('comments', ())
         if not all(item if isinstance(item, str) else (
             isinstance(item, tuple) and len(item) == 2
             and all(isinstance(x, str) for x in item)
