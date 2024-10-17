@@ -193,7 +193,7 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
         alock: asyncio.Lock = field(default_factory=CountedAsyncLock)
 
     DataSpaceType = dict[tuple[str,...],StoreMeta]
-    def __init__(self, dataspace: DataSpaceType|None=None, namespace: tuple[str,...]=(), /):
+    def __init__(self, dataspace: DataSpaceType|None=None, /, namespace: tuple[str,...]=()):
         super().__init__()
         self._storage = dataspace if dataspace is not None else self.DATA_SPACE
         self._meta = self._storage.setdefault(namespace, self.StoreMeta())
@@ -202,20 +202,20 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
         return self._data
 
     @classmethod
-    def from_url(cls, url: str, **kwargs) -> 'MemoryValueStore':
+    def from_url(cls, url: str, *, namespace: tuple[str,...]=()) -> 'MemoryValueStore':
         # Allow passing an URL through but the content is not checked
         # This function allows a path; for example memory:///abc/def means namespace=(abc, def)
         result = urlparse(url)
         if result.scheme != cls.URL_SCHEME:
             raise ValueError("Unsupported URL scheme for memory value store: {result.scheme}")
         if (path := result.path.strip('/')):
-            namespace = path.split('/')
-            if (value := kwargs.get('namespace')):
-                namespace.extend(value)
-            kwargs['namespace'] = tuple(namespace)
+            ns = path.split('/')
+            if namespace:
+                ns.extend(namespace)
+            namespace = tuple(ns)
         if result.netloc or result.query or result.fragment:
             raise ValueError("The URL should just be {cls.URL_SCHEME}://[/name/space]")
-        return cls(**kwargs)
+        return cls(namespace=namespace)
     def substore(self, name: str, *args: str) -> 'MemoryValueStore':
         return __class__(self._storage, (name, *args))
 
