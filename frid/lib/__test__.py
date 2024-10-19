@@ -1,4 +1,6 @@
-import unittest
+import random, unittest
+
+from frid.lib.dicts import CaseDict
 
 from .quant import Quantity
 from .texts import StringEscapeDecode, StringEscapeEncode
@@ -194,3 +196,197 @@ class TestTexts(unittest.TestCase):
             decode(t5, '', 0, len(t5)-1)
         with self.assertRaises(ValueError):
             decode(t1, '')
+
+class TestCaseDict(unittest.TestCase):
+    def test_simple(self):
+        d = CaseDict()
+        repr(d)
+        repr(d.keys())
+        repr(d.items())
+        self.assertNotEqual(d, 0)
+        self.assertNotEqual(d, [(0, 0)])
+        self.assertNotEqual(d, [(0, 0, 0)])
+        self.assertNotEqual(d.keys(), 0)
+        self.assertNotEqual(d.keys(), [(0, 0)])
+        self.assertNotEqual(d.keys(), [(0, 0, 0)])
+        self.assertNotEqual(d.items(), 0)
+        self.assertNotEqual(d.items(), [(0, 0)])
+        self.assertNotEqual(d.items(), [(0, 0, 0)])
+        d = CaseDict(x=0)
+        repr(d)
+        repr(d.keys())
+        repr(d.items())
+        self.assertEqual(d, [("x", 0)])
+        self.assertNotEqual(d, [("x",)])
+        self.assertNotEqual(d, [("x", 0, 0)])
+        self.assertEqual(d.keys(), ["x"])
+        self.assertEqual(d.keys(), ["X"])
+        self.assertNotEqual(d.keys(), ["x", "X"])
+    def randkey(self):
+        key = ""
+        for _ in range(random.randint(0, 6)):
+            key += chr(32 + random.randint(0, 95))
+        return key
+    def init_keys(self):
+        # Generate a list of keys different
+        key_set = set()
+        key_list = []
+        for _ in range(128):
+            key = self.randkey()
+            low_key = key.lower()
+            if low_key not in key_set:
+                key_set.add(low_key)
+                key_list.append(key)
+        return key_list
+    def get_random_case(self, key):
+        # Not used for add
+        match random.randint(0, 2):
+            case 0:
+                return key
+            case 1:
+                return key.lower()
+            case 2:
+                return key.upper()
+    def check_one_key(self, d0: CaseDict, key, exists: bool, val=None):
+        if exists:
+            self.assertIn(key, d0)
+            self.assertIn(key, d0.keys())
+            self.assertIn((key, val), d0.items())
+            self.assertEqual(d0[key], val)
+            self.assertEqual(d0.get(key), val)
+            self.assertEqual(d0.get(key, 3), val)
+            self.assertEqual(d0[key.lower()], val)
+            self.assertEqual(d0[key.upper()], val)
+        else:
+            self.assertNotIn(key, d0)
+            self.assertNotIn(key, d0.keys())
+            self.assertIsNone(d0.get(key))
+            self.assertIs(d0.get(key, ...), ...)
+    def compare_dicts(self, d0: CaseDict, d1: dict, key_set: set[str]):
+        self.assertEqual(len(d0), len(d1))
+        self.assertEqual(len(d0.keys()), len(d1.keys()))
+        self.assertEqual(len(d0.items()), len(d1.items()))
+        self.assertEqual(set(k.lower() for k in d0.keys()), set(d1.keys()))
+        self.assertEqual(set(k.lower() for k in d0), set(k for k in d1))
+        self.assertEqual(set((k.lower(), v) for k, v in d0.items()), set(d1.items()))
+        self.assertEqual(set(k.lower() for k in reversed(d0.keys())), set(d1.keys()))
+        self.assertEqual(set(k.lower() for k in reversed(d0)), set(d1.keys()))
+        self.assertEqual(set((k.lower(), v) for k, v in reversed(d0.items())), set(d1.items()))
+        self.assertEqual(d0, CaseDict(d1))
+        self.assertEqual(d0.keys(), d1.keys())
+        self.assertEqual(d0, CaseDict(d1.items()))
+        self.assertEqual(d0.keys(), d1.keys())
+        self.assertEqual(d0.items(), d1.items())
+        # Prove the case are correct
+        for k, v in d0.items():
+            self.assertIn(k, key_set)
+            self.assertIn(k.lower(), d1)
+            self.assertEqual(v, d1[k.lower()])
+    def test_dict_random(self):
+        key_list = self.init_keys()
+        key_set = set(key_list)
+        d0 = CaseDict()
+        d1 = dict()
+        for _ in range(256):
+            key = random.choice(key_list)
+            exists = key.lower() in d1
+            self.check_one_key(d0, key, exists, d1.get(key.lower(), ...))
+            match random.randint(0, 6):
+                case 0:
+                    val = random.randint(0, 31)
+                    d0[key] = val
+                    d1[key.lower()] = val
+                    exists = True
+                case 1:
+                    if exists:
+                        del d0[self.get_random_case(key)]
+                        del d1[key.lower()]
+                        exists = False
+                    else:
+                        with self.assertRaises(KeyError):
+                            del d0[key]
+                case 2:
+                    val = random.randint(0, 31)
+                    d0.setdefault(key, val)
+                    d1.setdefault(key.lower(), val)
+                    exists = True
+                case 3:
+                    if exists:
+                        d0.pop(self.get_random_case(key))
+                        d1.pop(key.lower())
+                        exists = False
+                    else:
+                        with self.assertRaises(KeyError):
+                            d0.pop(self.get_random_case(key))
+                case 4:
+                    v0 = d0.pop(self.get_random_case(key), 999)
+                    v1 = d1.pop(key.lower(), 999)
+                    self.assertEqual(v0, v1)
+                    exists = False
+                case 5:
+                    if d1:
+                        (key, val) = d0.popitem()
+                        v1 = d1.pop(key.lower())
+                        self.assertEqual(val, v1)
+                    else:
+                        with self.assertRaises(KeyError):
+                            d0.popitem()
+                    exists = False
+                case 6:
+                    d0[key.upper()] = 1213
+                    d0[key.lower()] = 3459
+                    val = random.randint(0, 31)
+                    d0[key] = val
+                    d1[key.lower()] = val
+                    exists = True
+            self.check_one_key(d0, key, exists, d1.get(key.lower()))
+            self.compare_dicts(d0, d1, key_set)
+            if random.randint(0, 8):
+                continue
+            self.compare_dicts(d0, d1, key_set)
+            # Test copy() and copy constructor
+            self.compare_dicts(d0.copy(), d1, key_set)
+            self.compare_dicts(CaseDict(d0), d1, key_set)
+            # Test constructor with kwargs
+            d2 = CaseDict(**d0)
+            d3 = dict(**{k.lower(): v for k, v in d0.items()})
+            self.compare_dicts(d2, d3, key_set)
+            self.assertEqual(d2, CaseDict(d3))
+            self.assertEqual(CaseDict(d3), d2.items())
+            # Test fromkeys
+            n = random.randint(0, 10000)
+            self.assertEqual(CaseDict.fromkeys(d2.keys(), n), dict.fromkeys(d2.keys(), n))
+            # Test update
+            d4 = {k: random.randint(0, 300) for k in random.choices(
+                key_list, k=random.randint(1, 7)
+            )}
+            match random.randint(0, 4):
+                case 0:
+                    d0.update(d4)
+                case 1:
+                    d0.update(list(d4.items()))
+                case 2:
+                    d0.update(**d4)
+                case 3:
+                    d0 |= d4
+                case 4:
+                    d0 = d0 | d4
+            d1.update((k.lower(), v) for k, v in d4.items())
+            self.compare_dicts(d0, d1, key_set)
+            if random.randint(0, 8):
+                continue
+            # Test clear
+            d0.clear()
+            d1.clear()
+            self.assertFalse(d0)
+            self.assertEqual(len(d0), 0)
+            self.assertFalse(list(d0.keys()))
+            self.assertFalse(list(d0.items()))
+            self.compare_dicts(d0, d1, key_set)
+        # Some negative cases afterwards
+        self.assertNotIn(0, d0)
+        self.assertNotIn(0, d0.keys())
+        self.assertNotIn(0, d0.items())
+        self.assertNotIn((), d0.items())
+        self.assertNotIn((0,), d0.items())
+        self.assertNotIn((0, 0), d0.items())
