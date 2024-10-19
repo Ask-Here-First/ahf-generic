@@ -94,10 +94,10 @@ class TransKeyDict(dict[_K,_V]):
         return super().get(self.key_func(key), default)
 
     def items(self): # type: ignore -- The return view is not of the same type
-        return _DictItemsView(super().items(), self)
+        return TransKeyDictItemsView(super().items(), self)
 
     def keys(self):  # type: ignore -- The return view is not of the same type
-        return _DictKeysView(super().keys(), self)
+        return TransKeyDictKeysView(super().keys(), self)
 
     @overload
     def pop(self, key: _K) -> _V: ...
@@ -132,7 +132,7 @@ class TransKeyDict(dict[_K,_V]):
 
     ### values(self): (not need to override because the implementation is indentical
 
-class _DictKeysView(KeysView[_K]):
+class TransKeyDictKeysView(KeysView[_K]):
     __slots__ = ['data', 'keys']
     def __init__(self, real_keys: KeysView[_K], data: TransKeyDict[_K,Any]):
         self.keys = real_keys
@@ -158,7 +158,7 @@ class _DictKeysView(KeysView[_K]):
     def __repr__(self):
         return self.__class__.__name__ + '(' + repr(list(self)) + ')'
 
-class _DictItemsView(ItemsView[_K,_V]):
+class TransKeyDictItemsView(ItemsView[_K,_V]):
     __slots__ = ['data', 'items']
     def __init__(self, items: ItemsView[_K,_V], data: TransKeyDict[_K,_V]):
         self.data = data
