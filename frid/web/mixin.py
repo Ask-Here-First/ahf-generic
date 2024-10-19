@@ -7,6 +7,7 @@ from email.message import Message
 from ..typing import MISSING, BlobTypes, FridValue, MissingType
 from ..typing import FridError
 from ..guards import is_frid_value
+from ..lib.dicts import CaseDict
 from .._loads import load_frid_str
 from .._dumps import dump_frid_str
 
@@ -86,7 +87,10 @@ class HttpMixin:
         self.http_body: BlobTypes|AsyncIterable[BlobTypes]|None = http_body
         self.http_data: FridValue|AsyncIterable[FridValue|Any]|MissingType = http_data
         self.mime_type: str|ShortMimeType|None = mime_type
-        self.http_head: dict[str,str] = dict(http_head) if http_head is not None else {}
+        self.http_head: CaseDict[str,str] = (
+            CaseDict() if http_head is None else http_head if isinstance(http_head, CaseDict)
+            else CaseDict(http_head)
+        )
 
     @classmethod
     def from_request(cls, rawdata: bytes|None, headers: HttpInputHead,
@@ -107,7 +111,7 @@ class HttpMixin:
           with all keys in lower cases.
         """
         items = headers.items() if isinstance(headers, Mapping|Message) else headers
-        http_head: dict[str,str] = {}
+        http_head: CaseDict[str,str] = CaseDict()
         for key, val in items:
             # Convert them into string
             if isinstance(key, bytes):
@@ -119,10 +123,10 @@ class HttpMixin:
             elif not isinstance(val, str):
                 val = str(key)
             # Always using lower cases
-            http_head[key.lower()] = val
+            http_head[key] = val
         # Extract content type
         encoding: str = 'utf-8'
-        mime_type = http_head.get('content-type')
+        mime_type = http_head.get('Content-Type')
         if mime_type is not None and ';' in mime_type:
             (mime_type, other) = mime_type.split(';', 1)
             mime_type = mime_type.strip().lower()
@@ -255,7 +259,7 @@ class HttpMixin:
                 (mt0, mt1) = mime_type.split('/', 1)
                 if mt0 == 'text' or (mt0 == 'application' and mt1 != 'octet-stream'):
                     mime_type += "; charset=utf-8"
-                self.http_head['content-type'] = mime_type
+                self.http_head['Content-Type'] = mime_type
         # Update the status with 200
         if not self.ht_status:
             self.ht_status = 204 if self.http_body is None else 200
@@ -265,9 +269,9 @@ class HttpMixin:
             return self
         if self.http_body is None:
             self.http_body = b''
-            self.http_head['content-length'] = "0"
+            self.http_head['Content-Length'] = "0"
         elif isinstance(self.http_body, BlobTypes):
-            self.http_head['content-length'] = str(len(self.http_body))
+            self.http_head['Content-Length'] = str(len(self.http_body))
         return self
 
 class HttpError(HttpMixin, FridError):

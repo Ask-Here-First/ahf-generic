@@ -179,7 +179,7 @@ class TransKeyDictItemsView(ItemsView[_K,_V]):
     def __repr__(self):
         return self.__class__.__name__ + '(' + repr(list(self)) + ')'
 
-class CaseDict(TransKeyDict):
+class CaseDict(TransKeyDict[_K,_V]):
     def key_func(self, key, /):
         if not isinstance(key, str):
             return key

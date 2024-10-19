@@ -10,6 +10,7 @@ from ..typing import Unpack   # Python 3.11 only feature
 from ..typing import FridNameArgs, FridValue, MissingType, MISSING
 from ..typing import get_type_name, get_func_name
 from ..guards import is_frid_value
+from ..lib import CaseDict
 from .._basic import frid_redact
 from .._dumps import dump_args_str
 from .._utils import load_module_data
@@ -38,7 +39,7 @@ class HttpInput(TypedDict, total=False):
     qstr: str               # The query string in the URL
     frag: list[str]         # Three element list after path fragmentation
     call: ApiCallType       # One of the five calls
-    head: dict[str,str]     # The headers of the call
+    head: Mapping[str,str]  # The headers of the call
     mime: str               # The mime-type of the body
     body: bytes             # The body of the call
     data: FridValue         # The data of the call
@@ -522,7 +523,7 @@ class ApiRouteManager:
             response = result
         else:
             ht_status = 200
-            http_head: dict[str,str] = {}
+            http_head = CaseDict[str,str]()
             mime_type: str|None = None
             if isinstance(result, tuple):
                 if not 2 <= len(result) <= 3:
