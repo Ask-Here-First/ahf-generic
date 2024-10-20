@@ -45,6 +45,7 @@ class HttpInput(TypedDict, total=False):
     data: FridValue         # The data of the call
     auth: str               # The auth string from the header or elsewhere
     peer: str               # The peer IP address (no port)
+    want: Sequence[str]     # A list of MIME types for most wanted to least wanted
 
 @dataclass
 class ApiRoute:
@@ -90,7 +91,7 @@ class ApiRoute:
     def __call__(self, req: HttpMixin, **kwargs: Unpack[HttpInput]):
         # Fetch authorization status
         peer = kwargs.get('peer')
-        auth = req.http_head.get('authorization')
+        auth = req.http_head.get('Authorization')
         if isinstance(auth, str):
             pair = auth.split()
             if len(pair) == 2 and pair[0] == "Bearer":
@@ -103,8 +104,12 @@ class ApiRoute:
         # Generates the HttpInfo structure users might need
         assert not isinstance(req.http_data, AsyncIterable)
         http_input: HttpInput = {
-            'call': _api_call_types[self.method], **kwargs, 'head': req.http_head,
+            'call': _api_call_types[self.method], **kwargs,
+            'head': req.http_head,
             'frag': self.pfrags,
+            'want': [
+                x.split(';')[0].strip() for x in accept.split(',') if x.strip()
+            ] if (accept := req.http_head.get('Accept')) is not None else []
         }
         if req.http_data is not MISSING:
             http_input['data'] = req.http_data
@@ -463,11 +468,11 @@ class ApiRouteManager:
         """Adding extra headers to response; mostly for CORS, cache, and access control."""
         headers = response.http_head
         headers.update(self._common_headers)
-        host = request.http_head.get('host')
+        host = request.http_head.get('Host')
         assert isinstance(host, str)
         if ':' in host:
             host = host.split(':')[0]
-        origin = request.http_head.get('origin')
+        origin = request.http_head.get('Origin')
         if origin and (host in self._localhost_list or self.origin_allowed(origin)):
             headers['Access-Control-Allow-Origin'] = origin
         if isinstance(response.http_data, AsyncIterable):
