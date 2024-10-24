@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "frid"
-version = "0.4.15"
+dynamic = ["version"]
 authors = [
   { name="Hanhua Feng", email="han.hua.feng@askherefirst.com" },
 ]
@@ -20,6 +20,13 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/Ask-Here-First/ahf-generic"
 Issues = "https://github.com/Ask-Here-First/ahf-generic/issues"
+
+[tool.setuptools.packages.find]
+namespaces = true
+where = ["."]
+
+[tool.setuptools.dynamic]
+version = {attr = "frid.__version__"}
 
 [tool.ruff]
 line-length = 96

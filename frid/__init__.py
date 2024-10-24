@@ -1,5 +1,3 @@
-import importlib.metadata
-
 from .typing import FridError, get_func_name, get_qual_name, get_type_name
 from ._basic import FridCompare, FridReplace, MingleFlags, frid_mingle, frid_redact, frid_sizeof
 from ._loads import load_frid_str, load_frid_tio, scan_frid_str, open_frid_tio
@@ -7,7 +5,7 @@ from ._loads import FridParseError, FridTruncError
 from ._dumps import dump_frid_str, dump_frid_tio, dump_args_str, dump_args_tio
 from ._utils import load_module_data
 
-__version__ = importlib.metadata.version(__package__ or __name__)
+__version__ = "0.4.15"
 
 # For Json-like compatibility but do not include them in public symbols
 loads = load_frid_str
