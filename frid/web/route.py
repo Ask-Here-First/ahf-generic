@@ -5,6 +5,7 @@ from collections.abc import AsyncIterable, Iterable, Mapping, Callable, Sequence
 from typing import Any, Literal, TypedDict
 from functools import partial
 from fnmatch import fnmatch
+from socket import gethostname
 
 from ..typing import Unpack   # Python 3.11 only feature
 from ..typing import FridNameArgs, FridValue, MissingType, MISSING
@@ -24,8 +25,8 @@ from .files import FileRouter
 # - If call type is true, it is call with (data, *opargs, **kwargs)
 # - If call type is false, it is call just with just (*opargs, **kwargs)
 HttpMethod = Literal['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS','CONNECT','TRACE']
-ApiCallType = Literal['get','set','put','add','del']
-_api_call_types: dict[str,ApiCallType] = {
+HttpOpType = Literal['get','set','put','add','del']
+_http_op_types: dict[str,HttpOpType] = {
     'HEAD': 'get', 'GET': 'get', 'POST': 'set', 'PUT': 'put',
     'PATCH': 'add', 'DELETE': 'del'
 }
@@ -34,18 +35,30 @@ _api_call_types: dict[str,ApiCallType] = {
 HTTP_SUPPORTED_METHODS = ('HEAD', 'GET', 'PUT', 'POST', 'DELETE', 'PATCH')
 HTTP_METHODS_WITH_BODY = ('POST', 'PUT', 'PATCH')
 
+class HttpRouted(TypedDict):
+    optype: HttpOpType                      # The operation type
+    router: str                             # This is actually ApiRoute.prefix
+    action: str                             # This is actually ApiRoute.medial
+    vpargs: Sequence[FridValue]             # Variable positional args,from ApiRoute.suffix
+    qsargs: Sequence[tuple[str,str]|str]    # Query string, percentage decoded pairs
+    kwargs: Mapping[str,FridValue]          # Keyward arguments, processing from query string
+
 class HttpInput(TypedDict, total=False):
+    method: HttpMethod      # One of the five calls
+    routed: HttpRouted      # How the HTTP request is routed
+    client: str             # The client IP address (port information is removed)
+    server: str             # The server address (optional [:port]); from HTTP Host
+    # Infromation about the URL
     path: str               # The path to in the URL
-    qstr: str               # The query string in the URL
-    frag: list[str]         # Three element list after path fragmentation
-    call: ApiCallType       # One of the five calls
+    qstr: str               # The query string in the URL, without '?'
+    # Information in the headers
     head: Mapping[str,str]  # The headers of the call
-    mime: str               # The mime-type of the body
-    body: bytes             # The body of the call
-    data: FridValue         # The data of the call
     auth: str               # The auth string from the header or elsewhere
-    peer: str               # The peer IP address (no port)
-    want: Sequence[str]     # A list of MIME types for most wanted to least wanted
+    want: Sequence[str]     # A list of MIME types for most wanted to least wanted (from Accept)
+    # Information in the HTTP body
+    body: bytes             # The body of the call
+    data: FridValue         # The data of the call, process from body (typically as json)
+    mime: str               # The mime-type of the body
 
 @dataclass
 class ApiRoute:
@@ -71,7 +84,7 @@ class ApiRoute:
     The `action` is called with `numfpa` number of position arguments, followed by `*vpargs`
     and then the keyword arguments given by `kwargs`.
     - If `numfpa` is 1, the request data is passed as the first argument (or None)
-    - If `numfpa` is 2, the `actype` and request data is passed as the first two arguments
+    - If `numfpa` is 2, the `optype` and request data is passed as the first two arguments
     - Additional keyword arguments tried to be passed:
         + `_http`: an HttpInfo dict for request information if the user accepts it
         + `_data`: if `action` is None (a callable router) but the API call is not `get`
@@ -79,13 +92,17 @@ class ApiRoute:
         + `_call`: if the API call is not 'get'; the callee should use a default value
           of `get` if accepting it.
     """
+    # HTTP request information
     method: HttpMethod
-    pfrags: list[str]
-    qsargs: list[tuple[str,str]|str]
-    router: Any
-    action: Callable
+    prefix: str
+    medial: str
+    suffix: str
     vpargs: list[FridValue]
+    qsargs: list[tuple[str,str]|str]
     kwargs: dict[str,FridValue]
+    # Routing information
+    router: Any                 # The router object determined by self.prefix
+    action: Callable            # The action method determined by self.medial
     numfpa: Literal[0,1,2]
 
     def __call__(self, req: HttpMixin, **kwargs: Unpack[HttpInput]):
@@ -104,9 +121,15 @@ class ApiRoute:
         # Generates the HttpInfo structure users might need
         assert not isinstance(req.http_data, AsyncIterable)
         http_input: HttpInput = {
-            'call': _api_call_types[self.method], **kwargs,
+            'method': self.method,
+            'routed': {
+                'optype': _http_op_types[self.method],
+                'router': self.prefix, 'action': self.medial,
+                'vpargs': self.vpargs, 'qsargs': self.qsargs, 'kwargs': self.kwargs,
+            },
+            'server': req.http_head.get('Host') or gethostname(),
+            **kwargs,  # kwargs contains: client, path, qstr,
             'head': req.http_head,
-            'frag': self.pfrags,
             'want': [
                 x.split(';')[0].strip() for x in accept.split(',') if x.strip()
             ] if (accept := req.http_head.get('Accept')) is not None else []
@@ -155,23 +178,22 @@ class ApiRoute:
             case 1:
                 return (data, *self.vpargs)
             case 2:
-                return (_api_call_types[self.method], data, *self.vpargs)
+                return (_http_op_types[self.method], data, *self.vpargs)
             case _:
                 raise ValueError(f"Invalid value of numfpa={self.numfpa}")
     def _get_kwargs(self, data: FridValue|MissingType):
         if self.router is not self.action or self.method == 'GET':
             return self.kwargs
         kwargs = dict(self.kwargs)
-        kwargs['_call'] = _api_call_types[self.method]
+        kwargs['_call'] = _http_op_types[self.method]
         if data is not MISSING:
             kwargs['_data'] = data
         return kwargs
-    def get_log_str(self, req: HttpMixin, peer: str|None=None):
+    def get_log_str(self, req: HttpMixin, client: str|None=None):
         assert is_frid_value(req.http_data) or req.http_data is MISSING, type(req.http_data)
-        (prefix, medial, _) = self.pfrags
         data = MISSING if req.http_data is MISSING else frid_redact(req.http_data, 0)
-        return f"[{peer}] ({prefix}) {self.method} " + dump_args_str(FridNameArgs(
-            medial, self._get_vpargs(data), self.kwargs
+        return f"[{client}] ({self.prefix}) {self.method} " + dump_args_str(FridNameArgs(
+            self.medial, self._get_vpargs(data), self.kwargs
         ))
 
 class ApiRouteManager:
@@ -318,8 +340,9 @@ class ApiRouteManager:
             vpargs = []
         assert path == prefix + medial + suffix
         return ApiRoute(
-            method=method, pfrags=[prefix, medial, suffix], qsargs=qsargs,
-            router=router, action=action, vpargs=vpargs, kwargs=kwargs, numfpa=numfpa
+            method=method, prefix=prefix, medial=medial, suffix=suffix,
+            vpargs=vpargs, qsargs=qsargs, kwargs=kwargs,
+            router=router, action=action, numfpa=numfpa,
         )
     def fetch_router(self, path: str, qstr: str|None) -> tuple[str,str]|HttpError|None:
         """Fetch the router object in the registry that matches the
@@ -485,7 +508,7 @@ class ApiRouteManager:
 
     def handle_request(
             self, method: HttpMethod, data: bytes|None, headers: HttpInputHead,
-            *, path: str, qstr: str|None, peer: str|tuple[str,int]|None,
+            *, path: str, qstr: str|None, client: str|tuple[str,int]|None,
     ) -> tuple[HttpMixin,HttpMixin|FridValue]:
         """Create a request object and run the route.
         - Returns a pair of (request, result), where request is an HttpMixin
@@ -509,17 +532,17 @@ class ApiRouteManager:
         kwargs: HttpInput = {'path': path}
         if qstr is not None:
             kwargs['qstr'] = qstr
-        if peer is not None:
-            if not isinstance(peer, str):
-                peer = peer[0]
-            kwargs['peer'] = peer
+        if client is not None:
+            if not isinstance(client, str):
+                client = client[0]
+            kwargs['client'] = client
         try:
             return (request, route(request, **kwargs))
         except HttpError as exc:
             return (request, exc)
         except Exception as exc:
             traceback.print_exc()
-            return (request, route.to_http_error(exc, request, peer=peer))
+            return (request, route.to_http_error(exc, request, peer=client))
     def process_result(self, request: HttpMixin, result: HttpMixin|FridValue) -> HttpMixin:
         """Process the result of the route execution and returns a response.
         - The response is an object of HttpMixin with body already prepared.

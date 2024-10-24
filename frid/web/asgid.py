@@ -42,7 +42,7 @@ class AsgiWebApp(ApiRouteManager):
         # Note: ASGi cannot distinguish between empty query string (with ?) and
         # missing query string (without ?). Assuming missing always.
         (request, result) = self.handle_request(
-            method, req_data, scope['headers'], peer=scope['client'],
+            method, req_data, scope['headers'], client=scope['client'],
             path=scope['path'], qstr=(scope['query_string'].decode() or None),
         )
         if inspect.isawaitable(result):

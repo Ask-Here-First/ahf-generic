@@ -28,7 +28,7 @@ class WsgiWebApp(ApiRouteManager):
             input_data = None
         response = self.process_result(*self.handle_request(
             method, input_data, headers,
-            peer=env['REMOTE_ADDR'], path=env['PATH_INFO'], qstr=env.get('QUERY_STRING')
+            client=env['REMOTE_ADDR'], path=env['PATH_INFO'], qstr=env.get('QUERY_STRING')
         ))
         reason = http.client.responses.get(response.ht_status, "Unknown Status Code")
         start_response(str(response.ht_status) + " " + reason,

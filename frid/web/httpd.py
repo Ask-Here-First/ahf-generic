@@ -23,7 +23,7 @@ class FridHTTPRequestHandler(BaseHTTPRequestHandler):
             input_data = None
         # Handle the request
         response = self._manager.process_result(*self._manager.handle_request(
-            method, input_data, self.headers, path=path, qstr=qstr, peer=self.client_address
+            method, input_data, self.headers, client=self.client_address, path=path, qstr=qstr,
         ))
         # Send the response
         self.send_response(response.ht_status)

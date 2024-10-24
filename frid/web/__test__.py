@@ -25,12 +25,12 @@ class TestRouter:
         return [data, list(args), kwds]
     def del_echo(self, *args, _http={}, **kwds):
         return {'status': "ok", **kwds, '.args': list(args)}
-    def run_echo(self, action, data, *args, _http={}, **kwds):
-        return {'action': action, '.data': data, '.kwds': kwds, '.args': list(args)}
+    def run_echo(self, optype, data, *args, _http={}, **kwds):
+        return {'optype': optype, '.data': data, '.kwds': kwds, '.args': list(args)}
     def get_(self, *args, _http={}, **kwds):
         return [*args, kwds]
     def put_(self, data, *args, _http={}, **kwds):
-        return {'action': 'put', '.data': data, '.kwds': kwds, '.args': list(args)}
+        return {'optype': 'put', '.data': data, '.kwds': kwds, '.args': list(args)}
 
 ServerType = Callable[[dict[str,Any],dict[str,str]|str|None,str,int],None]
 
