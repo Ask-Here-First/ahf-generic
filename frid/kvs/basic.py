@@ -9,7 +9,7 @@ from typing import Any, Concatenate, Generic, ParamSpec, TypeVar, TypedDict
 from urllib.parse import urlparse
 
 from ..typing import Unpack
-from ..typing import MISSING, PRESENT, BlobTypes, MissingType, frid_type_size
+from ..typing import MISSING, PRESENT, BlobTypes, MissingType, frid_type_size, get_type_name
 from ..typing import FridTypeName, FridTypeSize, FridValue, FridArray, FridBeing, StrKeyMap
 from ..aio import CountedAsyncLock
 from ..chrono import parse_datetime, strfr_datetime, datetime, timezone
@@ -185,6 +185,7 @@ class SimpleAsyncStore(_SimpleBaseStore[_E], AsyncStore):
 class MemoryValueStore(SimpleValueStore[FridValue]):
     """Simplest memory based value store with thread locking."""
     URL_SCHEME = 'memory'
+    URL_PREFIX = URL_SCHEME + "://"
     DATA_SPACE = {}    # This is the global data space for all memory stores
     @dataclass
     class StoreMeta:
@@ -196,8 +197,13 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
     def __init__(self, dataspace: DataSpaceType|None=None, /, namespace: tuple[str,...]=()):
         super().__init__()
         self._storage = dataspace if dataspace is not None else self.DATA_SPACE
+        self._name = namespace
         self._meta = self._storage.setdefault(namespace, self.StoreMeta())
         self._data = self._meta.store
+    def __str__(self):
+        return get_type_name(self) + '(' + self.URL_PREFIX + ''.join(
+            '/' + x for x in self._name
+        ) +')'
     def all_data(self) -> Mapping[str,FridValue]:
         return self._data
 
@@ -217,7 +223,7 @@ class MemoryValueStore(SimpleValueStore[FridValue]):
             raise ValueError("The URL should just be {cls.URL_SCHEME}://[/name/space]")
         return cls(namespace=namespace)
     def substore(self, name: str, *args: str) -> 'MemoryValueStore':
-        return __class__(self._storage, (name, *args))
+        return __class__(self._storage, self._name + (name, *args))
 
     def _encode(self, val: FridValue) -> FridValue:
         return val

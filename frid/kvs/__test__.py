@@ -443,6 +443,7 @@ class VStoreTestDbsql(_VStoreTestBase):
             dburl, table1, engine_args={'echo': echo}, frid_field=True,
             blob_field='blob', col_values={'text': "(UNUSED)"}
         )
+        self.assertIsInstance(str(store), str)
         self.assertTrue(store._frid_column is not None
                         and store._frid_column.name == 'frid')
         self.assertTrue(store._text_column is None)
@@ -457,6 +458,7 @@ class VStoreTestDbsql(_VStoreTestBase):
             key_fields='id', frid_field='frid',
             seq_subkey='seqind', map_subkey='mapkey',
         )
+        self.assertIsInstance(str(store), str)
         self.assertTrue(store._frid_column is not None
                         and store._frid_column.name == 'frid')
         self.assertTrue(store._seq_key_col is not None)
@@ -483,6 +485,7 @@ class VStoreTestDbsql(_VStoreTestBase):
                 dburl, table1, engine_args={'echo': echo}, frid_field=True,
                 col_values={'text': "(UNUSED)", 'blob': b"(UNUSED)"}
             ))
+            self.assertIsInstance(str(store), str)
             self.assertTrue(store._frid_column is not None
                             and store._frid_column.name == 'frid')
             self.assertTrue(store._text_column is None)
@@ -496,6 +499,7 @@ class VStoreTestDbsql(_VStoreTestBase):
                 dburl, table1.name, engine_args={'echo': echo}, frid_field=True,
                 text_field='text', col_values={'blob': b"(UNUSED)"}
             ))
+            self.assertIsInstance(str(store), str)
             self.assertTrue(store._frid_column is not None
                             and store._frid_column.name == 'frid')
             self.assertTrue(store._text_column is not None
@@ -510,6 +514,7 @@ class VStoreTestDbsql(_VStoreTestBase):
                 dburl, table1, engine_args={'echo': echo}, frid_field=True,
                 blob_field='blob', col_values={'text': "(UNUSED)"}
             ))
+            self.assertIsInstance(str(store), str)
             self.assertTrue(store._frid_column is not None
                             and store._frid_column.name == 'frid')
             self.assertTrue(store._text_column is None)
@@ -524,6 +529,7 @@ class VStoreTestDbsql(_VStoreTestBase):
                 dburl, table2, engine_args={'echo': echo}, key_fields='id',
                 frid_field='frid', seq_subkey='seqind', map_subkey='mapkey'
             ))
+            self.assertIsInstance(str(store), str)
             self.assertTrue(store._frid_column is not None
                             and store._frid_column.name == 'frid')
             self.assertTrue(store._seq_key_col is not None)

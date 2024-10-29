@@ -9,7 +9,7 @@ from redis import asyncio as aredis
 
 from ..typing import Unpack
 from ..typing import MISSING, FridBeing, FridTypeName, MissingType, frid_type_size
-from ..typing import FridArray, FridTypeSize, FridValue, StrKeyMap
+from ..typing import FridArray, FridTypeSize, FridValue, StrKeyMap, get_type_name
 from ..guards import as_kv_pairs, is_frid_array, is_frid_skmap, is_list_like
 from ..lib import str_encode_nonprints, str_decode_nonprints
 from .._basic import frid_mingle
@@ -22,6 +22,7 @@ from .utils import match_key
 _T = TypeVar('_T')
 
 class _RedisBaseStore(BinaryStoreMixin):
+    URL_SCHEMES = ['redis', 'rediss', 'redis+unix']
     NAMESPACE_SEP = '\t'
     class EnvParams(TypedDict, total=False):
         host: str
@@ -48,6 +49,32 @@ class _RedisBaseStore(BinaryStoreMixin):
         if (password := kwargs.pop('password', os.getenv('FRID_REDIS_PASS'))) is not None:
             out['password'] = password
         return out
+    @classmethod
+    def _args_to_url(cls, kwargs: dict[str,str]) -> str:
+        cls = kwargs.get('connection_class')
+        if isinstance(cls, type):
+            cls_name = cls.__name__.lower()
+        else:
+            cls_name = ''
+        if 'unix' in cls_name:
+            url = "redis+unix://"
+            if (path := kwargs.get('path')):
+                url += path if path.startswith('/') else '/' + path
+        else:
+            url = "rediss://" if 'ssl' in cls_name else 'redis://'
+            if (username := kwargs.get('username')) is not None:
+                url += str(username)
+            if (password := kwargs.get('password')) is not None:
+                url += ':' + str(password)
+            if username is not None or password is not None:
+                url += '@'
+            if (host := kwargs.get('host')) is not None:
+                url += str(host)
+            if (host := kwargs.get('port')) is not None:
+                url += ':' + str(host)
+            if (db := kwargs.get('db')) is not None:
+                url += '/' + str(db)
+        return url
     @classmethod
     def _build_name_prefix(cls, base: str, name: str, *args: str) -> str:
         prefix = name + cls.NAMESPACE_SEP
@@ -105,16 +132,19 @@ class _RedisBaseStore(BinaryStoreMixin):
         return key
 
 class RedisValueStore(_RedisBaseStore, ValueStore):
-    URL_SCHEME = 'redis'
     def __init__(self, *args, _redis: redis.Redis|None=None,
                  **kwargs: Unpack[_RedisBaseStore.Params]):
         self._redis = redis.Redis(**self._redis_args(kwargs)) if _redis is None else _redis
         super().__init__(*args, **kwargs)
+    def __str__(self):
+        return get_type_name(self) + '(' +  self._args_to_url(
+            self._redis.get_connection_kwargs()
+        ) + ')'
     @classmethod
     def from_url(cls, url: str, *args,
                  **kwargs: Unpack[_RedisBaseStore.Params]) -> 'RedisValueStore':
         # Allow passing an URL through but the content is not checked
-        assert url.startswith('redis://')
+        assert any(url.startswith(scheme + "://") for scheme in cls.URL_SCHEMES)
         redis_kwargs = cls._redis_args(kwargs)
         return cls(*args, _redis=redis.Redis.from_url(url, **redis_kwargs), **kwargs)
     def wipe_all(self) -> int:
@@ -344,11 +374,15 @@ class RedisAsyncStore(_RedisBaseStore, AsyncStore):
                  **kwargs: Unpack[_RedisBaseStore.Params]):
         self._aredis = aredis.Redis(**self._redis_args(kwargs)) if _aredis is None else _aredis
         super().__init__(*args, **kwargs)
+    def __str__(self):
+        return get_type_name(self) + '(' +  self._args_to_url(
+            self._aredis.get_connection_kwargs()
+        ) + ')'
     @classmethod
     async def from_url(cls, url: str, *args,
                        **kwargs: Unpack[_RedisBaseStore.Params]) -> 'RedisAsyncStore':
         # Allow passing an URL through but the content is not checked
-        assert url.startswith('redis://')
+        assert any(url.startswith(scheme + "://") for scheme in cls.URL_SCHEMES)
         redis_kwargs = cls._redis_args(kwargs)
         return cls(*args, _aredis=aredis.Redis.from_url(url, **redis_kwargs), **kwargs)
     def substore(self, name: str, *args: str) -> 'RedisAsyncStore':

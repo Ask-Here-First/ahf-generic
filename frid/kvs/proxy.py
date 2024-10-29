@@ -5,6 +5,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Concatenate, ParamSpec, TypeVar
 
 from ..typing import MISSING, MissingType, BlobTypes, FridTypeName, FridTypeSize, FridValue
+from ..typing import get_type_name
 from ..aio import gather_aiter
 from . import utils
 from .store import AsyncStore, ValueStore
@@ -17,6 +18,8 @@ _P = ParamSpec('_P')
 class ValueProxyStore(ValueStore):
     def __init__(self, store: ValueStore):
         self._store = store
+    def __str__(self):
+        return get_type_name(self) + '(' + str(self._store) + ')'
     def substore(self, name: str, *args: str):
         return self.__class__(self._store.substore(name, *args))
     def get_lock(self, name: str|None=None):
@@ -56,6 +59,8 @@ class ValueProxyStore(ValueStore):
 class AsyncProxyStore(AsyncStore):
     def __init__(self, store: AsyncStore):
         self._store = store
+    def __str__(self):
+        return get_type_name(self) + '(' + str(self._store) + ')'
     def substore(self, name: str, *args: str):
         return self.__class__(self._store.substore(name, *args))
 
@@ -114,6 +119,8 @@ class ValueProxyAsyncStore(AsyncStore):
         else:
             self._executor = None
             self._asyncrun = self._run_func
+    def __str__(self):
+        return get_type_name(self) + '(' + str(self._store) + ')'
     def substore(self, name: str, *args: str):
         return self.__class__(self._store.substore(name, *args))
 
@@ -175,6 +182,8 @@ class AsyncProxyValueStore(ValueStore):
             except RuntimeError:
                 self._loop = asyncio.new_event_loop()
             self._loop_owner = True
+    def __str__(self):
+        return get_type_name(self) + '(' + str(self._store) + ')'
     def __del__(self):
         self._del_loop()
     def _del_loop(self):

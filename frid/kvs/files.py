@@ -8,8 +8,8 @@ from urllib.parse import quote, unquote, urlparse
 
 from ..typing import Unpack
 from ..typing import MISSING, PRESENT, BlobTypes, FridBeing, FridTypeSize, MissingType
-from ..typing import frid_type_size
-from ..lib import url_path_to_path
+from ..typing import frid_type_size, get_type_name
+from ..lib import url_path_to_path, path_to_url_path
 from .utils import KeySearch, VSPutFlag, VStoreKey, list_concat, match_key
 from .basic import ModFunc, SimpleValueStore, StreamStoreMixin
 
@@ -187,17 +187,20 @@ class FileDeleter:
 class FileIOValueStore(StreamValueStore):
     """File based value store."""
     URL_SCHEME = "file"
+    URL_PREFIX = URL_SCHEME + "://"
     SUBSTORE_EXT = ".!"
     LCK_FILE_EXT = ".lck"
     KVS_FILE_EXT = ".kvs"
     TMP_FILE_EXT = ".tmp"
     def __init__(self, root: os.PathLike|str, /, **kwargs: Unpack[StreamValueStore.Params]):
         super().__init__(**kwargs)
-        if isinstance(root, str) and root.startswith("file://"):
+        if isinstance(root, str) and root.startswith(self.URL_PREFIX):
             root = url_path_to_path(root[7:])
         self._root = os.path.abspath(root)
         if not os.path.isdir(self._root):
             os.makedirs(self._root, exist_ok=True)
+    def __str__(self):
+        return get_type_name(self) + '(' + self.URL_PREFIX + path_to_url_path(self._root) + ')'
     @classmethod
     def from_url(cls, url: str,
                  **kwargs: Unpack[StreamValueStore.Params]) -> 'FileIOValueStore':

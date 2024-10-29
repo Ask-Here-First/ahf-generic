@@ -672,7 +672,8 @@ class DbsqlValueStore(_SqlBaseStore, ValueStore):
         eng_args = dict_concat(self.engine_args, engine_args)
         self._engine = create_engine(conn_url, **eng_args) if _engine is None else _engine
         super().__init__(table, **kwargs)
-
+    def __str__(self):
+        return get_type_name(self) + '(' + str(self._engine.url) + ')'
     @classmethod
     def from_url(cls, url: str, table: Table|str, /,
                  *, engine_args: Mapping[str,Any]|None=None,
@@ -773,6 +774,8 @@ class DbsqlAsyncStore(_SqlBaseStore, AsyncStore):
         eng_args = dict_concat(self.engine_args, engine_args)
         self._engine = create_async_engine(conn_url, **eng_args) if _engine is None else _engine
         super().__init__(table, **kwargs)
+    def __str__(self):
+        return get_type_name(self) + '(' + str(self._engine.url) + ')'
     @classmethod
     async def from_url(cls, url: str, table_name: Table|str, /,
                        *, engine_args: Mapping[str,Any]|None=None,

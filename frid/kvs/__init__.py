@@ -97,8 +97,10 @@ __all__ = [
 
 try:
     from .redis import RedisValueStore, RedisAsyncStore
-    _value_store_constructors['redis'] = RedisValueStore
-    _async_store_constructors['rediss'] = RedisAsyncStore
+    for key in RedisValueStore.URL_SCHEMES:
+        _value_store_constructors[key] = RedisValueStore
+    for key in RedisAsyncStore.URL_SCHEMES:
+        _async_store_constructors[key] = RedisAsyncStore
 except ImportError:
     pass
 
