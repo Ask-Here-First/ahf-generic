@@ -27,6 +27,8 @@ T = TypeVar('T')
 class FridParseError(FridError):
     def __init__(self, s: str, index: int, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if index < 0:
+            index = 0
         note = s[max(index-32, 0):index] + '\u274e' + s[index:(index+32)]
         self.notes.append(note)
         self.input_string = s
@@ -104,12 +106,15 @@ class FridLoader:
 
     Constructor arguments (all optional):
     - `buffer`: the optional buffer for the (initial parts) of the data stream.
-    - `length`: the upper limit of total length of the buffer if all text are
-      loaded; in other words, the length from the begining of the buffer to the
-      end of stream. The default is the buffer length if buffer is given or a
-      huge number of buffer is not given.
-    - `offset`: the offset of the beginning of the buffer. Hence, `offset+length`
+    - `length`: an upper bound of total length of the data including all data
+      loaded and not yet loaded, which must be greater than or equal to `len(buffer)`,
+      equal if all text is loaded; in other words, this is the upper bound of length
+      from the begining (outset) of the buffer to the end of stream.
+      The default is the buffer length if buffer is given or a big number,
+      if the length is unknown.
+    - `outset`: the position of beginning of the buffer; hence, `outset+length`
       is an upper bound of total length (and equals once the total length is known).
+    - `offset`: the inital offset in the buffer.
 
     Keywoard parameters:
     - `comments`: a list of comment specifications; each of them can be
@@ -140,13 +145,15 @@ class FridLoader:
 
     Params = FridLoaderConfig.Params
     def __init__(
-            self, buffer: str|None=None, length: int|None=None, offset: int=0, /,
+            self, /, buffer: str|None=None, length: int|None=None, outset: int=0, offset: int=0,
             *args, **kwargs: Unpack[Params],
     ):
+        # self.length is an upper bound of length of buffer, not include outset.
         self.buffer = buffer or ""
-        self.offset = offset
         self.length = length if length is not None else 1<<62 if buffer is None else len(buffer)
-        self.anchor: list[int] = []   # A place where the location is marked
+        self.outset = outset   # Intial position of the buffer since start of stream.
+        self.offset = offset
+        self.anchor: list[int] = []   # A place where the locations between 0 & offset are saved
         self.config = FridLoaderConfig(kwargs)
         self.decode = StringEscapeDecode(
             EXTRA_ESCAPE_PAIRS + ''.join(x + x for x in ALLOWED_QUOTES),
@@ -154,38 +161,41 @@ class FridLoader:
         )
         super().__init__(*args, **kwargs)  # type: ignore
 
-    def alert(self, index: int, error: str):
-        warning(error + ": " + self.buffer[max(index-32, 0):index]
-                + '\u274e' + self.buffer[index:(index+32)])
-    def error(self, index: int, error: str|BaseException) -> NoReturn:
+    def alert(self, error: str, *, offset: int|None=None):
+        if offset is None:
+            offset = self.offset
+        warning(error + ": " + self.buffer[max(offset-32, 0):offset]
+                + '\u274e' + self.buffer[offset:(offset+32)])
+    def error(self, error: str|BaseException, *, offset: int|None=None) -> NoReturn:
         """Raise an FridParseError at the current `index` with the given `error`."""
-        pos = self.offset + index
-        end = "*" if self.length > len(self.buffer) + (1<<60) else self.offset + self.length
-        msg = f"@{pos} ({index}/{len(self.buffer)}) in [{self.offset}:{end}] : {error}"
-        if index >= self.length:
+        if offset is None:
+            offset = self.offset
+        pos = self.outset + offset
+        end = "*" if self.length > len(self.buffer) + (1<<60) else self.outset + self.length
+        msg = f"@{pos} ({self.offset}/{len(self.buffer)}) in [{self.outset}:{end}] : {error}"
+        if offset >= self.length:
             if isinstance(error, BaseException):
-                raise FridTruncError(self.buffer, index, msg) from error
-            raise FridTruncError(self.buffer, index, msg)
+                raise FridTruncError(self.buffer, offset, msg) from error
+            raise FridTruncError(self.buffer, offset, msg)
         if isinstance(error, BaseException):
-            raise FridParseError(self.buffer, index, msg) from error
-        raise FridParseError(self.buffer, index, msg)
+            raise FridParseError(self.buffer, offset, msg) from error
+        raise FridParseError(self.buffer, offset, msg)
 
-    def fetch(self, index: int, path: str, /) -> int:
+    def fetch(self, path: str, /) -> None:
         """Fetchs more data into the buffer from the back stream.
-        - `index`: the current parsing index in the current buffer.
-        - `path`: the frid path for the current object to be parsed.
-        - Returns the updated parsing index.
-        The data before the initial parsing index may be remove to save memory,
-        so the updated index may be smaller than the input.
-        Also self.anchor may also be changed if not None. Bytes after anchor
-        or index, whichever is smaller, are preserved.
-        By default this function raise an FridParseError.
+        The data in buffer before offset may be removed to save memory,
+        so the updated offset may be decremented.
+        Also self.anchor may also be changed if not None. Bytes after any
+        anchor or offset, whichever is smaller, are preserved.
+        By default this function raise an FridParseError, because
+        the base class loads from the fixed string buffer.
         """
-        tot_len = self.length + self.offset
-        buf_end = self.offset + len(self.buffer)
+        tot_len = self.length + self.outset
+        buf_end = self.outset + len(self.buffer)
         self.error(
-            self.length, f"Stream ends at ${self.length} when parsing {path=} at {index}; "
-            f"Total length: {tot_len}, Buffer {self.offset}-{buf_end}"
+            f"Stream ends at ${self.length} when parsing {path=} at {self.offset}; "
+            f"Total length: {tot_len}, Buffer {self.outset}-{buf_end}",
+            offset=self.length
         )
 
     def parse_prime_str(self, s: str, default: T, /) -> FridPrime|T:
@@ -283,31 +293,29 @@ class FridLoader:
                     return result
         return default
 
-    def peek_fixed_size(self, index: int, path: str, nchars: int) -> tuple[int,str]:
+    def peek_fixed_size(self, path: str, nchars: int) -> str:
         """Peeks a string with a fixed size given by `nchars`.
         - Returns the string with these number of chars, or shorter if end of
           stream is reached.
         """
-        while len(self.buffer) < min(index + nchars, self.length):
-            index = self.fetch(index, path)
+        while len(self.buffer) < min(self.offset + nchars, self.length):
+            self.fetch(path)
         while True:
             try:
-                if index >= self.length:
-                    return (index, '')
-                if index + nchars > self.length:
-                    return (index, self.buffer[index:self.length])
-                return (index, self.buffer[index:(index + nchars)])
+                if self.offset >= self.length:
+                    return ''
+                return self.buffer[self.offset:min(self.offset + nchars, self.length)]
             except IndexError:
-                index = self.fetch(index, path)
+                self.fetch(path)
 
-    def skip_fixed_size(self, index: int, path: str, nchars: int) -> int:
+    def skip_fixed_size(self, path: str, nchars: int) -> None:
         """Skips a number of characters without checking the content."""
-        index += nchars
-        if index > self.length:
-            self.error(self.length, f"Trying to pass beyound the EOS at {index}: {path=}")
-        return index
+        self.offset += nchars
+        if self.offset > self.length:
+            self.error(f"Trying to pass beyound the EOS at {self.length}: {path=}",
+                       offset=self.length)
 
-    def skip_comments(self, index: int, path: str) -> tuple[int,str|None]:
+    def skip_comments(self, path: str) -> str|None:
         """Skip the comments in pairs."""
         content = []
         for item in self.config.comments:
@@ -317,174 +325,182 @@ class FridLoader:
                 assert isinstance(item, str)
                 opening = item
                 closing = None
-            (index, token) = self.peek_fixed_size(index, path, len(opening))
+            token = self.peek_fixed_size(path, len(opening))
             if token != opening:
                 continue
-            index = self.skip_fixed_size(index, path, len(opening))
+            self.skip_fixed_size(path, len(opening))
             while True:
                 if closing is None:
-                    end_idx = str_find_any(self.buffer, self.config.lineends, index)
+                    end_idx = str_find_any(self.buffer, self.config.lineends, self.offset)
                 else:
-                    end_idx = self.buffer.find(closing, index)
+                    end_idx = self.buffer.find(closing, self.offset)
                 if end_idx >= 0:
-                    assert end_idx >= index
-                    content.append(self.buffer[index:end_idx])
+                    assert end_idx >= self.offset
+                    content.append(self.buffer[self.offset:end_idx])
                     if closing is not None:
                         end_idx += len(closing)
-                    return (end_idx, ''.join(content))
+                    self.offset = end_idx
+                    return ''.join(content)
                 if len(self.buffer) >= self.length:
                     if closing is None:
                         # If the closing is a newline, it is optional at end
-                        return (self.length,''.join(content))
-                    self.error(index, ("Expecting '" + str_encode_nonprints(closing)
-                                       + " after '" + str_encode_nonprints(opening) + "'"))
-                index = self.fetch(index, path)
-        return (index, None)
+                        self.offset = self.length
+                        return ''.join(content)
+                    self.error(("Expecting '" + str_encode_nonprints(closing)
+                                + " after '" + str_encode_nonprints(opening) + "'"))
+                self.fetch(path)
+        return None
 
-    def skip_characters(self, index: int, path: str, /, char_set: str) -> int:
+    def skip_characters(self, path: str, /, char_set: str) -> None:
         while True:
             try:
-                while index < self.length and self.buffer[index] in char_set:
-                    index += 1
+                while self.offset < self.length and self.buffer[self.offset] in char_set:
+                    self.offset += 1
                 break
             except IndexError:
-                index = self.fetch(index, path)
-        return index
+                self.fetch(path)
 
-    def skip_whitespace(self, index: int, path: str, /) -> int:
+    def skip_whitespace(self, path: str, /) -> None:
         """Skips the all following whitespaces including comments."""
         while True:
             try:
-                while index < self.length and self.buffer[index].isspace():
-                    index += 1
-                old_pos = self.offset + index
-                (index, _) = self.skip_comments(index, path)
-                if index >= self.length:
-                    return index
-                new_pos = self.offset + index
+                while self.offset < self.length and self.buffer[self.offset].isspace():
+                    self.offset += 1
+                old_pos = self.outset + self.offset
+                self.skip_comments(path)
+                if self.offset >= self.length:
+                    return
+                new_pos = self.outset + self.offset
                 if new_pos <= old_pos: # No progress
                     break
             except IndexError:
-                index = self.fetch(index, path)
-        return index
+                self.fetch(path)
 
-    def skip_prefix_str(self, index: int, path: str, prefix: str) -> int:
+    def skip_prefix_str(self, path: str, prefix: str) -> None:
         """Skips the `prefix` if it matches, or raise an ParseError."""
-        while len(self.buffer) < min(index + len(prefix), self.length):
-            index = self.fetch(index, path)
-        if not self.buffer.startswith(prefix, index):
-            self.error(self.length, f"Stream ends while expecting '{prefix}' at {index}")
-        return index + len(prefix)
+        while len(self.buffer) < min(self.offset + len(prefix), self.length):
+            self.fetch(path)
+        if not self.buffer.startswith(prefix, self.offset):
+            self.error(f"Stream ends while expecting '{prefix}' at {self.offset}",
+                       offset=self.length)
+        self.offset += len(prefix)
 
-    def scan_prime_data(self, index: int, path: str, /, empty: Any='',
-                        accept=NO_QUOTE_CHARS) -> tuple[int,FridValue]:
+    def scan_prime_data(self, path: str, /, empty: Any='', accept=NO_QUOTE_CHARS) -> FridValue:
         """Scans the unquoted data that are identifier chars plus the est given by `accept`."""
         # For loose mode, scan to the first , or : or any close delimiters.
         if self.config.loose_mode:
-            start = index
-            (index, data) = self.scan_data_until(index, path, ")]},:", True)
+            data = self.scan_data_until(path, ")]},:", True)
+            start = self.offset - len(data)
         else:
             while True:
-                start = index
+                offset = self.offset
                 try:
-                    while index < self.length:
-                        c = self.buffer[index]
+                    while offset < self.length:
+                        c = self.buffer[offset]
                         if not is_quote_free_char(c) and c not in accept:
                             break
-                        index += 1
+                        offset += 1
                     break
                 except IndexError:
-                    index = self.fetch(start, path)
-            data = self.buffer[start:index]
+                    self.fetch(path)
+            data = self.buffer[self.offset:offset]
+            start = self.offset
+            self.offset = offset
         data = data.strip()
         if not data:
-            return (index, empty)
+            return empty
         value = self.parse_prime_str(data, ...)
         if value is ...:
             if self.config.loose_mode:
-                return (index, data)
-            self.error(start, f"Fail to parse unquoted value {data}")
-        return (index, value)
+                return data
+            self.error(f"Fail to parse unquoted value {data}", offset=start)
+        return value
 
     def scan_data_until(
-            self, index: int, path: str, /, char_set: str, allow_missing: bool=False,
+            self, path: str, /, char_set: str, allow_missing: bool=False,
             *, paired="{}[]()", quotes=ALLOWED_QUOTES, escape='\\',
-    ) -> tuple[int,str]:
+    ) -> str:
         while True:
             try:
-                ending = str_find_any(self.buffer, char_set, index, self.length,
+                ending = str_find_any(self.buffer, char_set, self.offset, self.length,
                                       paired=paired, quotes=quotes, escape=escape)
                 if ending < 0:
                     if len(self.buffer) < self.length:
-                        index = self.fetch(index, path)
+                        self.fetch(path)
                         continue
                     if allow_missing:
-                        return (len(self.buffer), self.buffer[index:])
-                    self.error(index, f"Fail to find '{char_set}': {path=}")
-                return (ending, self.buffer[index:ending])
+                        value = self.buffer[self.offset:]
+                        self.offset = len(self.buffer)
+                        return value
+                    self.error(f"Fail to find '{char_set}': {path=}")
+                value = self.buffer[self.offset:ending]
+                self.offset = ending
+                return value
             except IndexError:
-                index = self.fetch(index, path)
+                self.fetch(path)
             except ValueError as exc:
-                self.error(index, exc)
+                self.error(exc)
 
-    def scan_escape_str(self, index: int, path: str, /, stop: str) -> tuple[int,str]:
+    def scan_escape_str(self, path: str, /, stop: str) -> str:
         """Scans a text string with escape sequences."""
         while True:
             try:
-                (count, value) = self.decode(self.buffer, stop, index, self.length)
+                (count, value) = self.decode(self.buffer, stop, self.offset, self.length)
                 if count < 0:
-                    index = self.fetch(index, path)
+                    self.fetch(path)
                     continue
                 break
             except IndexError:
-                index = self.fetch(index, path)
+                self.fetch(path)
             except ValueError as exc:
-                self.error(index, exc)
-        return (index + count, value)
+                self.error(exc)
+        self.offset += count
+        return value
 
     def scan_quoted_seq(
-            self, index: int, path: str, /, quotes: str, check_mixin: bool=False,
-    ) -> tuple[int,FridPrime|FridBeing|FridMixin]:
+            self, path: str, /, quotes: str, check_mixin: bool=False,
+    ) -> FridPrime|FridBeing|FridMixin:
         """Scan a sequence of quoted strings."""
         out = []
         while True:
-            index = self.skip_whitespace(index, path)
-            (index, token) = self.peek_fixed_size(index, path, 1)
+            self.skip_whitespace(path)
+            token = self.peek_fixed_size(path, 1)
             if not token or token not in quotes:
                 break
-            index = self.skip_fixed_size(index, path, len(token))
-            (index, value) = self.scan_escape_str(index, path, token)
+            self.skip_fixed_size(path, len(token))
+            value = self.scan_escape_str(path, token)
             out.append(value)
-            index = self.skip_prefix_str(index, path, token)
+            self.skip_prefix_str(path, token)
         data = ''.join(out)
         if self.config.escape_seq and data.startswith(self.config.escape_seq):
             data = data[len(self.config.escape_seq):]
             if not data:
-                return (index, PRESENT)
+                return PRESENT
             if data.endswith("()"):
                 name = data[:-2]
                 if is_frid_identifier(name):
-                    return (index, self.construct_mixin(index, path, name, (), {}))
+                    return self.construct_mixin(path, name, (), {})
             elif check_mixin and is_frid_identifier(data):
-                return (index, DummyMixin(data))
+                return DummyMixin(data)
             out = self.parse_prime_str(data, ...)
             if out is not ...:
-                return (index, out)
-        return (index, data)
+                return out
+        return data
 
     def construct_mixin(
-            self, index: int, path: str,
-            /, name: str, args: FridArray, kwds: StrKeyMap,
+            self, path: str, /, name: str, args: FridArray, kwds: StrKeyMap,
+            *, offset: int|None=None
     ) -> FridMixin:
         entry = self.config.frid_mixin.get(name)
         if entry is None:
             keys = ", ".join(self.config.frid_mixin.keys())
-            self.error(index, f"Cannot find constructor '{name}' in {{{keys}}}: {path=}")
+            self.error(f"Cannot find constructor '{name}' in {{{keys}}}: {path=}",
+                       offset=(self.offset if offset is None else offset))
         if not isinstance(entry, ValueArgs):
             return entry.frid_from(FridNameArgs(name, args, kwds))
         return entry.data.frid_from(FridNameArgs(name, args, kwds), *entry.args, **entry.kwds)
     def try_mixin_in_seq(
-            self, data: list[FridSeqVT], index: int, path: str, *, parent_checking: bool=False
+            self, data: list[FridSeqVT], path: str, *, parent_checking: bool=False
     ) -> FridMixin|list[FridSeqVT]:
         if not data:
             return data
@@ -493,15 +509,15 @@ class FridLoader:
             return data
         # If the first entry is already a dummy with arguments, construct it to the real one
         if first.args is not None:
-            data[0] = self.construct_mixin(index, path, first.name, first.args, {})
+            data[0] = self.construct_mixin(path, first.name, first.args, {})
             return data
         # If the first entry is just a mixin name, then construct a dummy include the rest
         if parent_checking:
             return DummyMixin(first.name, data[1:])
         # Otherwise construct a real mixin with the rest of the list as positional argument
-        return self.construct_mixin(index, path, first.name, data[1:], {})
+        return self.construct_mixin(path, first.name, data[1:], {})
     def try_mixin_in_map(
-            self, data: dict[str,FridMapVT], index: int, path: str
+            self, data: dict[str,FridMapVT], path: str
     ) -> FridMixin|dict[str,FridMapVT]:
         if not self.config.escape_seq:
             return data
@@ -509,29 +525,28 @@ class FridLoader:
         if not isinstance(first, DummyMixin):
             return data
         data.pop('')
-        return self.construct_mixin(index, path, first.name, first.args or (), data)
+        return self.construct_mixin(path, first.name, first.args or (), data)
 
     def scan_naked_list(
-            self, index: int, path: str,
-            /, stop: str='', sep: str=',', check_mixin: bool=False,
-    ) -> tuple[int,list[FridSeqVT]|FridMixin]:
+            self, path: str, /, stop: str='', sep: str=',', check_mixin: bool=False,
+    ) -> list[FridSeqVT]|FridMixin:
         out: list[FridSeqVT] = []
         while True:
-            (index, value) = self.scan_frid_value(
-                index, path, empty=...,
+            value = self.scan_frid_value(
+                path, empty=...,
                 # Only check for mixin for the first item (`not out``) and with escape
                 check_mixin=(not out and bool(self.config.escape_seq))
             )
-            index = self.skip_whitespace(index, path)
-            (index, token) = self.peek_fixed_size(index, path, 1)
+            self.skip_whitespace(path)
+            token = self.peek_fixed_size(path, 1)
             if token in stop:  # Empty is also a sub-seq
                 break
             if token == sep[0]:
-                index = self.skip_fixed_size(index, path, 1)
+                self.skip_fixed_size(path, 1)
             elif self.config.loose_mode and not is_frid_prime(value):
-                self.alert(index, "Loose mode: adding missing ','")
+                self.alert("Loose mode: adding missing ','")
             else:
-                self.error(index, f"Unexpected '{token}' after list entry #{len(out)}: {path=}")
+                self.error(f"Unexpected '{token}' after list entry #{len(out)}: {path=}")
             assert not isinstance(value, FridBeing)
             out.append(value if value is not ... else '')
         # The last entry that is not an empty string will be added to the data.
@@ -539,29 +554,29 @@ class FridLoader:
             assert not isinstance(value, FridBeing)
             out.append(value)
         # Check if this is a mixin (only if caller does not ask for a mixin)
-        return (index, self.try_mixin_in_seq(out, index, path, parent_checking=check_mixin))
+        return self.try_mixin_in_seq(out, path, parent_checking=check_mixin)
 
-    def scan_naked_dict(self, index: int, path: str,
-                        /, stop: str='', sep: str=",:") -> tuple[int,StrKeyMap|Set|FridMixin]:
+    def scan_naked_dict(self, path: str,
+                        /, stop: str='', sep: str=",:") -> StrKeyMap|Set|FridMixin:
         out: dict[FridPrime,FridMapVT] = {}
         empty_entry = False
         while True:
             # Empty string is represented using MISSING
-            (index, key) = self.scan_frid_value(index, path, empty=MISSING)
+            key = self.scan_frid_value(path, empty=MISSING)
             if key is not MISSING and not is_frid_prime(key):
-                self.error(index, f"Invalid key type {type(key).__name__} of a map: {path=}")
-            index = self.skip_whitespace(index, path)
-            (index, token) = self.peek_fixed_size(index, path, 1)
+                self.error(f"Invalid key type {type(key).__name__} of a map: {path=}")
+            self.skip_whitespace(path)
+            token = self.peek_fixed_size(path, 1)
             if token == sep[0]:
                 # Seeing item separator without key/value separator
                 if key is MISSING:
                     if out or empty_entry:
-                        self.error(index, "An empty key follows other entries")
+                        self.error("An empty key follows other entries")
                     empty_entry = True
                 elif key in out:
-                    self.error(index, f"Existing key '{key}' of a map: {path=}")
+                    self.error(f"Existing key '{key}' of a map: {path=}")
                 # Using value PRESENT if key is non-empty
-                index = self.skip_fixed_size(index, path, len(token))
+                self.skip_fixed_size(path, len(token))
                 if key is not MISSING:
                     out[key] = PRESENT
                 continue
@@ -572,182 +587,185 @@ class FridLoader:
                 break
             # No key or key/value pairs can follow an empty entry
             if empty_entry:
-                self.error(index, f"A key '{key}' follows an empty entry")
+                self.error(f"A key '{key}' follows an empty entry")
             if key is MISSING:
                 key = ''
             if key in out:
-                self.error(index, f"Existing key '{key}' of a map: {path=}")
+                self.error(f"Existing key '{key}' of a map: {path=}")
             if token != sep[1]:
-                self.error(index, f"Expect '{sep[1]}' after key '{key}' of a map: {path=}")
+                self.error(f"Expect '{sep[1]}' after key '{key}' of a map: {path=}")
             # With value, key must be string
             if not isinstance(key, str):
-                self.error(index, f"Invalid key type {type(key).__name__} of a map: {path=}")
-            index = self.skip_fixed_size(index, path, 1)
-            (index, value) = self.scan_frid_value(
-                index, path + '/' + key, check_mixin=(not key and bool(self.config.escape_seq))
+                self.error(f"Invalid key type {type(key).__name__} of a map: {path=}")
+            self.skip_fixed_size(path, 1)
+            value = self.scan_frid_value(
+                path + '/' + key, check_mixin=(not key and bool(self.config.escape_seq))
             )
             out[key] = value
-            index = self.skip_whitespace(index, path)
-            (index, token) = self.peek_fixed_size(index, path, 1)
+            self.skip_whitespace(path)
+            token = self.peek_fixed_size(path, 1)
             if token in stop:  # Empty is also a sub-seq
                 break
             if token == sep[0]:
-                index = self.skip_fixed_size(index, path, 1)
+                self.skip_fixed_size(path, 1)
             elif self.config.loose_mode and not (
                 is_frid_prime(value) or isinstance(value, FridBeing)
             ):
-                self.alert(index, "Loose mode: adding missing ','")
+                self.alert("Loose mode: adding missing ','")
             else:
-                self.error(index, f"Expect '{sep[0]}' after the value for '{key}': {path=}")
+                self.error(f"Expect '{sep[0]}' after the value for '{key}': {path=}")
         # Convert into a set if non-empty and all values are PRESENT
         if not out and empty_entry:
-            return (index, set())
+            return set()
         assert not empty_entry  # Cannot have empty entry following other entries
         if out and all(v is PRESENT for v in out.values()):
-            return (index, set(out.keys()))
+            return set(out.keys())
         if not is_frid_skmap(out):
-            self.error(index, f"Not a set but keys are not all string: {path=}")
+            self.error(f"Not a set but keys are not all string: {path=}")
         # Now we check if this is a mixin
         if self.config.escape_seq:
-            x = self.try_mixin_in_map(cast(dict[str,FridMapVT], out), index, path)
+            x = self.try_mixin_in_map(cast(dict[str,FridMapVT], out), path)
             if x is not out:
-                return (index, x)
-        return (index, out)
+                return x
+        return out
 
     def scan_naked_args(
-            self, index: int, path: str, /, stop: str='', sep: str=",="
-    ) -> tuple[int,list[FridValue],dict[str,FridValue]]:
+            self, path: str, /, stop: str='', sep: str=",="
+    ) -> tuple[list[FridValue],dict[str,FridValue]]:
         args = []
         kwds = {}
         while True:
-            (index, name) = self.scan_frid_value(index, path)
+            name = self.scan_frid_value(path)
             if not name:
                 break
-            index = self.skip_whitespace(index, path)
-            if index >= self.length:
-                self.error(index, f"Unexpected ending after '{name}' of a map: {path=}")
-            (index, token) = self.peek_fixed_size(index, path, 1)
+            self.skip_whitespace(path)
+            if self.offset >= self.length:
+                self.error(f"Unexpected ending after '{name}' of a map: {path=}")
+            token = self.peek_fixed_size(path, 1)
             if token == sep[0]:
-                index = self.skip_fixed_size(index, path, 1)
+                self.skip_fixed_size(path, 1)
                 if kwds:
-                    self.error(index, "Unnamed argument following keyword argument")
+                    self.error("Unnamed argument following keyword argument")
                 args.append(name)
                 continue
             if token != sep[1]:
-                self.error(index, f"Expect '{sep[1]}' after key '{name}' of a map: {path=}")
+                self.error(f"Expect '{sep[1]}' after key '{name}' of a map: {path=}")
             if not isinstance(name, str):
-                self.error(index, f"Invalid name type {type(name).__name__} of a map: {path=}")
-            index = self.skip_fixed_size(index, path, 1)
-            (index, value) = self.scan_frid_value(index, path + '/' + name)
+                self.error(f"Invalid name type {type(name).__name__} of a map: {path=}")
+            self.skip_fixed_size(path, 1)
+            value = self.scan_frid_value(path + '/' + name)
             if name in kwds:
-                self.error(index, f"Existing key '{name}' of a map: {path=}")
+                self.error(f"Existing key '{name}' of a map: {path=}")
             kwds[name] = value
-            index = self.skip_whitespace(index, path)
-            (index, token) = self.peek_fixed_size(index, path, 1)
+            self.skip_whitespace(path)
+            token = self.peek_fixed_size(path, 1)
             if token in stop:
                 break
             if token == sep[0]:
-                index = self.skip_fixed_size(index, path, 1)
+                self.skip_fixed_size(path, 1)
             elif self.config.loose_mode and not is_frid_prime(value):
-                self.alert(index, "Loose mode: adding missing ','")
+                self.alert("Loose mode: adding missing ','")
             else:
-                self.error(index, f"Expect '{sep[0]}' after the value for '{name}': {path=}")
-        return (index, args, kwds)
+                self.error(f"Expect '{sep[0]}' after the value for '{name}': {path=}")
+        return (args, kwds)
 
     def scan_frid_value(
-            self, index: int, path: str, /, empty: Any='', check_mixin: bool=False,
-    ) -> tuple[int,FridValue|FridBeing]:
+            self, path: str, /, empty: Any='', check_mixin: bool=False,
+    ) -> FridValue|FridBeing:
         """Load the text representation."""
-        index = self.skip_whitespace(index, path)
-        if index >= self.length:
-            return (index, empty)
-        (index, token) = self.peek_fixed_size(index, path, 1)
+        self.skip_whitespace(path)
+        if self.offset >= self.length:
+            return empty
+        token = self.peek_fixed_size(path, 1)
         if token == '[':
-            index = self.skip_fixed_size(index, path, 1)
-            (index, value) = self.scan_naked_list(index, path, ']', check_mixin=check_mixin)
-            return (self.skip_prefix_str(index, path, ']'), value)
+            self.skip_fixed_size(path, 1)
+            value = self.scan_naked_list(path, ']', check_mixin=check_mixin)
+            self.skip_prefix_str(path, ']')
+            return value
         if token == '{':
-            index = self.skip_fixed_size(index, path, 1)
-            (index, value) = self.scan_naked_dict(index, path, '}')
-            return (self.skip_prefix_str(index, path, '}'), value)
+            self.skip_fixed_size(path, 1)
+            value = self.scan_naked_dict(path, '}')
+            self.skip_prefix_str(path, '}')
+            return value
         if token in ALLOWED_QUOTES:
             return self.scan_quoted_seq(
-                index, path, quotes=ALLOWED_QUOTES, check_mixin=bool(check_mixin)
+                path, quotes=ALLOWED_QUOTES, check_mixin=bool(check_mixin)
             )
         if token == '(' and self.config.parse_expr is not None:
-            index = self.skip_fixed_size(index, path, 1)
-            (index, value) = self.scan_data_until(index, path, ')')
-            index = self.skip_prefix_str(index, path, ')')
-            return (index, self.config.parse_expr(value, path))
+            self.skip_fixed_size(path, 1)
+            value = self.scan_data_until(path, ')')
+            self.skip_prefix_str(path, ')')
+            return self.config.parse_expr(value, path)
         # Now scan regular non quoted data
-        self.anchor.append(index)
+        self.anchor.append(self.offset)
         try:
-            (index, value) = self.scan_prime_data(index, path, empty=empty)
-            if index >= self.length or not isinstance(value, str):
-                return (index, value)
-            offset = index - self.anchor[-1]
-            index = self.skip_whitespace(index, path)
-            (index, token) = self.peek_fixed_size(index, path, 1)
+            value = self.scan_prime_data(path, empty=empty)
+            if self.offset >= self.length or not isinstance(value, str):
+                return value
+            dist = self.offset - self.anchor[-1]
+            self.skip_whitespace(path)
+            token = self.peek_fixed_size(path, 1)
             if self.config.frid_mixin and token == '(' and is_frid_identifier(value):
-                index = self.skip_fixed_size(index, path, 1)
+                self.skip_fixed_size(path, 1)
                 name = value
-                (index, args, kwds) = self.scan_naked_args(index, path, ')')
-                index = self.skip_prefix_str(index, path, ')')
-                return (index, self.construct_mixin(self.anchor[-1], path, name, args, kwds))
-            return (self.anchor[-1] + offset, value)
+                (args, kwds) = self.scan_naked_args(path, ')')
+                self.skip_prefix_str(path, ')')
+                return self.construct_mixin(path, name, args, kwds, offset=self.anchor[-1])
+            self.offset = self.anchor[-1] + dist
+            return value
         except FridParseError:
-            index = self.anchor[-1]
+            self.offset = self.anchor[-1]
             if self.config.parse_misc:
-                (index, value) = self.scan_data_until(index, path, ",)]}")
-                return (index, self.config.parse_misc(value, path))
+                value = self.scan_data_until(path, ",)]}")
+                return self.config.parse_misc(value, path)
             raise
         finally:
             self.anchor.pop()
 
     def scan(
-            self, start: int=0, /, path: str='', stop: str='',
+            self, /, path: str='', stop: str='',
             *, top_dtype: Literal['list','dict','args']|None=None, until_eol: str|bool=False,
-    ) -> tuple[int,FridValue|ValueArgs[str]]:
+    ) -> FridValue|ValueArgs[str]:
         match top_dtype:
             case None:
-                (index, value) = self.scan_frid_value(start, path)
+                value = self.scan_frid_value(path)
                 if isinstance(value, FridBeing):
-                    self.error(index, "PRESENT or MISSING is only supported for map values")
+                    self.error("PRESENT or MISSING is only supported for map values")
             case 'list':
-                (index, value) = self.scan_naked_list(start, path, stop=stop)
+                value = self.scan_naked_list(path, stop=stop)
             case 'dict':
-                (index, value) = self.scan_naked_dict(start, path, stop=stop)
+                value = self.scan_naked_dict(path, stop=stop)
             case 'args':
-                (index, args, kwds) = self.scan_naked_args(start, path, stop=stop)
+                (args, kwds) = self.scan_naked_args(path, stop=stop)
                 value = ValueArgs(path, *args, **kwds)
             case _:
-                self.error(start, f"Invalid input {top_dtype}")
+                self.error(f"Invalid input {top_dtype}")
         # Skip to the end of the line (lineends in the comments are ignored)
         lineends = until_eol if isinstance(until_eol, str) else '\n\v\f'
         while True:
-            index = self.skip_characters(index, path, char_set=' \r\t')
-            (index, comments) = self.skip_comments(index, path)
+            self.skip_characters(path, char_set=' \r\t')
+            comments = self.skip_comments(path)
             if comments is None:
                 break
         # Check if the following character is a newline
-        if index < self.length:
-            (index, c) = self.peek_fixed_size(index, path, 1)
+        if self.offset < self.length:
+            c = self.peek_fixed_size(path, 1)
             if c in lineends:
-                index = self.skip_fixed_size(index, path, 1)
+                self.skip_fixed_size(path, 1)
             elif until_eol:
-                self.error(index, "Trailing data at the end of line")
-        return (index, value)
+                self.error("Trailing data at the end of line")
+        return value
     def load(self, path: str='',
              top_dtype: Literal['list','dict','args']|None=None) -> FridValue|ValueArgs[str]:
-        (index, value) = self.scan(0, path, top_dtype=top_dtype)
-        if index < 0:
-            self.error(0, f"Failed to parse data: {path=}")
-        if index < self.length:
-            index = self.skip_whitespace(index, path)
-            if index < self.length:
-                self.error(index, f"Trailing data at {index} ({path=})")
+        value = self.scan(path, top_dtype=top_dtype)
+        if self.offset < 0:
+            self.error(f"Offset is negative: {path=}")
+        if self.offset < self.length:
+            self.skip_whitespace(path)
+            if self.offset < self.length:
+                self.error(f"Trailing data at {self.offset} ({path=})")
         if isinstance(value, FridBeing):
-            self.error(index, "PRESENT or MISSING is only supported for map values")
+            self.error("PRESENT or MISSING is only supported for map values")
         return value
 
 @overload
@@ -800,44 +818,39 @@ def scan_frid_str(
     """Note: this function will raise TruncError if the string ends prematurely.
     For other parsing issues, a regular ParseError is returned.
     """
-    (index, value) = FridLoader(s, *args, **kwargs).scan(
-        start, init_path, end_chars, top_dtype=top_dtype, until_eol=until_eol
+    loader = FridLoader(s, offset=start, *args, **kwargs)
+    value = loader.scan(
+        init_path, end_chars, top_dtype=top_dtype, until_eol=until_eol
     )
-    return (value, index)
+    return (value, loader.offset)
 
 
 class FridTextIOLoader(FridLoader):
     def __init__(self, t: TextIO, page: int = 16384, **kwargs: Unpack[FridLoader.Params]):
-        super().__init__("", 1<<62, 0, **kwargs)  # Do not pass any positional parameters; using default
+        super().__init__("", 1<<62, **kwargs)  # Do not pass any positional parameters; using default
         self.file: TextIO|None = t
         self.page: int = page
-        self.offset: int = 0
     def __bool__(self):
-        index = self.skip_whitespace(self.offset, '')
-        return index >= self.length
+        self.skip_whitespace('')
+        return self.offset >= self.length
     def __call__(self, *, init_path: str='', end_chars: str='', until_eol: str|bool=False,
                 top_dtype: Literal['list','dict']|None=None, **kwargs):
-        (index, value) = self.scan(self.offset, init_path, end_chars,
-                                   top_dtype=top_dtype, until_eol=until_eol)
-        self.offset = index
-        return value
-    def fetch(self, start: int, path: str) -> int:
+        return self.scan(init_path, end_chars, top_dtype=top_dtype, until_eol=until_eol)
+    def fetch(self, path: str) -> None:
         if self.file is None:
-            return super().fetch(start, path)  # Just raise reaching end exception
+            return super().fetch(path)  # Just raise reaching end exception
         half_page = self.page >> 1
-        index = start
-        old_offset = self.offset
-        new_start = index - half_page # Keep the past page
-        if new_start > half_page:
-            if self.anchor and new_start > self.anchor[0]:
-                new_start = self.anchor[0]
-            if new_start > half_page:
+        cutoff = self.offset - half_page # Keep the past page
+        if cutoff > half_page:
+            if self.anchor and cutoff > (min_anchor := min(self.anchor)):
+                cutoff = min_anchor
+            if cutoff > half_page:
                 # Remove some of the past text
-                self.buffer = self.buffer[new_start:]
-                self.offset = old_offset + new_start
-                index -= new_start
+                self.buffer = self.buffer[cutoff:]
+                self.outset += cutoff
+                self.offset -= cutoff
                 for i in range(len(self.anchor)):
-                    self.anchor[i] -= new_start
+                    self.anchor[i] -= cutoff
         data = self.file.read(self.page)
         self.buffer += data
         if len(data) < self.page:
@@ -846,7 +859,6 @@ class FridTextIOLoader(FridLoader):
         # print(f"Loaded {len(data)}B, anchor={self.anchor} offset={old_offset}->{self.offset} "
         #       f"index={start}->{index} buffer=[{len(self.buffer)}]: "
         #       f"{self.buffer[:index]}\u2728{self.buffer[index:]}")
-        return index
 
 @overload
 def load_frid_tio(t: TextIO, *args, init_path: str='', top_dtype: None=None,
