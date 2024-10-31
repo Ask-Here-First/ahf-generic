@@ -2,7 +2,7 @@ import sys, traceback
 from logging import info
 from dataclasses import dataclass
 from collections.abc import AsyncIterable, Iterable, Mapping, Callable, Sequence
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict, TypeVar
 from functools import partial
 from fnmatch import fnmatch
 from socket import gethostname
@@ -36,13 +36,14 @@ HTTP_SUPPORTED_METHODS = ('HEAD', 'GET', 'PUT', 'POST', 'DELETE', 'PATCH')
 HTTP_METHODS_WITH_BODY = ('POST', 'PUT', 'PATCH')
 
 class HttpRouted(TypedDict):
-    optype: CallOpType                      # The operation type
+    optype: CallOpType|None                 # The operation type
     router: str                             # This is actually ApiRoute.prefix
     action: str                             # This is actually ApiRoute.medial
     vpargs: Sequence[FridValue]             # Variable positional args,from ApiRoute.suffix
     qsargs: Sequence[tuple[str,str]|str]    # Query string, percentage decoded pairs
     kwargs: Mapping[str,FridValue]          # Keyward arguments, processing from query string
 
+_T = TypeVar('_T')
 class HttpInput(TypedDict, total=False):
     method: MethodKind      # One of the five calls
     routed: HttpRouted      # How the HTTP request is routed
@@ -111,7 +112,8 @@ class ApiRoute:
         info(msg)
         # Generates the HttpInput structure users might need
         http_input = self.to_http_input(req)
-        assert not isinstance(req.http_data, AsyncIterable)
+        ## It is now possible with have AsyncIterable data with websock
+        # assert not isinstance(req.http_data, AsyncIterable)
         try:
             args = self._get_vpargs(req.http_data)
             kwds = self._get_kwargs(req.http_data)
@@ -135,11 +137,12 @@ class ApiRoute:
             pair = auth.split()
             if len(pair) == 2 and pair[0] == "Bearer":
                 auth = pair[1]
-        assert not isinstance(req.http_data, AsyncIterable)
+        # The data can now be an AsyncIterable with websocket
+        # assert not isinstance(req.http_data, AsyncIterable)
         http_input: HttpInput = {
             'method': self.method,
             'routed': {
-                'optype': _call_op_type_map[self.method],
+                'optype': _call_op_type_map.get(self.method),
                 'router': self.prefix, 'action': self.medial,
                 'vpargs': self.vpargs, 'qsargs': self.qsargs, 'kwargs': self.kwargs,
             },
@@ -150,7 +153,7 @@ class ApiRoute:
                 x.split(';')[0].strip() for x in accept.split(',') if x.strip()
             ] if (accept := req.http_head.get('Accept')) is not None else []
         }
-        if req.http_data is not MISSING:
+        if is_frid_value(req.http_data):
             http_input['data'] = req.http_data
         if req.mime_type is not None:
             http_input['mime'] = req.mime_type
@@ -172,31 +175,33 @@ class ApiRoute:
                     status = s
                     break
         return HttpError(status, "Crashed: " + self.get_log_str(req, client), cause=exc)
-    def _get_vpargs(self, data: FridValue|MissingType) -> tuple[FridValue,...]:
-        if data is MISSING:
-            data = None    # Pass data as None if it is MISSING
+    def _get_vpargs(self, data: _T|MissingType) -> tuple[FridValue|_T,...]:
+        data_arg = None if data is MISSING else data
         match self.numfpa:
             case 0:
                 return tuple(self.vpargs)
             case 1:
-                return (data, *self.vpargs)
+                return (data_arg, *self.vpargs)
             case 2:
-                return (_call_op_type_map[self.method], data, *self.vpargs)
+                return (_call_op_type_map[self.method], data_arg, *self.vpargs)
             case _:
                 raise ValueError(f"Invalid value of numfpa={self.numfpa}")
-    def _get_kwargs(self, data: FridValue|MissingType):
+    def _get_kwargs(self, data: _T|MissingType) -> dict[str,_T|FridValue]:
         if self.router is not self.action or self.method == 'GET':
-            return self.kwargs
-        kwargs = dict(self.kwargs)
+            return self.kwargs   # type: ignore  --- pylance can't handle this
+        kwargs: dict[str,Any] = dict(self.kwargs)
         kwargs['_call'] = _call_op_type_map[self.method]
         if data is not MISSING:
             kwargs['_data'] = data
         return kwargs
     def get_log_str(self, req: HttpMixin, client: str|None=None):
-        assert is_frid_value(req.http_data) or req.http_data is MISSING, type(req.http_data)
-        data = MISSING if req.http_data is MISSING else frid_redact(req.http_data, 0)
+        if isinstance(req.http_data, AsyncIterable):
+            data = get_type_name(req.http_data)
+        else:
+            assert is_frid_value(req.http_data) or req.http_data is MISSING, type(req.http_data)
+            data = MISSING if req.http_data is MISSING else frid_redact(req.http_data, 0)
         return f"[{client}] ({self.prefix}) {self.method} " + dump_args_str(FridNameArgs(
-            self.medial, self._get_vpargs(data), self.kwargs
+            self.medial, self._get_vpargs(data), self._get_kwargs(data)
         ))
 
 class ApiRouteManager:
@@ -323,7 +328,7 @@ class ApiRouteManager:
                 suffix = path[len(prefix):]
             numfpa = 0
         else:
-            raise HttpError(403, f"[{prefix}]: the router is not callable")
+            raise HttpError(403, f"[{prefix}]: the router is not callable: {type(router)}")
         # Parse the query string
         (qsargs, kwargs) = parse_url_query(qstr)
         if suffix:

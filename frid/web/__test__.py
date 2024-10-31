@@ -1,20 +1,20 @@
-import time, unittest
+import time, random, unittest
 import urllib.error
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, Literal
 from logging import info
 from pathlib import Path
 from urllib.request import urlopen, Request
 from multiprocessing import Process
 
-from .._loads import load_frid_str
+from .._loads import FridTruncError, load_frid_str, scan_frid_str
 from .._dumps import dump_frid_str
-from ..typing import FridValue, MissingType, MISSING
+from ..typing import FridValue, MissingType, MISSING, get_func_name
 
-from .route import echo_router
+from .route import HttpInput, echo_router
 from .httpd import run_http_server
 from .wsgid import run_wsgi_server_with_gunicorn, run_wsgi_server_with_simple
-from .asgid import run_asgi_server_with_uvicorn
+from .asgid import AbstractWebsocketRouter, WebsocketIterator, run_asgi_server_with_uvicorn
 
 class TestRouter:
     def get_echo(self, *args, _http={}, **kwds):
@@ -32,6 +32,20 @@ class TestRouter:
     def put_(self, data, *args, _http={}, **kwds):
         return {'optype': 'put', '.data': data, '.kwds': kwds, '.args': list(args)}
 
+class WebsocketRouter(AbstractWebsocketRouter):
+    def __init__(self, http: HttpInput):
+        pass
+    def get_default_stream_data_type(self) -> Literal['frid']:
+        return 'frid'
+    async def mix_echo(self, data: WebsocketIterator, *args, _http={}, **kwds):
+        assert isinstance(data, WebsocketIterator), type(data)
+        async for item in data:
+            await data({'.data': item, '.type': "websocket"})
+    async def mix_(self, data: WebsocketIterator, *args, _http={}, **kwds):
+        assert isinstance(data, WebsocketIterator), type(data)
+        async for item in data:
+            yield {'.data': item, '.type': "websocket"}
+
 ServerType = Callable[[dict[str,Any],dict[str,str]|str|None,str,int],None]
 
 class TestWebAppHelper(unittest.TestCase):
@@ -45,11 +59,12 @@ class TestWebAppHelper(unittest.TestCase):
         cls.process = Process(target=server, args=(
             {
                 '/echo': echo_router, '/test/': TestRouter(),
+                '/sock/': WebsocketRouter,
             },
             {str(Path(__file__).absolute().parent): ''},
             cls.TEST_HOST, cls.TEST_PORT, {'quiet': True},
         ))
-        info(f"Spawning {cls.__name__} {server.__name__} at {cls.BASE_URL} ...")
+        info(f"Spawning {cls.__name__} {get_func_name(server)} at {cls.BASE_URL} ...")
         cls.process.start()
         time.sleep(0.5)
     def await_server(self):
@@ -223,4 +238,47 @@ class TestAsgiUvicornWebApp(TestWebAppHelper):
         cls.close_server()
     def test_asgi_server(self):
         return self.run_tests()
-
+    def test_websockets(self):
+        self.assertTrue(callable(WebsocketRouter))
+        try:
+            import websocket
+        except ImportError:
+            raise unittest.SkipTest(
+                "Skip ASGi websocket tests because websocket-client is not installed"
+            )
+        # Node: got this with Uvicorn: DeprecationWarning: remove second argument of ws_handler
+        # See https://github.com/encode/uvicorn/discussions/2476
+        # (2024-09-30, unsolved as of 2024-10-31)
+        self.await_server()
+        data = [
+            None, True, False, 3, 100, 0.5, "Hello, world", {'x': 3}, [3, "abc"],
+            {'x': 3, 'y': "b", 'z': [False, True]},
+        ]
+        for path in ("/sock/test", "/sock/"):
+            base_url = f"ws://{self.TEST_HOST}:{self.TEST_PORT}" + path
+            for json in (None, 0, 1, 5):
+                ws = websocket.WebSocket()
+                url = base_url if json is None else base_url + "?json=" + str(json)
+                ws.connect(url)
+                idx = 0
+                buffer = ""
+                offset = 0
+                for item in data:
+                    ws.send(dump_frid_str(item, json_level=(json or 0)))
+                    if random.random() < 0.5:
+                        v = ws.recv()
+                        assert isinstance(v, str)
+                        buffer += v
+                        try:
+                            (copy, offset) = scan_frid_str(buffer, offset, json_level=json or 0)
+                        except FridTruncError:
+                            continue
+                        self.assertIsInstance(copy, Mapping)
+                        assert isinstance(copy, Mapping)  # For tpying
+                        self.assertEqual(copy.get('.data'), data[idx])
+                        self.assertEqual(copy.get('.type'), "websocket")
+                        idx += 1
+                while idx < len(data):
+                    ws.recv()
+                    idx += 1
+                ws.close()
