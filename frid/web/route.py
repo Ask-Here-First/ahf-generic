@@ -344,7 +344,7 @@ class ApiRouteManager:
             vpargs=vpargs, qsargs=qsargs, kwargs=kwargs,
             router=router, action=action, numfpa=numfpa,
         )
-    def fetch_router(self, path: str, qstr: str|None) -> tuple[str,str]|HttpError|None:
+    def fetch_router(self, path: str, qstr: str|None) -> tuple[Any,str]|HttpError|None:
         """Fetch the router object in the registry that matches the
         longest prefix of path.
         - Returns the router object and its prefix. If it does not match,
