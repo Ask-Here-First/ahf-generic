@@ -50,13 +50,13 @@ class AsgiWebApp(ApiRouteManager):
                 result = await result
             except asyncio.TimeoutError as exc:
                 traceback.print_exc()
-                # msg =  route.get_log_str(request, peer=scope['client'])
+                # msg =  route.get_log_str(request, client=scope['client'])
                 result = HttpError(503, f"Timeout: {method} {scope['path']}", cause=exc)
             except HttpError as exc:
                 result = exc
             except Exception as exc:
                 traceback.print_exc()
-                # result = route.to_http_error(exc, request, peer=scope['client'])
+                # result = route.to_http_error(exc, request, client=scope['client'])
                 result = HttpError(500, f"Crashed: {method} {scope['path']}", cause=exc)
         response = self.process_result(request, result)
         await send({

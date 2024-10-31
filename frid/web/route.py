@@ -107,7 +107,7 @@ class ApiRoute:
 
     def __call__(self, req: HttpMixin, **kwargs: Unpack[HttpInput]):
         # Fetch authorization status
-        peer = kwargs.get('peer')
+        client = kwargs.get('client')
         auth = req.http_head.get('Authorization')
         if isinstance(auth, str):
             pair = auth.split()
@@ -116,7 +116,7 @@ class ApiRoute:
         # with_auth = self._auth_key is None or self._auth_key == auth_key # TODO: change to id
         # Get the the route information
             # Read body if needed
-        msg = self.get_log_str(req, peer)
+        msg = self.get_log_str(req, client)
         info(msg)
         # Generates the HttpInfo structure users might need
         assert not isinstance(req.http_data, AsyncIterable)
@@ -156,8 +156,8 @@ class ApiRoute:
             return HttpError(400, "Bad args: " + msg, cause=exc)
         except Exception as exc:
             traceback.print_exc()
-            return self.to_http_error(exc, req, peer=peer)
-    def to_http_error(self, exc: Exception, req: HttpMixin, peer: str|None) -> HttpError:
+            return self.to_http_error(exc, req, client=client)
+    def to_http_error(self, exc: Exception, req: HttpMixin, client: str|None) -> HttpError:
         if isinstance(exc, HttpError):
             return exc
         status = 500
@@ -168,7 +168,7 @@ class ApiRoute:
                 if isinstance(s, int) and s > 0:
                     status = s
                     break
-        return HttpError(status, "Crashed: " + self.get_log_str(req, peer), cause=exc)
+        return HttpError(status, "Crashed: " + self.get_log_str(req, client), cause=exc)
     def _get_vpargs(self, data: FridValue|MissingType) -> tuple[FridValue,...]:
         if data is MISSING:
             data = None    # Pass data as None if it is MISSING
@@ -542,7 +542,7 @@ class ApiRouteManager:
             return (request, exc)
         except Exception as exc:
             traceback.print_exc()
-            return (request, route.to_http_error(exc, request, peer=client))
+            return (request, route.to_http_error(exc, request, client=client))
     def process_result(self, request: HttpMixin, result: HttpMixin|FridValue) -> HttpMixin:
         """Process the result of the route execution and returns a response.
         - The response is an object of HttpMixin with body already prepared.
