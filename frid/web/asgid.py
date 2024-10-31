@@ -68,7 +68,7 @@ class WebsocketIterator(AsyncIterator[_T]):
         self._recv = recv
         self._send = send
         self._binary = binary
-        self.last_msg_type = ""
+        self.last_msg_type = "websocket.receive"
     def __aiter__(self):
         return self
     async def __anext__(self) -> _T:
@@ -294,11 +294,12 @@ class AsgiWebApp(ApiRouteManager):
                 await data(item)
         elif result is not None:
             await data(result)
-        if data.last_msg_type != "websocket.disconnect":
+        if data.last_msg_type == "websocket.receive":
+            # The route function ends, end close signal
+            await send({'type': "websocket.close"})
+        elif data.last_msg_type != "websocket.disconnect":
             warn(f"ASGi websocket: recevied a message {data.last_msg_type} "
                  "when expecting disconnect")
-        ## Cannot send close as we already received disconnect
-        #     await send({'type': "websocket.close"})
 
     async def handle_life(self, scope: AsgiScopeDict, recv: AsgiRecvCall, send: AsgiSendCall):
         while True:
