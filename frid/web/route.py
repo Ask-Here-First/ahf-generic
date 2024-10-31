@@ -18,15 +18,15 @@ from .._utils import load_module_data
 from .mixin import HttpError, HttpMixin, HttpInputHead, parse_url_query, parse_url_value
 from .files import FileRouter
 
-
-# WEBHOOK_BASE_PATH = "/hooks"
-
 # - If call type is a string, it is call with (call_type, data, *opargs, **kwargs)
 # - If call type is true, it is call with (data, *opargs, **kwargs)
 # - If call type is false, it is call just with just (*opargs, **kwargs)
 HttpMethod = Literal['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS','CONNECT','TRACE']
-HttpOpType = Literal['get','set','put','add','del']
-_http_op_types: dict[str,HttpOpType] = {
+# With other "quasi methods"; 'kind' is a more relaxed term
+MethodKind = HttpMethod|Literal[':websocket:']
+# The internal unified data handling type that is HTTP-agnostic
+CallOpType = Literal['get','set','put','add','del']  # GSPAD
+_call_op_type_map: dict[str,CallOpType] = {
     'HEAD': 'get', 'GET': 'get', 'POST': 'set', 'PUT': 'put',
     'PATCH': 'add', 'DELETE': 'del'
 }
@@ -36,7 +36,7 @@ HTTP_SUPPORTED_METHODS = ('HEAD', 'GET', 'PUT', 'POST', 'DELETE', 'PATCH')
 HTTP_METHODS_WITH_BODY = ('POST', 'PUT', 'PATCH')
 
 class HttpRouted(TypedDict):
-    optype: HttpOpType                      # The operation type
+    optype: CallOpType                      # The operation type
     router: str                             # This is actually ApiRoute.prefix
     action: str                             # This is actually ApiRoute.medial
     vpargs: Sequence[FridValue]             # Variable positional args,from ApiRoute.suffix
@@ -44,7 +44,7 @@ class HttpRouted(TypedDict):
     kwargs: Mapping[str,FridValue]          # Keyward arguments, processing from query string
 
 class HttpInput(TypedDict, total=False):
-    method: HttpMethod      # One of the five calls
+    method: MethodKind      # One of the five calls
     routed: HttpRouted      # How the HTTP request is routed
     client: str             # The client IP address (port information is removed)
     server: str             # The server address (optional [:port]); from HTTP Host
@@ -93,7 +93,7 @@ class ApiRoute:
           of `get` if accepting it.
     """
     # HTTP request information
-    method: HttpMethod
+    method: MethodKind
     prefix: str
     medial: str
     suffix: str
@@ -139,7 +139,7 @@ class ApiRoute:
         http_input: HttpInput = {
             'method': self.method,
             'routed': {
-                'optype': _http_op_types[self.method],
+                'optype': _call_op_type_map[self.method],
                 'router': self.prefix, 'action': self.medial,
                 'vpargs': self.vpargs, 'qsargs': self.qsargs, 'kwargs': self.kwargs,
             },
@@ -181,14 +181,14 @@ class ApiRoute:
             case 1:
                 return (data, *self.vpargs)
             case 2:
-                return (_http_op_types[self.method], data, *self.vpargs)
+                return (_call_op_type_map[self.method], data, *self.vpargs)
             case _:
                 raise ValueError(f"Invalid value of numfpa={self.numfpa}")
     def _get_kwargs(self, data: FridValue|MissingType):
         if self.router is not self.action or self.method == 'GET':
             return self.kwargs
         kwargs = dict(self.kwargs)
-        kwargs['_call'] = _http_op_types[self.method]
+        kwargs['_call'] = _call_op_type_map[self.method]
         if data is not MISSING:
             kwargs['_data'] = data
         return kwargs
@@ -225,7 +225,7 @@ class ApiRouteManager:
     however, a file router can be served from multiple directories or paths
     in zip files, allowing overlay between them.
     """
-    _route_prefixes: Mapping[HttpMethod,Sequence[str]] = {
+    _route_prefixes: Mapping[MethodKind,Sequence[str]] = {
         'HEAD': ['get_', 'run_'],
         'GET': ['get_', 'run_'],
         'POST': ['set_', 'post_', 'run_'],
@@ -237,7 +237,7 @@ class ApiRouteManager:
         'get_': 0, 'set_': 1, 'put_': 1, 'add_': 1, 'del_': 0, 'run_': 2,
         'post_': 1, 'patch_': 1, 'delete_': 0,
     }
-    _rprefix_revmap: Mapping[str,Sequence[HttpMethod]] = {
+    _rprefix_revmap: Mapping[str,Sequence[MethodKind]] = {
         'get_': ['GET'], 'set_': ['POST'], 'put_': ['PUT'], 'add_': ['PATCH'],
         'del_': ['DELETE'], 'run_': ['GET', 'HEAD', 'POST', 'PUT', 'PATCH'],
         'post_': ['PUT'], 'patch_': ['PATCH'], 'delete_': ['DELETE'],
@@ -295,7 +295,7 @@ class ApiRouteManager:
             else:
                 r = get_func_name(v)
             info(f"|   {k or '[ROOT]'} => {r}")
-    def create_route(self, method: HttpMethod, path: str, qstr: str|None,
+    def create_route(self, method: MethodKind, path: str, qstr: str|None,
                      *, router=None, prefix: str|None=None) -> ApiRoute|HttpError:
         if router is None or prefix is None:
             # The fetch optional; not performed if both router and prefix are given
@@ -376,7 +376,7 @@ class ApiRouteManager:
         return HttpError(404, f"Cannot find the route for {path}")
     @classmethod
     def fetch_action(
-        cls, router, method: HttpMethod, prefix: str, suffix: str, qstr: str|None
+        cls, router, method: MethodKind, prefix: str, suffix: str, qstr: str|None
     ) -> tuple[Callable,str,str,Literal[0,1,2]]|HttpError:
         """Find the end point in the router according to the path.
         - First try using prefixes concatenated with the first path element as names;
@@ -413,8 +413,8 @@ class ApiRouteManager:
         return HttpError(405, f"[{prefix}]: no action matches '{suffix}'")
 
     @classmethod
-    def search_actions(cls, router) -> list[tuple[str,Sequence[HttpMethod],Callable]]:
-        out: list[tuple[str,Sequence[HttpMethod],Callable]] = []
+    def search_actions(cls, router) -> list[tuple[str,Sequence[MethodKind],Callable]]:
+        out: list[tuple[str,Sequence[MethodKind],Callable]] = []
         for name in dir(router):
             try:
                 attr = getattr(router, name)
@@ -453,7 +453,7 @@ class ApiRouteManager:
             case '-l'|'--list':
                 if not prefix.endswith('/'):
                     return {'': ['GET', '...']}  # TODO: use inspect to exclude HTTP methods
-                out: dict[str,list[HttpMethod]] = {}
+                out: dict[str,list[MethodKind]] = {}
                 for name, methods, _ in cls.search_actions(router):
                     value = out.get(name)
                     if value is None:
@@ -511,7 +511,7 @@ class ApiRouteManager:
         return headers
 
     def handle_request(
-            self, method: HttpMethod, data: bytes|None, headers: HttpInputHead,
+            self, method: MethodKind, data: bytes|None, headers: HttpInputHead,
             *, path: str, qstr: str|None, client: str|tuple[str,int]|None,
     ) -> tuple[HttpMixin,HttpMixin|FridValue]:
         """Create a request object and run the route.
