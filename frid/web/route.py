@@ -295,11 +295,17 @@ class ApiRouteManager:
             else:
                 r = get_func_name(v)
             info(f"|   {k or '[ROOT]'} => {r}")
-    def create_route(self, method: HttpMethod, path: str, qstr: str|None) -> ApiRoute|HttpError:
-        result = self.fetch_router(path, qstr)
-        if isinstance(result, HttpError):
-            return result
-        (router, prefix) = result
+    def create_route(self, method: HttpMethod, path: str, qstr: str|None,
+                     *, router=None, prefix: str|None=None) -> ApiRoute|HttpError:
+        if router is None or prefix is None:
+            # The fetch optional; not performed if both router and prefix are given
+            result = self.fetch_router(path, qstr)
+            if isinstance(result, HttpError):
+                return result
+            if router is None:
+                router = result[0]
+            if prefix is None:
+                prefix = result[1]
         suffix = path[len(prefix):]
         if prefix.endswith('/'):
             result = self.fetch_action(router, method, prefix, suffix, qstr)
@@ -527,20 +533,14 @@ class ApiRouteManager:
         route = self.create_route(method, path, qstr)
         if isinstance(route, HttpError):
             return (request, route)
-        kwargs: HttpInput = {'path': path}
-        if qstr is not None:
-            kwargs['qstr'] = qstr
-        if client is not None:
-            if not isinstance(client, str):
-                client = client[0]
-            kwargs['client'] = client
+        route_args = self.get_route_args(path, qstr, client)
         try:
-            return (request, route(request, **kwargs))
+            return (request, route(request, **route_args))
         except HttpError as exc:
             return (request, exc)
         except Exception as exc:
             traceback.print_exc()
-            return (request, route.as_http_error(exc, request, client=client))
+            return (request, route.as_http_error(exc, request, client=route_args.get('client')))
     def process_result(self, request: HttpMixin, result: HttpMixin|FridValue) -> HttpMixin:
         """Process the result of the route execution and returns a response.
         - The response is an object of HttpMixin with body already prepared.
@@ -566,6 +566,19 @@ class ApiRouteManager:
         self.update_headers(response, request)
         response.set_response()
         return response
+
+    @classmethod
+    def get_route_args(cls, path: str, qstr: str|None, client: str|tuple[str,int]|None) -> HttpInput:
+        kwargs: HttpInput = {'path': path}
+        if qstr is not None:
+            kwargs['qstr'] = qstr
+        if client is None:
+            return kwargs
+        if isinstance(client, tuple):
+            kwargs['client'] = client[0]
+        else:
+            kwargs['client'] = str(client)
+        return kwargs
 
 def echo_router(*args, _data: FridValue|MissingType=MISSING,
                 _call: str='get', _http: HttpInput={}, **kwds):
