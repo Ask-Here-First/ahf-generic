@@ -106,19 +106,35 @@ class ApiRoute:
     numfpa: Literal[0,1,2]
 
     def __call__(self, req: HttpMixin, **kwargs: Unpack[HttpInput]):
-        # Fetch authorization status
         client = kwargs.get('client')
+        msg = self.get_log_str(req, client)
+        info(msg)
+        # Generates the HttpInput structure users might need
+        http_input = self.to_http_input(req)
+        assert not isinstance(req.http_data, AsyncIterable)
+        try:
+            args = self._get_vpargs(req.http_data)
+            kwds = self._get_kwargs(req.http_data)
+            try:
+                return self.action(*args, **kwds, _http=http_input)
+            except TypeError:
+                pass
+            return self.action(*args, **kwds)
+        except TypeError as exc:
+            traceback.print_exc()
+            return HttpError(400, "Bad args: " + msg, cause=exc)
+        except Exception as exc:
+            traceback.print_exc()
+            return self.as_http_error(exc, req, client=client)
+    def to_http_input(self, req: HttpMixin, **kwargs: Unpack[HttpInput]) -> HttpInput:
+        """Converts this route to an HttpInput object.
+        - With extra data supplied by `request` and `kwargs`.
+        """
         auth = req.http_head.get('Authorization')
         if isinstance(auth, str):
             pair = auth.split()
             if len(pair) == 2 and pair[0] == "Bearer":
                 auth = pair[1]
-        # with_auth = self._auth_key is None or self._auth_key == auth_key # TODO: change to id
-        # Get the the route information
-            # Read body if needed
-        msg = self.get_log_str(req, client)
-        info(msg)
-        # Generates the HttpInfo structure users might need
         assert not isinstance(req.http_data, AsyncIterable)
         http_input: HttpInput = {
             'method': self.method,
@@ -143,21 +159,8 @@ class ApiRoute:
             http_input['body'] = req.http_body
         if auth is not None:
             http_input['auth'] = auth
-        try:
-            args = self._get_vpargs(req.http_data)
-            kwds = self._get_kwargs(req.http_data)
-            try:
-                return self.action(*args, **kwds, _http=http_input)
-            except TypeError:
-                pass
-            return self.action(*args, **kwds)
-        except TypeError as exc:
-            traceback.print_exc()
-            return HttpError(400, "Bad args: " + msg, cause=exc)
-        except Exception as exc:
-            traceback.print_exc()
-            return self.to_http_error(exc, req, client=client)
-    def to_http_error(self, exc: Exception, req: HttpMixin, client: str|None) -> HttpError:
+        return http_input
+    def as_http_error(self, exc: Exception, req: HttpMixin, client: str|None) -> HttpError:
         if isinstance(exc, HttpError):
             return exc
         status = 500
@@ -293,12 +296,9 @@ class ApiRouteManager:
                 r = get_func_name(v)
             info(f"|   {k or '[ROOT]'} => {r}")
     def create_route(self, method: HttpMethod, path: str, qstr: str|None) -> ApiRoute|HttpError:
-        assert isinstance(path, str)
         result = self.fetch_router(path, qstr)
         if isinstance(result, HttpError):
             return result
-        if result is None:
-            return HttpError(404, f"Cannot find the path router for {path}")
         (router, prefix) = result
         suffix = path[len(prefix):]
         if prefix.endswith('/'):
@@ -344,7 +344,7 @@ class ApiRouteManager:
             vpargs=vpargs, qsargs=qsargs, kwargs=kwargs,
             router=router, action=action, numfpa=numfpa,
         )
-    def fetch_router(self, path: str, qstr: str|None) -> tuple[Any,str]|HttpError|None:
+    def fetch_router(self, path: str, qstr: str|None) -> tuple[Any,str]|HttpError:
         """Fetch the router object in the registry that matches the
         longest prefix of path.
         - Returns the router object and its prefix. If it does not match,
@@ -367,7 +367,7 @@ class ApiRouteManager:
             if router is not None:
                 return (router, prefix)
             index = path.rfind('/', 0, index)
-        return None
+        return HttpError(404, f"Cannot find the route for {path}")
     @classmethod
     def fetch_action(
         cls, router, method: HttpMethod, prefix: str, suffix: str, qstr: str|None
@@ -462,8 +462,6 @@ class ApiRouteManager:
             result = self.fetch_router(path, qstr)
             if isinstance(result, HttpError):
                 return result
-            if result is None:
-                return HttpError(404, f"Invalid request OPTIONS {path}")
         return HttpMixin(ht_status=200, http_head={
             # TODO find out what methods are suppoted
             'Access-Control-Allow-Methods': ", ".join(HTTP_SUPPORTED_METHODS) + ", OPTIONS",
@@ -542,7 +540,7 @@ class ApiRouteManager:
             return (request, exc)
         except Exception as exc:
             traceback.print_exc()
-            return (request, route.to_http_error(exc, request, client=client))
+            return (request, route.as_http_error(exc, request, client=client))
     def process_result(self, request: HttpMixin, result: HttpMixin|FridValue) -> HttpMixin:
         """Process the result of the route execution and returns a response.
         - The response is an object of HttpMixin with body already prepared.
