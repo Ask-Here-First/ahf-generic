@@ -196,8 +196,8 @@ class FridLoader:
         tot_len = self.length + self.outset
         buf_end = self.outset + len(self.buffer)
         self.error(
-            f"Stream ends at ${self.length} when parsing at {self.offset}; "
-            f"Total length: {tot_len}, Buffer {self.outset}-{buf_end}; path: "
+            f"Stream ends at ${buf_end} when parsing at {self.offset}; "
+            f"length: {self.length},{tot_len}, buffer {self.outset}-{buf_end}; path: "
             + ''.join(self.pstack),
             offset=self.length
         )

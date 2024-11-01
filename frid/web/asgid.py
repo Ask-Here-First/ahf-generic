@@ -89,14 +89,14 @@ class WebsocketIterator(AsyncIterator[_T]):
                 return value
     async def __call__(self, data):
         encoded = self._encode(data)
-        packet: AsgiEventDict = {'type': "websocket.send"}
+        msg: AsgiEventDict = {'type': "websocket.send"}
         if isinstance(encoded, str):
-            packet['text'] = encoded
+            msg['text'] = encoded
         elif isinstance(encoded, bytes):
-            packet['bytes'] = encoded
+            msg['bytes'] = encoded
         else:
             raise HttpError(500, f"Bad return: {self.__class__}._encode() -> {type(encoded)}")
-        return await self._send(packet)
+        return await self._send(msg)
     @abc.abstractmethod
     def _encode(self, data: _T) -> str|bytes:
         raise NotImplementedError
@@ -231,6 +231,7 @@ class AsgiWebApp(ApiRouteManager):
             traceback.print_exc()
             # result = route.to_http_error(exc, request, client=scope['client'])
             return HttpError(500, "Crashed: {msg_str}", cause=exc)
+
     async def handle_sock(self, scope: AsgiScopeDict, recv: AsgiRecvCall, send: AsgiSendCall):
         if not self.use_websockets:
             warn("ASGi Websocket is not enabled for the App")
@@ -243,6 +244,7 @@ class AsgiWebApp(ApiRouteManager):
         route = self.create_route(WEBSOCKET_QUASI_METHOD, path, qstr)
         route_args = self.get_route_args(path, qstr, scope.get('client'))
         data: WebsocketIterator|None = None
+        http_input = None
         if isinstance(route, ApiRoute):
             http_input = route.to_http_input(request, **route_args)
             router_class = route.router
@@ -255,24 +257,11 @@ class AsgiWebApp(ApiRouteManager):
             return await send({
                 'type': "websocket.close", 'code': 403, 'reason': str(route)
             })
+        if http_input is None:
+            http_input = route.to_http_input(request, **route_args)
         await send({'type': "websocket.accept"})   # TODO: headers?
-        # Determine the data type
-        if (json_level := route.kwargs.get('json')) is not None:
-            data = WebsocketFridIterator(recv, send, json_level=json_level)
-        elif isinstance(route, AbstractWebsocketRouter):
-            match route.get_default_stream_data_type():
-                case 'text':
-                    data = WebsocketTextIterator(recv, send)
-                case 'blob':
-                    data = WebsocketBlobIterator(recv, send)
-                case 'frid':
-                    data = WebsocketFridIterator(recv, send)
-                case 'json':
-                    data = WebsocketFridIterator(recv, send, json_level=1)
-                case 'json5':
-                    data = WebsocketFridIterator(recv, send, json_level=5)
-        else:
-            data = WebsocketFridIterator(recv, send)
+        # Get the expected data type
+        data = self.create_ws_data(http_input, route, recv, send)
         # Wait for connect message
         msg = await recv()
         if msg.get('type') != 'websocket.connect':
@@ -282,10 +271,10 @@ class AsgiWebApp(ApiRouteManager):
         request.http_data = data   # Set to use the WebsocketIterator as the data
         result = route(request, **route_args)
         if inspect.isawaitable(result):
-            result = self.wait_for_result(result, f"Websocket {path}")
+            result = await self.wait_for_result(result, f"Websocket {path}")
         if isinstance(result, HttpError):
             return send({
-                'type': "websocket.disconnect",
+                'type': "websocket.close",
                 'code': result.ht_status, 'reason': str(HttpError),
             })
         if isinstance(result, AsyncIterable):
@@ -300,6 +289,45 @@ class AsgiWebApp(ApiRouteManager):
         elif data.last_msg_type != "websocket.disconnect":
             warn(f"ASGi websocket: recevied a message {data.last_msg_type} "
                  "when expecting disconnect")
+    def create_ws_data(self, http_input: HttpInput, route,
+                       recv: AsgiRecvCall, send: AsgiSendCall) -> WebsocketIterator:
+        data_type = None
+        router = route.router
+        if isinstance(router, AbstractWebsocketRouter):
+            data_type = router.get_default_stream_data_type()
+        if data_type is None:
+            want = http_input.get('want')
+            data_type = None
+            if want:
+                for mime in want:
+                    if mime.endswith('/json5'):
+                        data_type = 'json5'
+                        break
+                    if mime.endswith('/json'):
+                        data_type = 'json'
+                        break
+                    if mime.endswith('/frid') or mime.endswith('.frid'):
+                        data_type = 'frid'
+                        break
+                    if mime == 'text/plain':
+                        data_type = 'text'
+                        break
+                    if 'binary' in mime or mime.endswith('/octet-statem'):
+                        data_type = 'blob'
+        match data_type:
+            case 'text':
+                data = WebsocketTextIterator(recv, send)
+            case 'blob':
+                data = WebsocketBlobIterator(recv, send)
+            case 'frid':
+                data = WebsocketFridIterator(recv, send)
+            case 'json':
+                data = WebsocketFridIterator(recv, send, json_level=1)
+            case 'json5':
+                data = WebsocketFridIterator(recv, send, json_level=5)
+            case _:
+                data = WebsocketFridIterator(recv, send)
+        return data
 
     async def handle_life(self, scope: AsgiScopeDict, recv: AsgiRecvCall, send: AsgiSendCall):
         while True:

@@ -186,14 +186,17 @@ class ApiRoute:
                 return (_call_op_type_map[self.method], data_arg, *self.vpargs)
             case _:
                 raise ValueError(f"Invalid value of numfpa={self.numfpa}")
-    def _get_kwargs(self, data: _T|MissingType) -> dict[str,_T|FridValue]:
-        if self.router is not self.action or self.method == 'GET':
-            return self.kwargs   # type: ignore  --- pylance can't handle this
-        kwargs: dict[str,Any] = dict(self.kwargs)
-        kwargs['_call'] = _call_op_type_map[self.method]
-        if data is not MISSING:
-            kwargs['_data'] = data
-        return kwargs
+    def _get_kwargs(self, data: _T|MissingType) -> Mapping[str,_T|FridValue]:
+        # Only when the router is directly callable we need the extra parameters
+        if self.router is not self.action:
+            return self.kwargs
+        out: dict[str,_T|FridValue] = dict(self.kwargs)
+        call = _call_op_type_map.get(self.method)
+        if self.numfpa <= 1 and call is not None and call != 'get':
+            out['_call'] = call
+        if self.numfpa == 0 and data is not MISSING:
+            out['_data'] = data
+        return out
     def get_log_str(self, req: HttpMixin, client: str|None=None):
         if isinstance(req.http_data, AsyncIterable):
             data = get_type_name(req.http_data)
@@ -326,7 +329,8 @@ class ApiRouteManager:
             else:
                 medial = ""
                 suffix = path[len(prefix):]
-            numfpa = 0
+            # Always pass a single data pbject for non-HTTP route
+            numfpa = 0 if method in HTTP_SUPPORTED_METHODS else 1
         else:
             raise HttpError(403, f"[{prefix}]: the router is not callable: {type(router)}")
         # Parse the query string

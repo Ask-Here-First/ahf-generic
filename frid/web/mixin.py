@@ -13,7 +13,7 @@ from .._dumps import dump_frid_str
 
 
 DEF_ESCAPE_SEQ = os.getenv('FRID_ESCAPE_SEQ', "#!")
-FRID_MIME_TYPE = "text/vnd.askherefirst.frid"
+FRID_MIME_TYPE = "text/frid"
 
 ShortMimeType = Literal['text','html','form','blob','json','frid']
 HttpInputHead = (

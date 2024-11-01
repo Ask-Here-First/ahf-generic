@@ -7,13 +7,14 @@ from pathlib import Path
 from urllib.request import urlopen, Request
 from multiprocessing import Process
 
-from .._loads import FridTruncError, load_frid_str, scan_frid_str
+from .._loads import load_frid_str
 from .._dumps import dump_frid_str
 from ..typing import FridValue, MissingType, MISSING, get_func_name
 
 from .route import HttpInput, echo_router
 from .httpd import run_http_server
 from .wsgid import run_wsgi_server_with_gunicorn, run_wsgi_server_with_simple
+from .asgid import WebsocketTextIterator, WebsocketBlobIterator
 from .asgid import AbstractWebsocketRouter, WebsocketIterator, run_asgi_server_with_uvicorn
 
 class TestRouter:
@@ -34,17 +35,39 @@ class TestRouter:
 
 class WebsocketRouter(AbstractWebsocketRouter):
     def __init__(self, http: HttpInput):
-        pass
-    def get_default_stream_data_type(self) -> Literal['frid']:
-        return 'frid'
-    async def mix_echo(self, data: WebsocketIterator, *args, _http={}, **kwds):
+        self._http = http
+        routed = http.get('routed')
+        self.dtype = routed and routed['kwargs'].get('dtype')
+    def get_default_stream_data_type(self) -> str:  # type: ignore
+        return str(self.dtype)
+    @classmethod
+    async def _echo_call(cls, data: WebsocketIterator, _http={}, dtype: str|None=None):
         assert isinstance(data, WebsocketIterator), type(data)
         async for item in data:
-            await data({'.data': item, '.type': "websocket"})
-    async def mix_(self, data: WebsocketIterator, *args, _http={}, **kwds):
+            if isinstance(data, WebsocketBlobIterator|WebsocketTextIterator):
+                await data(item)
+            else:
+                await data({'.data': item, '.text': dump_frid_str(item),
+                            '.type': "websocket", '.http': _http})
+    @classmethod
+    async def _echo_yield(cls, data: WebsocketIterator, _http={}, dtype: str|None=None):
         assert isinstance(data, WebsocketIterator), type(data)
         async for item in data:
-            yield {'.data': item, '.type': "websocket"}
+            if isinstance(data, WebsocketBlobIterator|WebsocketTextIterator):
+                yield item
+            else:
+                yield {'.data': item, '.text': dump_frid_str(item),
+                       '.type': "websocket", '.http': _http}
+class WebsocketRouter1(WebsocketRouter):
+    @classmethod
+    async def mix_echo(cls, data: WebsocketIterator, _http={}, dtype: str|None=None):
+        return await cls._echo_call(data, _http=_http)
+    async def mix_(self, data: WebsocketIterator, _http={}, dtype: str|None=None):
+        return self._echo_yield(data, _http=_http)
+class WebsocketRouter2(WebsocketRouter):
+    async def __call__(self, data: WebsocketIterator, dtype: str|None=None):
+        async for item in self._echo_yield(data):
+            yield item
 
 ServerType = Callable[[dict[str,Any],dict[str,str]|str|None,str,int],None]
 
@@ -59,7 +82,7 @@ class TestWebAppHelper(unittest.TestCase):
         cls.process = Process(target=server, args=(
             {
                 '/echo': echo_router, '/test/': TestRouter(),
-                '/sock/': WebsocketRouter,
+                '/wss1/': WebsocketRouter1, '/wss2': WebsocketRouter2,
             },
             {str(Path(__file__).absolute().parent): ''},
             cls.TEST_HOST, cls.TEST_PORT, {'quiet': True},
@@ -239,6 +262,9 @@ class TestAsgiUvicornWebApp(TestWebAppHelper):
     def test_asgi_server(self):
         return self.run_tests()
     def test_websockets(self):
+        # TODO: don't know how to gracefully shutdown initiated by client
+        # When client send out all data and send a close, the server should
+        # be able to send out all responses before handling the close.
         self.assertTrue(callable(WebsocketRouter))
         try:
             import websocket
@@ -254,31 +280,47 @@ class TestAsgiUvicornWebApp(TestWebAppHelper):
             None, True, False, 3, 100, 0.5, "Hello, world", {'x': 3}, [3, "abc"],
             {'x': 3, 'y': "b", 'z': [False, True]},
         ]
-        for path in ("/sock/test", "/sock/"):
+        for path in ("/wss1/echo", "/wss1/", "/wss2"):
             base_url = f"ws://{self.TEST_HOST}:{self.TEST_PORT}" + path
-            for json in (None, 0, 1, 5):
+            test_cases: list[tuple[str|None,Literal[0,1,5]]] = [
+                (None, 0), ('text', 0), ('blob', 0),
+                ('frid', 0), ('json', 1), ('json5', 5),
+            ]
+            for data_type, json_level in test_cases:
+                url = (base_url if data_type is None else base_url + "?dtype=" + str(data_type))
                 ws = websocket.WebSocket()
-                url = base_url if json is None else base_url + "?json=" + str(json)
                 ws.connect(url)
-                idx = 0
-                buffer = ""
-                offset = 0
+                buffer: str = ""
                 for item in data:
-                    ws.send(dump_frid_str(item, json_level=(json or 0)))
+                    u = dump_frid_str(item, json_level=json_level)
+                    if data_type == 'blob':
+                        u = ws.send(u.encode() + b'\n')
+                    else:
+                        ws.send(u + '\n')
                     if random.random() < 0.5:
                         v = ws.recv()
-                        assert isinstance(v, str)
-                        buffer += v
-                        try:
-                            (copy, offset) = scan_frid_str(buffer, offset, json_level=json or 0)
-                        except FridTruncError:
-                            continue
-                        self.assertIsInstance(copy, Mapping)
-                        assert isinstance(copy, Mapping)  # For tpying
-                        self.assertEqual(copy.get('.data'), data[idx])
-                        self.assertEqual(copy.get('.type'), "websocket")
-                        idx += 1
-                while idx < len(data):
-                    ws.recv()
-                    idx += 1
+                        buffer += (v.decode() if isinstance(v, bytes) else str(v))
+                while buffer.count('\n') < len(data):
+                    try:
+                        v = ws.recv()
+                    except websocket.WebSocketConnectionClosedException:
+                        break
+                    buffer += (v.decode() if isinstance(v, bytes) else str(v))
+                ws.send_close()
+                lines = buffer.splitlines()
+                self.assertEqual(len(lines), len(data))
+                for line, x in zip(lines, data):
+                    v = load_frid_str(line, json_level=json_level)
+                    if data_type in ('blob', 'text'):
+                        self.assertEqual(v, x)
+                        continue
+                    self.assertIsInstance(v, Mapping)
+                    assert isinstance(v, Mapping)  # For tpying
+                    self.assertEqual(v.get('.data'), x)
+                    self.assertEqual(v.get('.type'), "websocket")
+                    text = v.get('.text')
+                    self.assertIsInstance(text, str, v)
+                    assert isinstance(text, str)
+                    self.assertEqual(load_frid_str(text), x)
                 ws.close()
+
