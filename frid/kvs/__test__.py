@@ -1,7 +1,7 @@
 """Unit test code for various implementations of ValueStore and AsyncStore
 
-To run against Redis, just start a Redis server locally and set `FRID_REDIS_HOST=localhost`
-and run all unit tests.
+To run against Redis, `redis-server` must be available but not already run.
+(TODO: maybe on a different port in case that the system level redis service is running?)
 
 To run AsyncStore against PostgreSQL (with dependencies `sqlalchemy psycopg[binary]`):
 
@@ -404,7 +404,7 @@ class VStoreTestDbsql(_VStoreTestBase):
 
     def test_dbsql_value_store(self):
         try:
-            import aiosqlite  # noqa: F401
+            import sqlalchemy  # noqa: F401
         except ImportError:
             raise unittest.SkipTest("Skip Dbsql tests as sqlalchemy is not installed")
         echo = get_loglevel_str() == 'trace'
