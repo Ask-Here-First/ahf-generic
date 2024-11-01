@@ -2,6 +2,7 @@ import time, random, unittest
 import urllib.error
 from collections.abc import Callable, Mapping
 from typing import Any, Literal
+from contextlib import AbstractContextManager
 from logging import info
 from pathlib import Path
 from urllib.request import urlopen, Request
@@ -261,20 +262,63 @@ class TestAsgiUvicornWebApp(TestWebAppHelper):
         cls.close_server()
     def test_asgi_server(self):
         return self.run_tests()
-    def test_websockets(self):
+
+    # Node: got this with Uvicorn: DeprecationWarning: remove second argument of ws_handler
+    # See https://github.com/encode/uvicorn/discussions/2476
+    # (2024-09-30, unsolved as of 2024-10-31)
+    class AbstractWebsocket(AbstractContextManager):
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            self.close()
+            return False
+        def recv(self) -> str|bytes:
+            raise NotImplementedError
+        def send(self, data: str|bytes) -> None:
+            raise NotImplementedError
+        def close(self):
+            raise NotImplementedError
+    def test_with_websockets(self):
+        self.assertTrue(callable(WebsocketRouter))
+        try:
+            from websockets.sync.client import connect
+        except ImportError:
+            raise unittest.SkipTest(
+                "Skip ASGi websocket tests (using websockets) because it is not installed"
+            )
+        class TestWebsocket(self.AbstractWebsocket):
+            def __init__(self, url):
+                self.ws = connect(url)
+            def recv(self):
+                return self.ws.recv()
+            def send(self, data: str|bytes):
+                self.ws.send(data)
+            def close(self):
+                self.ws.close()
+        self.run_websocket_test(TestWebsocket)
+    def test_with_websocket_client(self):
         # TODO: don't know how to gracefully shutdown initiated by client
         # When client send out all data and send a close, the server should
         # be able to send out all responses before handling the close.
         self.assertTrue(callable(WebsocketRouter))
         try:
-            import websocket
+            from websocket import WebSocket
         except ImportError:
             raise unittest.SkipTest(
-                "Skip ASGi websocket tests because websocket-client is not installed"
+                "Skip ASGi websocket tests (using websocket-client) because it is not installed"
             )
-        # Node: got this with Uvicorn: DeprecationWarning: remove second argument of ws_handler
-        # See https://github.com/encode/uvicorn/discussions/2476
-        # (2024-09-30, unsolved as of 2024-10-31)
+        class TestWebsocket(self.AbstractWebsocket):
+            def __init__(self, url: str):
+                self.ws = WebSocket()
+                self.ws.connect(url)
+            def recv(self):
+                return self.ws.recv()
+            def send(self, data: str|bytes):
+                self.ws.send(data)
+            def close(self):
+                self.ws.close()
+        self.run_websocket_test(TestWebsocket)
+    def run_websocket_test(self, connect: Callable[[str],AbstractContextManager[AbstractWebsocket]]):
         self.await_server()
         data = [
             None, True, False, 3, 100, 0.5, "Hello, world", {'x': 3}, [3, "abc"],
@@ -288,25 +332,23 @@ class TestAsgiUvicornWebApp(TestWebAppHelper):
             ]
             for data_type, json_level in test_cases:
                 url = (base_url if data_type is None else base_url + "?dtype=" + str(data_type))
-                ws = websocket.WebSocket()
-                ws.connect(url)
-                buffer: str = ""
-                for item in data:
-                    u = dump_frid_str(item, json_level=json_level)
-                    if data_type == 'blob':
-                        u = ws.send(u.encode() + b'\n')
-                    else:
-                        ws.send(u + '\n')
-                    if random.random() < 0.5:
-                        v = ws.recv()
+                with connect(url)  as ws:
+                    buffer: str = ""
+                    for item in data:
+                        u = dump_frid_str(item, json_level=json_level)
+                        if data_type == 'blob':
+                            u = ws.send(u.encode() + b'\n')
+                        else:
+                            ws.send(u + '\n')
+                        if random.random() < 0.5:
+                            v = ws.recv()
+                            buffer += (v.decode() if isinstance(v, bytes) else str(v))
+                    while buffer.count('\n') < len(data):
+                        try:
+                            v = ws.recv()
+                        except IOError:
+                            break
                         buffer += (v.decode() if isinstance(v, bytes) else str(v))
-                while buffer.count('\n') < len(data):
-                    try:
-                        v = ws.recv()
-                    except websocket.WebSocketConnectionClosedException:
-                        break
-                    buffer += (v.decode() if isinstance(v, bytes) else str(v))
-                ws.send_close()
                 lines = buffer.splitlines()
                 self.assertEqual(len(lines), len(data))
                 for line, x in zip(lines, data):
@@ -322,5 +364,3 @@ class TestAsgiUvicornWebApp(TestWebAppHelper):
                     self.assertIsInstance(text, str, v)
                     assert isinstance(text, str)
                     self.assertEqual(load_frid_str(text), x)
-                ws.close()
-
