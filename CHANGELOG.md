@@ -1,10 +1,6 @@
 # Changelog
 
-## [0.4.16] - 2024-10-29
-
-The base version of this changelog.
-
-## [0.5.0] - 2024-11-02
+## [0.5.0]-2024-11-02
 
 ### Added
 
@@ -22,3 +18,9 @@ The base version of this changelog.
 
 - The modules `frid.auitls`, `frid.osutil`, and `frid.strops`, deprecated
   as of 0.4.0.
+
+## 0.4.16-2024-10-29
+
+The base version of this changelog.
+
+[0.5.0]: ../../compare/v0.4.16...v0.5.0
