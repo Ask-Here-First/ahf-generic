@@ -1,5 +1,4 @@
 import math, itertools
-from logging import warning
 from collections.abc import Callable, Iterable, Mapping, Sequence, Set
 from typing import  Any, Literal, NoReturn, TextIO, TypeVar, TypedDict, cast, overload
 
@@ -14,7 +13,7 @@ from .guards import (
     is_frid_identifier, is_frid_prime, is_frid_quote_free, is_frid_skmap,  is_quote_free_char
 )
 from .typing import FridError
-from .lib import str_encode_nonprints, str_find_any, base64url_decode
+from .lib import str_encode_nonprints, str_find_any, base64url_decode, warn
 from .lib.texts import StringEscapeDecode
 from .chrono import parse_datetime
 from ._dumps import EXTRA_ESCAPE_PAIRS
@@ -165,9 +164,9 @@ class FridLoader:
     def alert(self, error: str, *, offset: int|None=None):
         if offset is None:
             offset = self.offset
-        warning(error + " (path=" + ''.join(self.pstack) + "): "
-                + self.buffer[max(offset-32, 0):offset]
-                + '\u274e' + self.buffer[offset:(offset+32)])
+        warn(error + " (path=" + ''.join(self.pstack) + "): "
+             + self.buffer[max(offset-32, 0):offset]
+             + '\u274e' + self.buffer[offset:(offset+32)])
     def error(self, error: str|BaseException, *, offset: int|None=None) -> NoReturn:
         """Raise an FridParseError at the current `index` with the given `error`."""
         if offset is None:

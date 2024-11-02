@@ -1,9 +1,9 @@
 import os
 from collections.abc import Iterable, Callable, Sequence
 from typing import TextIO
-from logging import info, warning as warn
+from logging import info
 
-from .lib import find_in_ancestor, get_caller_info
+from .lib import find_in_ancestor, get_caller_info, warn
 from .typing import get_type_name
 from .guards import is_list_like
 from ._basic import FridReplace

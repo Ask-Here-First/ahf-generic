@@ -1,6 +1,5 @@
 import os, sys, logging, signal, inspect, faulthandler
 from collections.abc import Callable, Generator, Sequence
-from types import FrameType
 from typing import Any, Literal, cast
 
 from frid.typing import get_qual_name
@@ -141,3 +140,13 @@ def get_caller_info(depth: int=1, *, squash_file: bool=False,
             return (file, line, name)
         depth -= 1
     return None
+
+def warn(msg: str, *args, skip_module: str|None='frid', **kwargs):
+    stack_info = get_caller_info(skip_module=skip_module)
+    if stack_info is not None:
+        (file, line, name) = stack_info
+        if file.startswith('<') and file.endswith('>'):
+            msg += f" ({name})"   # Python system file
+        else:
+            msg += f" ({os.path.basename(file)}:{line})"
+    logging.warning(msg, *args, **kwargs)

@@ -4,7 +4,6 @@ from collections.abc import (
     AsyncIterable, AsyncIterator, Iterable, Mapping, Callable, Awaitable, Sequence
 )
 from typing import Any, Literal, TypeVar, TypedDict
-from logging import warning as warn
 
 from ..typing import NotRequired   # Python 3.11 only feature
 from ..typing import MISSING, MissingType, get_type_name, FridValue
@@ -82,7 +81,7 @@ class WebsocketIterator(AsyncIterator[_T]):
             else:
                 data = (msg['text'] if 'text' in msg else msg.get('bytes'))
             if data is None:
-                warn("Websocket: empty packet received")
+                error("Websocket: empty packet received")
                 continue
             value = self._decode(data)
             if value is not MISSING:
@@ -186,7 +185,7 @@ class AsgiWebApp(ApiRouteManager):
                 return await self.handle_sock(scope, recv, send)
             case 'lifespan':
                 return await self.handle_life(scope, recv, send)
-        warn(f"ASGi service: unsupported protocol type {scope['type']}")
+        error(f"ASGi service: unsupported protocol type {scope['type']}")
 
     async def handle_http(self, scope: AsgiScopeDict, recv: AsgiRecvCall, send: AsgiSendCall):
         # Get method and headers and get authrization
@@ -234,7 +233,7 @@ class AsgiWebApp(ApiRouteManager):
 
     async def handle_sock(self, scope: AsgiScopeDict, recv: AsgiRecvCall, send: AsgiSendCall):
         if not self.use_websockets:
-            warn("ASGi Websocket is not enabled for the App")
+            error("ASGi Websocket is not enabled for the App")
             return
         request = HttpMixin.from_request(None, scope.get('headers'))
         path = scope['path']
@@ -265,7 +264,7 @@ class AsgiWebApp(ApiRouteManager):
         # Wait for connect message
         msg = await recv()
         if msg.get('type') != 'websocket.connect':
-            warn(f"ASGi Websocket: got a message {msg.get('type')} when expecting connect")
+            error(f"ASGi Websocket: got a message {msg.get('type')} when expecting connect")
             return
         # Calling the parser
         request.http_data = data   # Set to use the WebsocketIterator as the data
@@ -287,8 +286,8 @@ class AsgiWebApp(ApiRouteManager):
             # The route function ends, end close signal
             await send({'type': "websocket.close"})
         elif data.last_msg_type != "websocket.disconnect":
-            warn(f"ASGi websocket: recevied a message {data.last_msg_type} "
-                 "when expecting disconnect")
+            error(f"ASGi websocket: recevied a message {data.last_msg_type} "
+                  "when expecting disconnect")
     def create_ws_data(self, http_input: HttpInput, route,
                        recv: AsgiRecvCall, send: AsgiSendCall) -> WebsocketIterator:
         mime_label = None
