@@ -94,7 +94,7 @@ def _dotenv_start_path(name: str, /, *, start: PathLike|None=None) -> PathLike|N
     """
     if start is not None:
         return start
-    caller = get_caller_info(squash=True)
+    caller = get_caller_info(squash_file=True)
     if caller is None:
         return None
     return os.path.dirname(caller[0])

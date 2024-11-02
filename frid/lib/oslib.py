@@ -1,6 +1,9 @@
 import os, sys, logging, signal, inspect, faulthandler
-from collections.abc import Callable, Sequence
-from typing import Literal, cast
+from collections.abc import Callable, Generator, Sequence
+from types import FrameType
+from typing import Any, Literal, cast
+
+from frid.typing import get_qual_name
 
 
 LOG_LINE_FMT = "%(asctime)s %(levelname).1s {%(process)d} %(message)s (%(filename)s:%(lineno)d)"
@@ -69,31 +72,72 @@ def use_signal_trap(
         for sig in signums:
             signal.signal(sig, signal_handler)
 
-def get_caller_info(depth: int=1, *, squash: bool=False) -> tuple[str,int,str]|None:
+
+def iter_stack_info(skip: int=1) -> Generator[tuple[str,int,str],Any,None]:
+    """Returns an iterator of triplets of stack frames start """
+    start_frame = inspect.currentframe()
+    if start_frame is None:
+        return
+    try:
+        frame = start_frame
+        while frame is not None:
+            if skip > 0:
+                skip -= 1
+                frame = frame.f_back
+                continue
+            filename = frame.f_code.co_filename
+            line_num = frame.f_lineno
+            function = frame.f_code.co_name
+            mod = inspect.getmodule(frame)
+            if mod is not None:
+                mod_name = mod.__name__
+            else:
+                mod_name = ''
+            try:
+                if 'self' in frame.f_locals:
+                    cls_name = get_qual_name(frame.f_locals['self'])
+                elif 'cls' in frame.f_locals:
+                    cls_name = get_qual_name(frame.f_locals['cls'])
+                else:
+                    cls_name = None
+            except AttributeError:
+                cls_name = None
+            if function != "<module>":
+                if cls_name is not None:
+                    name = mod_name + ':' + cls_name + '.' + function
+                else:
+                    name = mod_name + ':' + function
+            else:
+                if cls_name is not None:
+                    name = mod_name + ':' + cls_name
+                else:
+                    name = mod_name
+            yield (filename, line_num, name)
+            frame = frame.f_back
+    finally:
+        del start_frame
+    return None
+
+def get_caller_info(depth: int=1, *, squash_file: bool=False,
+                    skip_module: str|None=None) -> tuple[str,int,str]|None:
     """Gets the caller's information: a triplet of file name, line number, and function name.
     - `depth`: number of additional call frames to go back.
         + With `depth=0`, it returns the information of caller itself.
         + By default, with `depth=1`, it returns the caller of the caller (which is desired).
-    - `squash`: if set to true, caller frames from the same file will be
+    - `squash_file`: if set to true, caller frames from the same file will be
        squashed into one.
+    - `skip_module`: Skip this module and its submodules at the beginning.
     """
-    current_frame = inspect.currentframe()
-    if current_frame is None:
-        return None
-    try:
-        last_filename = current_frame.f_code.co_filename
-        frame = current_frame.f_back  # Start with the caller
-        depth += 1            # One more level because the start is this method
-        while frame is not None:
-            filename = frame.f_code.co_filename
-            line_num = frame.f_lineno
-            function = frame.f_code.co_name
-            if not squash or filename != last_filename:
-                depth -= 1
-                if depth <= 0:
-                    return (filename, line_num, function)
-            frame = frame.f_back
-            last_filename = filename
-    finally:
-        del current_frame
+    last = None
+    for file, line, name in iter_stack_info(skip=2):  # First one should be the caller
+        if skip_module is not None and (name == skip_module or (
+            name.startswith(skip_module) and name[len(skip_module)] in '.:'
+        )):
+            continue
+        if squash_file and file == last:
+            continue
+        last = file
+        if depth == 0:
+            return (file, line, name)
+        depth -= 1
     return None
