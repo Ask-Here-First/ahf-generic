@@ -111,35 +111,47 @@ def parse_http_body(http_body: bytes, mime_type: str|None,
 
 def build_http_body(http_data: FridValue, mime_type: str|None=None) -> tuple[bytes,str]:
     """Build HTTP body from the data, using Python type and `mime_type` as hints.
-    - `mime_type` can be a short label, but usually it is not set (=None)
+    - `mime_type` can be a short label, but usually it is not set (=None).
+    - For now we always use UTF-8 encoding; user has no way to set to other encoding.
     - Returns a pair of `http_body` in bytes and the actual mime_type string,
       which won't be None.
     """
-    if isinstance(http_data, bytes):
-        body = http_data
-        if mime_type is None:
-            mime_type = 'blob'
-    elif isinstance(http_data, str):
-        # TODO: check for if it is HTML?
-        body = http_data.encode()
-        if mime_type is None:
-            mime_type = 'text'
-    elif mime_type is None:
-        # Try to dump it as JSON with extended escape sequence
-        body = dump_frid_str(http_data, json_level=1, escape_seq=DEF_ESCAPE_SEQ).encode()
-        mime_type = 'json'
-    else:
-        match mime_type_label.get(mime_type, mime_type):
-            case 'json':
-                body = json.dumps(http_data).encode() # TODO do escape
-            case 'json5':
-                body = dump_frid_str(http_data, json_level=5).encode()
-            case 'frid':
+    if mime_type is None:
+        if isinstance(http_data, bytes):
+            body = http_data
+            mime_label: ShortMimeLabel = 'blob'
+        elif isinstance(http_data, str):
+            body = http_data.encode()
+            mime_label = 'text'
+            # Detecting HTML. The whole string may be very long，so we just get the end portions
+            if http_data[-64:].rstrip().lower().endswith("</html>"):
+                line = http_data[:64].lstrip().lower()
+                if line.startswith("<html>"):
+                    body = b"<!DOCTYPE html>\n" + body  # Add DOCTYPE
+                    mime_label = 'html'
+                elif line.startswith("<!doctype html>"):
+                    mime_label = 'html'
+        else:
+            # For all other data types without mime, dump as JSON with extended escape sequence
+            body = dump_frid_str(http_data, json_level=1, escape_seq=DEF_ESCAPE_SEQ).encode()
+            mime_label = 'json'
+        return (body, mime_label_type[mime_label])
+    match mime_type_label.get(mime_type, mime_type):
+        case 'json':
+            body = json.dumps(http_data).encode() # TODO do escape
+        case 'json5':
+            body = dump_frid_str(http_data, json_level=5).encode()
+        case 'frid':
+            body = dump_frid_str(http_data).encode()
+        case 'yaml':
+            raise ValueError("YAML is not supported")
+        case _:   # including text and blob
+            if isinstance(http_data, str):
+                body = http_data.encode()
+            elif isinstance(http_data, bytes):
+                body = http_data
+            else:
                 body = dump_frid_str(http_data).encode()
-            case 'yaml':
-                raise ValueError("YAML is not supported")
-            case _:
-                raise ValueError("Unsupported MIME label {mime_label}")
     # Convert all labels to type
     mime_type = mime_label_type.get(mime_type, mime_type)
     return (body, mime_type)
