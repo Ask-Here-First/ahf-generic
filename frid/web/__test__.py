@@ -39,7 +39,7 @@ class WebsocketRouter(AbstractWebsocketRouter):
         self._http = http
         routed = http.get('routed')
         self.dtype = routed and routed['kwargs'].get('dtype')
-    def get_default_stream_data_type(self) -> str:  # type: ignore
+    def get_stream_mime_label(self) -> str:  # type: ignore
         return str(self.dtype)
     @classmethod
     async def _echo_call(cls, data: WebsocketIterator, _http={}, dtype: str|None=None):

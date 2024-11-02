@@ -11,7 +11,7 @@ from ..typing import MISSING, MissingType, get_type_name, FridValue
 from ..lib import str_encode_nonprints
 from .._loads import scan_frid_str, FridTruncError
 from .._dumps import dump_frid_str
-from .mixin import HttpError, HttpMixin
+from .mixin import HttpError, HttpMixin, ShortMimeLabel, mime_type_label
 from .route import ApiRoute, HttpInput, HttpMethod, MethodKind, ApiRouteManager
 from .route import HTTP_METHODS_WITH_BODY
 
@@ -58,7 +58,7 @@ class AbstractWebsocketRouter(abc.ABC):
     def __init__(self, http: HttpInput):
         pass
     @abc.abstractmethod
-    def get_default_stream_data_type(self) -> Literal['blob','text','frid','json','json5']:
+    def get_stream_mime_label(self) -> ShortMimeLabel:
         raise NotImplementedError
 
 _T = TypeVar('_T')
@@ -291,30 +291,14 @@ class AsgiWebApp(ApiRouteManager):
                  "when expecting disconnect")
     def create_ws_data(self, http_input: HttpInput, route,
                        recv: AsgiRecvCall, send: AsgiSendCall) -> WebsocketIterator:
-        data_type = None
+        mime_label = None
         router = route.router
         if isinstance(router, AbstractWebsocketRouter):
-            data_type = router.get_default_stream_data_type()
-        if data_type is None:
-            want = http_input.get('want')
-            data_type = None
-            if want:
-                for mime in want:
-                    if mime.endswith('/json5'):
-                        data_type = 'json5'
-                        break
-                    if mime.endswith('/json'):
-                        data_type = 'json'
-                        break
-                    if mime.endswith('/frid') or mime.endswith('.frid'):
-                        data_type = 'frid'
-                        break
-                    if mime == 'text/plain':
-                        data_type = 'text'
-                        break
-                    if 'binary' in mime or mime.endswith('/octet-statem'):
-                        data_type = 'blob'
-        match data_type:
+            mime_label = router.get_stream_mime_label()
+        # Guess from the MIME type the request wants
+        if mime_label is None and (want := http_input.get('want')):
+            mime_label = next((ml for x in want if (ml := mime_type_label.get(x))), None)
+        match mime_label:
             case 'text':
                 data = WebsocketTextIterator(recv, send)
             case 'blob':
