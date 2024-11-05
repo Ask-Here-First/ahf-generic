@@ -259,7 +259,7 @@ class FridDumper(PrettyPrint):
     def blob_to_str(self, data: BlobTypes, path: str) -> str:
         """Convert a blob into string representation, quoted if needed."""
         # TODO: support line splitting and indentation
-        out = ".." + base64url_encode(data)   # Do not do padding
+        out = ".." + base64url_encode(data).decode()   # Do not do padding
         if not self.json_level:
             return out
         if self.escape_seq is not None:
