@@ -1,7 +1,6 @@
 import random, unittest
 
-from frid.lib.dicts import CaseDict
-
+from .dicts import CaseDict
 from .quant import Quantity
 from .texts import StringEscapeDecode, StringEscapeEncode
 from .texts import str_decode_nonprints, str_encode_nonprints, str_find_any, str_scan_sub
