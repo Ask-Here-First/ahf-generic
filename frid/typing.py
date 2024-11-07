@@ -336,15 +336,25 @@ class FridError(FridMixin, Exception):
             raise ValueError(f"Invalid trace type {type(trace)}")
 
     @classmethod
-    def frid_from(cls, data: FridNameArgs, /, **kwargs):
+    def frid_from(cls, data: FridNameArgs|BaseException, /, **kwargs):
+        if isinstance(data, BaseException):
+            if isinstance(data, cls):
+                return data
+            return cls(data, **kwargs)
+        assert data.name in cls.frid_keys()
+        ## Cannot do the following because import our warn will intrdoce a circular import
+        # if not data.args:
+        #     warn(f"FridError is constructed with {len(data.args)} positional arguments")
+        return cls.from_dict(data.kwds)
+    @classmethod
+    def from_dict(cls, data: StrKeyMap):
         # The `trace` and `cause` are not accepting TrackbackType and BaseException;
         # and `error` is passed as the first argument.
-        assert data.name in cls.frid_keys()
-        error = data.kwds.get('error')
-        trace = data.kwds.get('trace')
-        cause = data.kwds.get('cause')
-        notes = data.kwds.get('notes')
-        venue = data.kwds.get('venue')
+        error = data.get('error')
+        trace = data.get('trace')
+        cause = data.get('cause')
+        notes = data.get('notes')
+        venue = data.get('venue')
         assert trace is None or isinstance(trace, Sequence)
         assert cause is None or isinstance(cause, str)
         assert notes is None or isinstance(notes, Sequence)
