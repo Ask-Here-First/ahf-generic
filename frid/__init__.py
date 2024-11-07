@@ -1,4 +1,4 @@
-from .typing import FridError, get_func_name, get_qual_name, get_type_name
+from .typing import FridError, FridValue, get_func_name, get_qual_name, get_type_name
 from ._basic import FridCompare, FridReplace, MingleFlags, frid_mingle, frid_redact, frid_sizeof
 from ._loads import load_frid_str, load_frid_tio, scan_frid_str, open_frid_tio
 from ._loads import FridParseError, FridTruncError
@@ -15,7 +15,7 @@ dump = dump_frid_tio
 
 __all__ = [
     # From typing
-    'FridError', 'get_func_name', 'get_type_name', 'get_qual_name',
+    'FridError', 'FridValue', 'get_func_name', 'get_type_name', 'get_qual_name',
     # From _basic
     'FridCompare', 'FridReplace', "MingleFlags", 'frid_mingle', 'frid_redact', 'frid_sizeof',
     # From _loads
