@@ -56,9 +56,8 @@ class AbstractWebsocketRouter(abc.ABC):
     @abc.abstractmethod
     def __init__(self, http: HttpInput):
         pass
-    @abc.abstractmethod
-    def get_stream_mime_label(self) -> ShortMimeLabel:
-        raise NotImplementedError
+    def get_stream_mime_label(self) -> ShortMimeLabel|None:
+        return None
 
 _T = TypeVar('_T')
 
@@ -86,7 +85,7 @@ class WebsocketIterator(AsyncIterator[_T]):
             value = self._decode(data)
             if value is not MISSING:
                 return value
-    async def __call__(self, data):
+    async def __call__(self, data: _T):
         encoded = self._encode(data)
         msg: AsgiEventDict = {'type': "websocket.send"}
         if isinstance(encoded, str):
