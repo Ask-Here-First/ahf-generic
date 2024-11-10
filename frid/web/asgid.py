@@ -1,4 +1,4 @@
-import abc, sys, time, builtins, asyncio, inspect, traceback
+import os, abc, sys, time, builtins, asyncio, inspect, traceback
 from logging import info, error
 from collections.abc import (
     AsyncIterable, AsyncIterator, Iterable, Mapping, Callable, Awaitable, Sequence
@@ -8,7 +8,7 @@ from typing import Any, Literal, TypeVar, TypedDict
 from ..typing import NotRequired   # Python 3.11 only feature
 from ..typing import MISSING, MissingType, get_type_name, FridValue
 from ..lib import str_encode_nonprints
-from .._loads import scan_frid_str, FridTruncError
+from .._loads import scan_frid_str, FridTruncError, load_frid_str
 from .._dumps import dump_frid_str
 from .mixin import HttpError, HttpMixin, ShortMimeLabel, mime_type_label
 from .route import ApiRoute, HttpInput, HttpMethod, MethodKind, ApiRouteManager
@@ -66,6 +66,7 @@ class WebsocketIterator(AsyncIterator[_T]):
         self._recv = recv
         self._send = send
         self._binary = binary
+        self._traced = load_frid_str(os.getenv('FRID_TRACE_WEBSOCKET', '-'))
         self.last_msg_type = "websocket.receive"
     def __aiter__(self):
         return self
@@ -75,6 +76,8 @@ class WebsocketIterator(AsyncIterator[_T]):
             self.last_msg_type = msg.get('type')
             if self.last_msg_type != "websocket.receive":
                 raise StopAsyncIteration
+            if self._traced:
+                self.print_msg(msg, '>')
             if self._binary:
                 data = (msg['bytes'] if 'bytes' in msg else msg.get('text'))
             else:
@@ -94,7 +97,15 @@ class WebsocketIterator(AsyncIterator[_T]):
             msg['bytes'] = encoded
         else:
             raise HttpError(500, f"Bad return: {self.__class__}._encode() -> {type(encoded)}")
+        if self._traced:
+            self.print_msg(msg, '<')
         return await self._send(msg)
+    @staticmethod
+    def print_msg(msg: AsgiEventDict, char: str):
+        if (text := msg.get('text')) is not None:
+            print(f"{char}T{char}: {text.rstrip('\n')}")
+        if (blob := msg.get('bytes')) is not None:
+            print(f"{char}B{char}: {blob.rstrip(b'\n').decode()}")
     @abc.abstractmethod
     def _encode(self, data: _T) -> str|bytes:
         raise NotImplementedError
