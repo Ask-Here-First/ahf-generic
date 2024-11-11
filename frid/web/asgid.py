@@ -244,13 +244,15 @@ class AsgiWebApp(ApiRouteManager):
         if qstr is not None:
             qstr = qstr.decode()
         route = self.create_route(WEBSOCKET_QUASI_METHOD, path, qstr, request)
-        route_args = self.get_route_args(path, qstr, scope.get('client'))
-        data: WebsocketIterator|None = None
         # Check if the route cannot be created
         if isinstance(route, HttpError):
-            return await send({
-                'type': "websocket.close", 'code': 403, 'reason': str(route)
+            # This is before accepting
+            return await send({  # Or use websocket 3003? But uvicorn coverted it to 403
+                'type': "websocket.close", 'code': route.ht_status, 'reason': str(route),
+                'headers': [(k.encode('utf-8'), v.encode('utf-8'))
+                            for k, v in route.http_head.items()]
             })
+        route_args = self.get_route_args(path, qstr, scope.get('client'))
         http_input = route.to_http_input(request, **route_args)
         await send({'type': "websocket.accept"})   # TODO: headers?
         # Get the expected data type
@@ -266,9 +268,10 @@ class AsgiWebApp(ApiRouteManager):
         if inspect.isawaitable(result):
             result = await self.wait_for_result(result, f"Websocket {path}")
         if isinstance(result, HttpError):
+            # This is after accepting
             return send({
                 'type': "websocket.close",
-                'code': result.ht_status, 'reason': str(HttpError),
+                'code': result.ht_status, 'reason': str(HttpError), # HTTP to WS code map?
             })
         if isinstance(result, AsyncIterable):
             # This is different from self.process_result() which generates SSE output

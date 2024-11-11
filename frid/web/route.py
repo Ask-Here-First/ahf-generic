@@ -354,7 +354,7 @@ class ApiRouteManager:
             # Always pass a single data pbject for non-HTTP route
             numfpa = 0 if method in HTTP_SUPPORTED_METHODS else 1
         else:
-            raise HttpError(403, f"[{prefix}]: the router is not callable: {type(router)}")
+            return HttpError(403, f"[{prefix}]: the router is not callable: {type(router)}")
         # Parse the query string
         (qsargs, kwargs) = parse_url_query(qstr)
         if suffix:
