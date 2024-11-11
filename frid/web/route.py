@@ -654,8 +654,6 @@ def load_command_line_args() -> tuple[dict[str,str],str|list[str]|dict[str,str]|
             (name, value) = item.split('=', 1)
             if not name.startswith('/'):
                 name = '/' + name
-            if '(' not in value and ')' not in value:
-                value += "()"
             routes[name] = value
         else:
             if assets is not None:
