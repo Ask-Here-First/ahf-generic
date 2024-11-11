@@ -117,6 +117,8 @@ class ApiRoute:
             except TypeError:
                 router = self.router(*self.vpargs, **self.kwargs)
             if self.router is self.action:
+                if not callable(router):
+                    raise HttpError(403, f"[{self.prefix}]: router not callable {type(router)}")
                 self.action = router
             else:
                 # Must get the bound version (previous unbound)
@@ -382,6 +384,8 @@ class ApiRouteManager:
                 request=request,
             )
         except Exception as exc:
+            if isinstance(exc, HttpError):
+                return exc
             return HttpError(400, exc)
     def fetch_router(self, path: str, qstr: str|None) -> tuple[Any,str]|HttpError:
         """Fetch the router object in the registry that matches the
