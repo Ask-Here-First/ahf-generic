@@ -96,9 +96,9 @@ class WebsocketIterator(AsyncIterator[_T]):
     @staticmethod
     def print_msg(msg: AsgiEventDict, char: str):
         if (text := msg.get('text')) is not None:
-            print(f"{char}T{char}: {text.rstrip('\n')}")
+            print(f"{char}T{char}: " + text.rstrip('\n'))
         if (blob := msg.get('bytes')) is not None:
-            print(f"{char}B{char}: {blob.rstrip(b'\n').decode()}")
+            print(f"{char}B{char}: " + blob.rstrip(b'\n').decode())
     @abc.abstractmethod
     def _encode(self, data: _T) -> str|bytes:
         raise NotImplementedError
