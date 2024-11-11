@@ -1,6 +1,5 @@
-import sys, traceback
+import sys, inspect, dataclasses, traceback
 from logging import info
-from dataclasses import dataclass
 from collections.abc import AsyncIterable, Iterable, Mapping, Callable, Sequence
 from typing import Any, Literal, TypedDict, TypeVar
 from functools import partial
@@ -61,7 +60,7 @@ class HttpInput(TypedDict, total=False):
     data: FridValue         # The data of the call, process from body (typically as json)
     mime: str               # The mime-type of the body
 
-@dataclass
+@dataclasses.dataclass(kw_only=True)
 class ApiRoute:
     """The class containing information to make an API call through an URL.
 
@@ -106,21 +105,41 @@ class ApiRoute:
     action: Callable            # The action method determined by self.medial
     numfpa: Literal[0,1,2]
 
+    request: dataclasses.InitVar[HttpMixin]         # Input request
+    no_args: bool = dataclasses.field(init=False, default=False)   # Do not pass args to action
+
+    def __post_init__(self, request: HttpMixin):
+        if inspect.isclass(self.router):
+           # This is a class object; must instantiate.
+            http_input = self.to_http_input(request)
+            try:
+                router = self.router(*self.vpargs, **self.kwargs, _http=http_input)
+            except TypeError:
+                router = self.router(*self.vpargs, **self.kwargs)
+            if self.router is self.action:
+                self.action = router
+            else:
+                # Must get the bound version (previous unbound)
+                self.action = getattr(router,  self.action.__name__)
+            self.router = router
+            self.no_args = True
+
     def __call__(self, req: HttpMixin, **kwargs: Unpack[HttpInput]):
         client = kwargs.get('client')
         msg = self.get_log_str(req, client)
         info(msg)
         # Generates the HttpInput structure users might need
-        http_input = self.to_http_input(req)
         ## It is now possible with have AsyncIterable data with websock
         # assert not isinstance(req.http_data, AsyncIterable)
         try:
             args = self._get_vpargs(req.http_data)
             kwds = self._get_kwargs(req.http_data)
-            try:
-                return self.action(*args, **kwds, _http=http_input)
-            except TypeError:
-                pass
+            if not self.no_args:
+                # First try with _http argument
+                try:
+                    return self.action(*args, **kwds, _http=self.to_http_input(req))
+                except TypeError:
+                    pass
             return self.action(*args, **kwds)
         except TypeError as exc:
             traceback.print_exc()
@@ -176,21 +195,22 @@ class ApiRoute:
                     break
         return HttpError(status, "Crashed: " + self.get_log_str(req, client), cause=exc)
     def _get_vpargs(self, data: _T|MissingType) -> tuple[FridValue|_T,...]:
+        vpargs = () if self.no_args else tuple(self.vpargs)
         data_arg = None if data is MISSING else data
         match self.numfpa:
             case 0:
-                return tuple(self.vpargs)
+                return vpargs
             case 1:
-                return (data_arg, *self.vpargs)
+                return (data_arg, *vpargs)
             case 2:
-                return (_call_op_type_map[self.method], data_arg, *self.vpargs)
+                return (_call_op_type_map[self.method], data_arg, *vpargs)
             case _:
                 raise ValueError(f"Invalid value of numfpa={self.numfpa}")
     def _get_kwargs(self, data: _T|MissingType) -> Mapping[str,_T|FridValue]:
         # Only when the router is directly callable we need the extra parameters
         if self.router is not self.action:
-            return self.kwargs
-        out: dict[str,_T|FridValue] = dict(self.kwargs)
+            return {} if self.no_args else self.kwargs
+        out: dict[str,_T|FridValue] = {} if self.no_args else dict(self.kwargs)
         call = _call_op_type_map.get(self.method)
         if self.numfpa <= 1 and call is not None and call != 'get':
             out['_call'] = call
@@ -303,7 +323,7 @@ class ApiRouteManager:
             else:
                 r = get_func_name(v)
             info(f"|   {k or '[ROOT]'} => {r}")
-    def create_route(self, method: MethodKind, path: str, qstr: str|None,
+    def create_route(self, method: MethodKind, path: str, qstr: str|None, request: HttpMixin,
                      *, router=None, prefix: str|None=None) -> ApiRoute|HttpError:
         if router is None or prefix is None:
             # The fetch optional; not performed if both router and prefix are given
@@ -354,11 +374,15 @@ class ApiRouteManager:
         else:
             vpargs = []
         assert path == prefix + medial + suffix
-        return ApiRoute(
-            method=method, prefix=prefix, medial=medial, suffix=suffix,
-            vpargs=vpargs, qsargs=qsargs, kwargs=kwargs,
-            router=router, action=action, numfpa=numfpa,
-        )
+        try:
+            return ApiRoute(
+                method=method, prefix=prefix, medial=medial, suffix=suffix,
+                vpargs=vpargs, qsargs=qsargs, kwargs=kwargs,
+                router=router, action=action, numfpa=numfpa,
+                request=request,
+            )
+        except Exception as exc:
+            return HttpError(400, exc)
     def fetch_router(self, path: str, qstr: str|None) -> tuple[Any,str]|HttpError:
         """Fetch the router object in the registry that matches the
         longest prefix of path.
@@ -539,7 +563,7 @@ class ApiRouteManager:
             return (HttpMixin.from_request(None, headers),
                     HttpError(405, f"Bad method {method}: {method} {path}"))
         # Run the routes
-        route = self.create_route(method, path, qstr)
+        route = self.create_route(method, path, qstr, request)
         if isinstance(route, HttpError):
             return (request, route)
         route_args = self.get_route_args(path, qstr, client)

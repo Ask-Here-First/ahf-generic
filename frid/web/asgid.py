@@ -10,8 +10,8 @@ from ..typing import MISSING, MissingType, get_type_name, FridValue
 from ..lib import str_encode_nonprints
 from .._loads import scan_frid_str, FridTruncError, load_frid_str
 from .._dumps import dump_frid_str
-from .mixin import HttpError, HttpMixin, ShortMimeLabel, mime_type_label
-from .route import ApiRoute, HttpInput, HttpMethod, MethodKind, ApiRouteManager
+from .mixin import HttpError, HttpMixin, mime_type_label
+from .route import HttpInput, HttpMethod, MethodKind, ApiRouteManager
 from .route import HTTP_METHODS_WITH_BODY
 
 WEBSOCKET_QUASI_METHOD = ":websocket:"  # Quasi method for websocket
@@ -51,13 +51,6 @@ class AsgiEventDict(TypedDict):
 
 AsgiRecvCall = Callable[[],Awaitable[AsgiEventDict]]
 AsgiSendCall = Callable[[AsgiEventDict],Awaitable[None]]
-
-class AbstractWebsocketRouter(abc.ABC):
-    @abc.abstractmethod
-    def __init__(self, http: HttpInput):
-        pass
-    def get_stream_mime_label(self) -> ShortMimeLabel|None:
-        return None
 
 _T = TypeVar('_T')
 
@@ -250,24 +243,15 @@ class AsgiWebApp(ApiRouteManager):
         qstr = scope.get('query_string')
         if qstr is not None:
             qstr = qstr.decode()
-        route = self.create_route(WEBSOCKET_QUASI_METHOD, path, qstr)
+        route = self.create_route(WEBSOCKET_QUASI_METHOD, path, qstr, request)
         route_args = self.get_route_args(path, qstr, scope.get('client'))
         data: WebsocketIterator|None = None
-        http_input = None
-        if isinstance(route, ApiRoute):
-            http_input = route.to_http_input(request, **route_args)
-            router_class = route.router
-            if issubclass(router_class, AbstractWebsocketRouter):
-                # Recreate the route object using the previous router as a class
-                route = self.create_route(WEBSOCKET_QUASI_METHOD, path, qstr,
-                                          router=router_class(http_input), prefix=route.prefix)
         # Check if the route cannot be created
         if isinstance(route, HttpError):
             return await send({
                 'type': "websocket.close", 'code': 403, 'reason': str(route)
             })
-        if http_input is None:
-            http_input = route.to_http_input(request, **route_args)
+        http_input = route.to_http_input(request, **route_args)
         await send({'type': "websocket.accept"})   # TODO: headers?
         # Get the expected data type
         data = self.create_ws_data(http_input, route, recv, send)
@@ -302,8 +286,8 @@ class AsgiWebApp(ApiRouteManager):
                        recv: AsgiRecvCall, send: AsgiSendCall) -> WebsocketIterator:
         mime_label = None
         router = route.router
-        if isinstance(router, AbstractWebsocketRouter):
-            mime_label = router.get_stream_mime_label()
+        if hasattr(router, '__mime__'):
+            mime_label = router.__mime__
         # Guess from the MIME type the request wants
         if mime_label is None and (want := http_input.get('want')):
             mime_label = next((ml for x in want if (ml := mime_type_label.get(x))), None)

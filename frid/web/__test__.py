@@ -16,7 +16,7 @@ from .route import HttpInput, echo_router
 from .httpd import run_http_server
 from .wsgid import run_wsgi_server_with_gunicorn, run_wsgi_server_with_simple
 from .asgid import WebsocketTextIterator, WebsocketBlobIterator
-from .asgid import AbstractWebsocketRouter, WebsocketIterator, run_asgi_server_with_uvicorn
+from .asgid import WebsocketIterator, run_asgi_server_with_uvicorn
 
 class TestRouter:
     def get_echo(self, *args, _http={}, **kwds):
@@ -34,39 +34,33 @@ class TestRouter:
     def put_(self, data, *args, _http={}, **kwds):
         return {'optype': 'put', '.data': data, '.kwds': kwds, '.args': list(args)}
 
-class WebsocketRouter(AbstractWebsocketRouter):
-    def __init__(self, http: HttpInput):
-        self._http = http
-        routed = http.get('routed')
-        self.dtype = routed and routed['kwargs'].get('dtype')
-    def get_stream_mime_label(self) -> str:  # type: ignore
-        return str(self.dtype)
-    @classmethod
-    async def _echo_call(cls, data: WebsocketIterator, _http={}, dtype: str|None=None):
+class WebsocketRouter:
+    def __init__(self, *, dtype: str|None=None, _http: HttpInput):
+        self._http = _http
+        self.__mime__ = dtype
+    async def _echo_call(self, data: WebsocketIterator):
         assert isinstance(data, WebsocketIterator), type(data)
         async for item in data:
             if isinstance(data, WebsocketBlobIterator|WebsocketTextIterator):
                 await data(item)
             else:
                 await data({'.data': item, '.text': dump_frid_str(item),
-                            '.type': "websocket", '.http': _http})
-    @classmethod
-    async def _echo_yield(cls, data: WebsocketIterator, _http={}, dtype: str|None=None):
+                            '.type': "websocket", '.http': self._http})
+    async def _echo_yield(self, data: WebsocketIterator):
         assert isinstance(data, WebsocketIterator), type(data)
         async for item in data:
             if isinstance(data, WebsocketBlobIterator|WebsocketTextIterator):
                 yield item
             else:
                 yield {'.data': item, '.text': dump_frid_str(item),
-                       '.type': "websocket", '.http': _http}
+                       '.type': "websocket", '.http': self._http}
 class WebsocketRouter1(WebsocketRouter):
-    @classmethod
-    async def mix_echo(cls, data: WebsocketIterator, _http={}, dtype: str|None=None):
-        return await cls._echo_call(data, _http=_http)
-    async def mix_(self, data: WebsocketIterator, _http={}, dtype: str|None=None):
-        return self._echo_yield(data, _http=_http)
+    async def mix_echo(self, data: WebsocketIterator):
+        return await self._echo_call(data)
+    async def mix_(self, data: WebsocketIterator):
+        return self._echo_yield(data)
 class WebsocketRouter2(WebsocketRouter):
-    async def __call__(self, data: WebsocketIterator, dtype: str|None=None):
+    async def __call__(self, data: WebsocketIterator):
         async for item in self._echo_yield(data):
             yield item
 
