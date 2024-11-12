@@ -173,13 +173,20 @@ class AsgiWebApp(ApiRouteManager):
         'ws_': [WEBSOCKET_QUASI_METHOD],
         **ApiRouteManager._rprefix_revmap,
     }
+    _ht_ws_status_map: Mapping[int,int] = {
+        200: 1000,
+        400: 1002, 401: 3001, 403: 3003, 404: 1002, 406: 1003, 408: 3008,
+        413: 1009, 414: 1009, 415: 1003, 429: 1008,
+        500: 1011, 501: 1003, 502: 1014, 503: 1001, 504: 1013,
+    }
 
     def __init__(self, *args, http_ping_time: float=3.0, use_websockets: bool=True, **kwargs):
         super().__init__(*args, **kwargs)
         self.http_ping_time = http_ping_time
         self.use_websockets = use_websockets
 
-    async def __call__(self, scope: AsgiScopeDict, recv: AsgiRecvCall, send: AsgiSendCall):
+    async def __call__(self, scope: AsgiScopeDict, recv: AsgiRecvCall,
+                       send: AsgiSendCall) -> None:
         """The main ASGi handler"""
         match scope['type']:
             case 'http':
@@ -190,7 +197,8 @@ class AsgiWebApp(ApiRouteManager):
                 return await self.handle_life(scope, recv, send)
         error(f"ASGi service: unsupported protocol type {scope['type']}")
 
-    async def handle_http(self, scope: AsgiScopeDict, recv: AsgiRecvCall, send: AsgiSendCall):
+    async def handle_http(self, scope: AsgiScopeDict, recv: AsgiRecvCall,
+                          send: AsgiSendCall) -> None:
         # Get method and headers and get authrization
         method = scope['method']
         req_data = await self.get_request_data(scope, recv)
@@ -226,15 +234,16 @@ class AsgiWebApp(ApiRouteManager):
         except asyncio.TimeoutError as exc:
             traceback.print_exc()
             # msg =  route.get_log_str(request, client=scope['client'])
-            return HttpError(503, "Timeout: " + msg_str, cause=exc)
+            return HttpError(504, "Timeout: " + msg_str, cause=exc)
         except HttpError as exc:
             return exc
         except Exception as exc:
             traceback.print_exc()
             # result = route.to_http_error(exc, request, client=scope['client'])
-            return HttpError(500, "Crashed: {msg_str}", cause=exc)
+            return HttpError(500, "Crashed: " + msg_str, cause=exc)
 
-    async def handle_sock(self, scope: AsgiScopeDict, recv: AsgiRecvCall, send: AsgiSendCall):
+    async def handle_sock(self, scope: AsgiScopeDict, recv: AsgiRecvCall,
+                          send: AsgiSendCall) -> None:
         if not self.use_websockets:
             error("ASGi Websocket is not enabled for the App")
             return
@@ -269,9 +278,10 @@ class AsgiWebApp(ApiRouteManager):
             result = await self.wait_for_result(result, f"Websocket {path}")
         if isinstance(result, HttpError):
             # This is after accepting
-            return send({
+            return await send({
                 'type': "websocket.close",
-                'code': result.ht_status, 'reason': str(HttpError), # HTTP to WS code map?
+                'code': self._ht_ws_status_map.get(result.ht_status, 1008),
+                'reason': str(HttpError),
             })
         if isinstance(result, AsyncIterable):
             # This is different from self.process_result() which generates SSE output
@@ -309,7 +319,8 @@ class AsgiWebApp(ApiRouteManager):
                 data = WebsocketFridIterator(recv, send)
         return data
 
-    async def handle_life(self, scope: AsgiScopeDict, recv: AsgiRecvCall, send: AsgiSendCall):
+    async def handle_life(self, scope: AsgiScopeDict, recv: AsgiRecvCall,
+                          send: AsgiSendCall) -> None:
         while True:
             message = await recv()
             if message['type'] == 'lifespan.startup':
