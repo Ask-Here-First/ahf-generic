@@ -1,3 +1,5 @@
+from .. import typing
+
 from .blobs import base64url_encode, base64url_decode
 from .lists import list_find_ex
 from .dicts import TransKeyDict, CaseDict
@@ -23,3 +25,6 @@ __all__ = [
     'path_to_url_path', 'url_path_to_path', 'find_in_ancestor',
     'Quantity',
 ]
+
+# Set warn function in typing to be the advanced version
+typing._warn = warn

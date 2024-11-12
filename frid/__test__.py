@@ -601,7 +601,7 @@ class TestLoadsAndDumps(unittest.TestCase):
     def test_frid_error(self):
         data = {'error': FridError("Test")}
         s = dump_frid_str(data)
-        self.assertEqual(s, "{error: FridError(error=Test)}")
+        self.assertEqual(s, "{error: FridError(Test)}")
         t = load_frid_str(s, frid_mixin=[FridError])
         self.assertTrue(isinstance(t, Mapping) and isinstance(t.get('error'), FridError))
 

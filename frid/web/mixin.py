@@ -322,4 +322,17 @@ class HttpError(HttpMixin, FridError):
         self.http_data = self.frid_dict()  # Only show the keyword part of this error
         super().set_response()
         return self
-
+    def frid_args(self) -> tuple[str|BlobTypes|float,...]:
+        return (self.ht_status, *FridError.frid_args(self))
+    def __insert_ht_status(self, s: str):
+        i = s.find('(')
+        if i < 0:
+            return s
+        i += 1
+        if i + 1 < len(s) and s[i+1] == ')':
+            return s[:i] + str(self.ht_status) + s[i:]
+        return s[:i] + str(self.ht_status) + ',' + s[i:]
+    def to_str(self):
+        return self.__insert_ht_status(FridError.to_str(self))
+    def __repr__(self):
+        return self.__insert_ht_status(FridError.__repr__(self))

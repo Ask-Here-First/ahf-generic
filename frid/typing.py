@@ -11,6 +11,8 @@ if sys.version_info >= (3, 11):
 else:
     from typing_extensions import NotRequired, Required, Unpack  # noqa: F401
 
+_warn = lambda s : None   # noqa: E731
+
 # === Generic type definitions ===
 
 # Quick union types used in many places
@@ -311,7 +313,7 @@ class FridError(FridMixin, Exception):
     """
     def __init__(self, *args, trace: TracebackType|Sequence[str]|None=None,
                  cause: BaseException|str|None=None, notes: Sequence[str]|None=None,
-                 venue: str|None=None):
+                 venue: str|None=None, **kwargs):
         if args and isinstance(args[0], BaseException):
             exc = args[0]
             super().__init__(*exc.args, *args[1:])
@@ -321,19 +323,39 @@ class FridError(FridMixin, Exception):
                 cause = get_qual_name(exc)
         else:
             super().__init__(*args)
-        self.notes: list[str] = list(notes) if notes else []
-        self.cause: BaseException|str|None = cause
-        self.venue: str|None = venue
+        self.notes: list[str]
+        if notes is None:
+            self.notes = []
+        elif isinstance(notes, str|BlobTypes):
+            self.notes = [str(notes)]
+        elif isinstance(notes, Sequence):
+            self.notes = [str(x) for x in notes]
+        else:
+            raise ValueError(f"Invalid notes type {type(trace)}")
+        if cause is None or isinstance(cause, BaseException|str):
+            self.cause: BaseException|str|None = cause
+        else:
+            _warn(f"FridError(): invalid cause type {type(cause)}")
+            self.cause = str(cause)
+        self.venue: str|None = venue if venue is None or isinstance(venue, str) else str(venue)
         if trace is None:
             self.trace = None
         elif isinstance(trace, TracebackType):
             self.trace = None
             self.with_traceback(trace)
         elif isinstance(trace, Sequence):
-            self.trace = list(trace)
+            self.trace = [str(x) for x in trace]
             self.with_traceback(None)
         else:
             raise ValueError(f"Invalid trace type {type(trace)}")
+        if sys.version_info >= (3, 11):
+            if self.trace:
+                for x in self.trace:
+                    self.add_note(x)
+            for x in self.notes:
+                self.add_note(x)
+        if kwargs:
+            _warn(f"FridError() ignored other arguments: {', '.join(kwargs.keys())}")
 
     @classmethod
     def frid_from(cls, data: FridNameArgs|BaseException, /, **kwargs):
@@ -345,25 +367,25 @@ class FridError(FridMixin, Exception):
         ## Cannot do the following because import our warn will intrdoce a circular import
         # if not data.args:
         #     warn(f"FridError is constructed with {len(data.args)} positional arguments")
-        return cls.from_dict(data.kwds)
-    @classmethod
-    def from_dict(cls, data: StrKeyMap):
-        # The `trace` and `cause` are not accepting TrackbackType and BaseException;
-        # and `error` is passed as the first argument.
-        error = data.get('error')
-        trace = data.get('trace')
-        cause = data.get('cause')
-        notes = data.get('notes')
-        venue = data.get('venue')
-        assert trace is None or isinstance(trace, Sequence)
-        assert cause is None or isinstance(cause, str)
-        assert notes is None or isinstance(notes, Sequence)
-        assert venue is None or isinstance(venue, str)
-        return FridError(error, trace=trace, cause=cause, notes=notes, venue=venue)
+        kwds: Mapping[str,Any]
+        if 'error' in kwargs:
+            kwds = dict(data.kwds)
+            kwds.update(kwargs)
+            args = (*data.args, kwds.pop('error'))
+        else:
+            if kwargs:
+                kwds = dict(data.kwds)
+                kwds.update(kwargs)
+            else:
+                kwds = data.kwds
+            args = data.args
+        return cls(*args, **kwds)
 
-    def frid_dict(self) -> dict[str,str|int|list[str]]:
+    def frid_dict(self, with_error: bool=True) -> dict[str,str|int|list[str]]:
         """Convert the error into a dictionary"""
-        out: dict[str,str|int|list[str]] = {'error': str(self)}
+        out: dict[str,str|int|list[str]] = {
+            'error': self.__class__.__name__ + '(' + ','.join(str(x) for x in self.args) + ')'
+        } if with_error else {}
         trace = []
         if self.trace is not None:
             trace.extend(self.trace)
@@ -385,5 +407,25 @@ class FridError(FridMixin, Exception):
             out['venue'] = FRID_ERROR_VENUE
         return out
 
+    def frid_args(self) -> tuple[str|BlobTypes|float,...]:
+        return tuple(x if isinstance(x, str|BlobTypes|float|int) else str(x) for x in self.args)
     def frid_repr(self) -> FridNameArgs:
-        return FridNameArgs(get_type_name(self), (), self.frid_dict())
+        return FridNameArgs(get_type_name(self), self.frid_args(), self.frid_dict(False))
+
+    def to_str(self) -> str:
+        """Returns a simple representation without details of trace and notes."""
+        kwds = self.frid_dict(False)
+        args = [str(x) for x in self.args]
+        if (cause := kwds.get('cause')):
+            args.append("cause=" + str(cause))
+        if kwds.get('trace'):
+            args.append("trace=+")
+        if kwds.get('notes'):
+            args.append("notes=+")
+        return self.__class__.__name__ + '(' + ','.join(args) + ')'
+    def __repr__(self) -> str:
+        kwds = self.frid_dict(False)
+        args = [repr(x) for x in self.args]
+        for k, v in kwds.items():
+            args += k + '=' + repr(v)
+        return self.__class__.__name__ + '(' + ','.join(args) + ')'
