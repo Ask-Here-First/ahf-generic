@@ -660,6 +660,11 @@ class FridLoader:
                     self.error("Unnamed argument following keyword argument")
                 args.append(name)
                 continue
+            if token in stop:
+                if kwds:
+                    self.error("Unnamed argument following keyword argument")
+                args.append(name)
+                break
             if token != sep[1]:
                 self.error(f"Expect '{sep[1]}' after key '{name}' of a map")
             if not isinstance(name, str):
