@@ -395,7 +395,10 @@ class FridError(FridMixin, Exception):
         if self.__cause__:
             out['cause'] = str(self.__cause__)
         elif self.cause is not None:
-            out['cause'] = str(self.cause)
+            if isinstance(self.cause, BaseException):
+                out['cause'] = get_type_name(self.cause) + ": " + str(self.cause)
+            else:
+                out['cause'] = str(self.cause)
             if isinstance(self.cause, BaseException):
                 trace.append("Caused by:")
                 trace.extend(traceback.format_exception(self.cause))
@@ -415,13 +418,9 @@ class FridError(FridMixin, Exception):
     def to_str(self) -> str:
         """Returns a simple representation without details of trace and notes."""
         kwds = self.frid_dict(False)
-        args = [str(x) for x in self.args]
+        args = [repr(x) for x in self.args]
         if (cause := kwds.get('cause')):
-            args.append("cause=" + str(cause))
-        if kwds.get('trace'):
-            args.append("trace=+")
-        if kwds.get('notes'):
-            args.append("notes=+")
+            args.append("cause=" + repr(cause))
         return self.__class__.__name__ + '(' + ','.join(args) + ')'
     def __repr__(self) -> str:
         kwds = self.frid_dict(False)
