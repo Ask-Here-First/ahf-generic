@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2]-2024-11-13
+
+### Fixed
+
+- `frid.web.asgid` to use `HttpError.to_str()` as the correct reason string f
+  or websocket close.
+
 ## [0.5.1]-2024-11-12
 
 ### Added
@@ -45,5 +52,6 @@
 
 The base version of this changelog.
 
-[0.5.0]: ../../compare/v0.5.0...v0.5.1
+[0.5.2]: ../../compare/v0.5.1...v0.5.2
+[0.5.1]: ../../compare/v0.5.0...v0.5.1
 [0.5.0]: ../../compare/v0.4.16...v0.5.0
