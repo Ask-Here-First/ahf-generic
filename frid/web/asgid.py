@@ -257,7 +257,7 @@ class AsgiWebApp(ApiRouteManager):
         if isinstance(route, HttpError):
             # This is before accepting
             return await send({  # Or use websocket 3003? But uvicorn coverted it to 403
-                'type': "websocket.close", 'code': route.ht_status, 'reason': str(route),
+                'type': "websocket.close", 'code': route.ht_status, 'reason': route.to_str(),
                 'headers': [(k.encode('utf-8'), v.encode('utf-8'))
                             for k, v in route.http_head.items()]
             })
@@ -281,7 +281,7 @@ class AsgiWebApp(ApiRouteManager):
             return await send({
                 'type': "websocket.close",
                 'code': self._ht_ws_status_map.get(result.ht_status, 1008),
-                'reason': str(HttpError),
+                'reason': result.to_str(),
             })
         if isinstance(result, AsyncIterable):
             # This is different from self.process_result() which generates SSE output
