@@ -5,7 +5,7 @@ from ._loads import FridParseError, FridTruncError
 from ._dumps import dump_frid_str, dump_frid_tio, dump_args_str, dump_args_tio
 from ._utils import load_module_data
 
-__version__ = "0.5.2"
+__version__ = "0.5.3"
 
 # For Json-like compatibility but do not include them in public symbols
 loads = load_frid_str

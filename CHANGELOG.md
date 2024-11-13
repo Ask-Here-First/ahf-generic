@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.3]-2024-11-13
+
+### Changed
+
+- Changed pseudo method for websocket from `:websocket:` to a shorter
+  name `:ws:`.
+- Added quotes to the string representation of `FridError` and `HttpError`.
+
+### Fixed
+
+- `frid.web.asgid`: limit the reason string to 100 characters because websocket
+  control message cannot exceed 125 bytes.
+
 ## [0.5.2]-2024-11-13
 
 ### Fixed
@@ -52,6 +65,7 @@
 
 The base version of this changelog.
 
+[0.5.3]: ../../compare/v0.5.2...v0.5.3
 [0.5.2]: ../../compare/v0.5.1...v0.5.2
 [0.5.1]: ../../compare/v0.5.0...v0.5.1
 [0.5.0]: ../../compare/v0.4.16...v0.5.0
