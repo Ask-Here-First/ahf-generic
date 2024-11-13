@@ -22,7 +22,7 @@ from .files import FileRouter
 # - If call type is false, it is call just with just (*opargs, **kwargs)
 HttpMethod = Literal['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS','CONNECT','TRACE']
 # With other "quasi methods"; 'kind' is a more relaxed term
-MethodKind = HttpMethod|Literal[':websocket:']
+MethodKind = HttpMethod|Literal[':ws:']
 # The internal unified data handling type that is HTTP-agnostic
 CallOpType = Literal['get','set','put','add','del']  # GSPAD
 _call_op_type_map: dict[str,CallOpType] = {

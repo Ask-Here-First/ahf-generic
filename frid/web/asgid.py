@@ -14,7 +14,7 @@ from .mixin import HttpError, HttpMixin, mime_type_label
 from .route import HttpInput, HttpMethod, MethodKind, ApiRouteManager
 from .route import HTTP_METHODS_WITH_BODY
 
-WEBSOCKET_QUASI_METHOD = ":websocket:"  # Quasi method for websocket
+WEBSOCKET_QUASI_METHOD = ":ws:"  # Quasi method for websocket
 
 class AsgiScopeDict(TypedDict):
     type: Literal['http','websocket','lifespan']
@@ -197,6 +197,16 @@ class AsgiWebApp(ApiRouteManager):
                 return await self.handle_life(scope, recv, send)
         error(f"ASGi service: unsupported protocol type {scope['type']}")
 
+    def _ws_reason(self, error: HttpError) -> str:
+        """Returns websocket error reason from the error.
+        - The purpose is that the websocket standard has a 125 byte limit
+          for control packages, so we limit the output stream to 99 bytes.
+        """
+        s = error.to_str()
+        if len(s) >= 100:
+            s = s[:96] + "..."
+        return s
+
     async def handle_http(self, scope: AsgiScopeDict, recv: AsgiRecvCall,
                           send: AsgiSendCall) -> None:
         # Get method and headers and get authrization
@@ -257,7 +267,8 @@ class AsgiWebApp(ApiRouteManager):
         if isinstance(route, HttpError):
             # This is before accepting
             return await send({  # Or use websocket 3003? But uvicorn coverted it to 403
-                'type': "websocket.close", 'code': route.ht_status, 'reason': route.to_str(),
+                'type': "websocket.close", 'code': route.ht_status,
+                'reason': self._ws_reason(route),
                 'headers': [(k.encode('utf-8'), v.encode('utf-8'))
                             for k, v in route.http_head.items()]
             })
@@ -281,7 +292,7 @@ class AsgiWebApp(ApiRouteManager):
             return await send({
                 'type': "websocket.close",
                 'code': self._ht_ws_status_map.get(result.ht_status, 1008),
-                'reason': result.to_str(),
+                'reason': self._ws_reason(result),
             })
         if isinstance(result, AsyncIterable):
             # This is different from self.process_result() which generates SSE output
