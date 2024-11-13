@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.5.1]-2024-11-12
+
+### Added
+
+- Websocket support for ASGi webserver in `frid.web.asgid`.
+- FridValue is now available in the top module `frid`.
+
+### Changed
+
+- Better FridError and HttpError error checking and conversion to string format.
+- In the route table, we now accept class objects as routers, in which case
+  meta arguments will be passed to the construtor of those classes.
+- The command-line tools for web-servers will not automatically add `()` for
+  loaded classes since class objects can be passed as routers.
+- Functions `base64url_encode()` in `frid.lib` output bytes instead of strings;
+  `base64url_decode()` accept both string and bytes.
+
+### Fixed
+
+- Fixing a parsing issue in `FridLoader.scan_naked_args()` in the case
+  with only positional arguments.
+
 ## [0.5.0]-2024-11-02
 
 ### Added
@@ -23,4 +45,5 @@
 
 The base version of this changelog.
 
+[0.5.0]: ../../compare/v0.5.0...v0.5.1
 [0.5.0]: ../../compare/v0.4.16...v0.5.0
