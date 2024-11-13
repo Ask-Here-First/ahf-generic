@@ -1,5 +1,3 @@
-from .. import typing
-
 from .blobs import base64url_encode, base64url_decode
 from .lists import list_find_ex
 from .dicts import TransKeyDict, CaseDict
@@ -27,4 +25,5 @@ __all__ = [
 ]
 
 # Set warn function in typing to be the advanced version
+from .. import typing
 typing._warn = warn
