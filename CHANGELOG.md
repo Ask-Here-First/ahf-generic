@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.4]-2024-11-14
+
+### Added
+
+- `int_to_str()` and `str_to_int()` in `frid.lib` for base up to 36.
+- `datetime_to_murky36()` and `murky36_to_datetime` to encode a datetime
+  in a compact format of variable base up to 36.
+
 ## [0.5.3]-2024-11-13
 
 ### Changed
@@ -65,6 +73,7 @@
 
 The base version of this changelog.
 
+[0.5.4]: ../../compare/v0.5.3...v0.5.4
 [0.5.3]: ../../compare/v0.5.2...v0.5.3
 [0.5.2]: ../../compare/v0.5.1...v0.5.2
 [0.5.1]: ../../compare/v0.5.0...v0.5.1
