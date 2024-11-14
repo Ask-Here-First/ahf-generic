@@ -1,5 +1,5 @@
-from collections.abc import Mapping
 import os, io, sys, math, json, base64, unittest
+from collections.abc import Mapping
 from random import Random
 from typing import Any, Literal, cast
 from functools import partial
@@ -10,6 +10,7 @@ from .typing import (
 )
 from .chrono import DateTimeDiff, DateTimeSpec, parse_datetime, parse_timeonly, strfr_datetime
 from .chrono import dateonly, timeonly, datetime, timezone, timedelta
+from .chrono import murky36_to_datetime, datetime_to_murky36
 from ._basic import FridCompare, FridReplace, frid_redact, frid_random
 from ._dumps import dump_args_str, dump_frid_tio, dump_frid_str
 from ._loads import FridParseError, load_frid_str, load_frid_tio, open_frid_tio, scan_frid_str
@@ -68,6 +69,17 @@ class TestChrono(unittest.TestCase):
                          strfr_datetime(datetime.fromtimestamp(0, timezone.utc)))
         with self.assertRaises(ValueError):
             strfr_datetime(timeonly(11, 22, 33), precision=-3)
+
+    def test_fancy36(self):
+        # Pure random testing
+        start_ts = datetime(2020, 1, 1).timestamp()
+        period = datetime(2020, 12, 31, 23, 59, 59, 999999).timestamp() - start_ts
+        rng = Random()
+        for _ in range(256):
+            dt = datetime.fromtimestamp(rng.random() * period + start_ts)
+            s = datetime_to_murky36(dt)
+            self.assertEqual(len(s), 10)
+            self.assertEqual(murky36_to_datetime(s), dt, s)
 
     def test_datetimediff(self):
         self.assertEqual(dump_frid_str(DateTimeSpec("MON")), "DateTimeSpec(MON)")

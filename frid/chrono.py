@@ -3,7 +3,7 @@ from datetime import timezone, timedelta, tzinfo
 from typing import Literal, Mapping, overload
 
 from .typing import FridNameArgs, FridMixin, dateonly, timeonly, datetime, DateTypes
-from .lib import Quantity, str_find_any
+from .lib import Quantity, str_find_any, int_to_str, str_to_int
 
 date_only_re_str = r"(\d\d\d\d)-([01]\d)-([0-3]\d)"
 time_zone_re_str = r"[+-](\d\d)(?::?(\d\d))|Z"
@@ -135,6 +135,87 @@ def seconds_to_timeonly(sec: float, tzinfo: tzinfo|None=None) -> tuple[timeonly,
     (hour, minute) = divmod(minute, 60)
     (days, hour) = divmod(hour, 24)
     return (timeonly(hour, minute, second, msec, tzinfo=tzinfo), days)
+
+def datetime_to_murky36(t: datetime, /, upper: bool=False) -> str:
+    """Convert the datetime to an encoding format using 0-9, a-z (or A-Z) called "murky36".
+    - First digit is the year digit in base-36, starting at 2020 as 0 (so up to 2055).
+    - We divide a year into 36 periods of 10 or 11 days (8 or 9 for the last period of Feb).
+      Each period starts at the 1st, 11th, and 21th day of each month.
+      The period number (0-35) is the second digit.
+    - Then we divide up to 11 day period into 8 hour shifts; the shift number is the third
+      digit: 0-29 (10 day period) or 0-32 (11 day period), 0-23 or 0-26 (last period of Feb).
+    - Then we divide a shift into 32 quarters (in the unit of 15 minutes).
+      The quater number is the fourth digit.
+    - Then we dividde a quarter into 30 half-minutes (in the unit of 30 second).
+      The half-minute number if the fifth digit: (0-29)
+    - The sixth digit the second number in each half-minute (0-29).
+      Now we can represent a date between years 2020-2055 in 6 digits of base-36.
+    - Then milliseconds can be represented in 2 digits of base-36.
+      Now we can represent milliseconds in 8 digits of base-36.
+    - The microsecond offset to the whole milliseconds can be represented
+      in two more digits of base-36. We use 10 digits to represent exact microseconds.
+    The final result is a 10 digit base-36 number with the following places and
+    the quotients between the units:
+    ```
+        year, period, shift, quarter, halfmin, second, (milli1, milli0), (micro1, micro0)
+            36    24-33    32      30        30      1000             1000
+    ```
+    """
+    d0 = int_to_str((t.year - 2020) % 36, 36, upper)
+    period = (t.month - 1) * 3
+    if t.day >= 21:
+        period += 2
+        shift = (t.day - 21) * 3
+    elif t.day >= 11:
+        period += 1
+        shift = (t.day - 11) * 3
+    else:
+        shift = (t.day - 1) * 3
+    d1 = int_to_str(period, 36, upper)
+    (q, quarter) = divmod(t.hour, 8)
+    shift += q
+    quarter *= 4
+    d2 = int_to_str(shift, 36, upper)
+    (q, halfmin) = divmod(t.minute, 15)
+    quarter += q
+    halfmin *= 2
+    d3 = int_to_str(quarter, 36, upper)
+    (q, second) = divmod(t.second, 30)
+    halfmin += q
+    d4 = int_to_str(halfmin, 30, upper)
+    d5 = int_to_str(second, 36, upper)
+    (millis, micros) = divmod(t.microsecond, 1000)
+    d67 = int_to_str(millis, 36, upper).zfill(2)
+    d89 = int_to_str(micros, 36, upper).zfill(2)
+    return d0 + d1 + d2 + d3 + d4 + d5 + d67 + d89
+
+def murky36_to_datetime(s: str, /) -> datetime:
+    n = len(s)
+    assert n >= 3  # At least 3 bytes are needed
+    year = str_to_int(s[0], 36) + 2020
+    (month, day) = divmod(str_to_int(s[1], 36), 3)
+    month += 1
+    day = day * 10 + 1
+    (q, hour) = divmod(str_to_int(s[2], 36), 3)
+    day += q
+    hour *= 8
+    minute = second = micro = 0
+    if n > 3:
+        (q, minute) = divmod(str_to_int(s[3], 36), 4)
+        hour += q
+        minute *= 15
+        if n > 4:
+            (q, second) = divmod(str_to_int(s[4], 36), 2)
+            minute += q
+            second *= 30
+            if n > 5:
+                second += str_to_int(s[5], 36)
+                if n > 7:
+                    micro = str_to_int(s[6:8], 36) * 1000
+                    if n > 9:
+                        micro += str_to_int(s[8:10], 36)
+                        assert n == 10
+    return datetime(year, month, day, hour, minute, second, micro)
 
 class DateTimeDiff(Quantity):
     """A quatituy that represents the datetime difference."""
