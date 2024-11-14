@@ -10,7 +10,7 @@ from .oslib import (
     iter_stack_info, get_caller_info, warn
 )
 from .paths import path_to_url_path, url_path_to_path, find_in_ancestor
-from .quant import Quantity
+from .quant import int_to_str, Quantity
 
 __all__ = [
     'base64url_encode', 'base64url_decode',
@@ -21,7 +21,7 @@ __all__ = [
     'use_signal_trap', 'set_root_logging', 'get_loglevel_str',
     'iter_stack_info', 'get_caller_info', 'warn',
     'path_to_url_path', 'url_path_to_path', 'find_in_ancestor',
-    'Quantity',
+    'int_to_str', 'Quantity',
 ]
 
 # Set warn function in typing to be the advanced version

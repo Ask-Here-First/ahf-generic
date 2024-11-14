@@ -1,9 +1,26 @@
 import random, unittest
 
 from .dicts import CaseDict
-from .quant import Quantity
+from .quant import int_to_str, Quantity
 from .texts import StringEscapeDecode, StringEscapeEncode
 from .texts import str_decode_nonprints, str_encode_nonprints, str_find_any, str_scan_sub
+
+class TestIntToStr(unittest.TestCase):
+    def test_int_to_str(self):
+        self.assertEqual(int_to_str(36, 36, True), "10")
+        self.assertEqual(int_to_str(36, 36, False), "10")
+        self.assertEqual(int_to_str(3600, 36, True), "2S0")
+        self.assertEqual(int_to_str(3600, 36, False), "2s0")
+        for _ in range(256):
+            n = random.randint(-10000, 1000)
+            self.assertEqual(int_to_str(n, 10, True), str(n))
+            self.assertEqual(int_to_str(n, 10, False), str(n))
+            self.assertEqual(int_to_str(n, 2, True), format(n, 'b'))
+            self.assertEqual(int_to_str(n, 2, False), format(n, 'b'))
+            self.assertEqual(int_to_str(n, 8, True), format(n, 'o'))
+            self.assertEqual(int_to_str(n, 8, False), format(n, 'o'))
+            self.assertEqual(int_to_str(n, 16, True), format(n, 'X'))
+            self.assertEqual(int_to_str(n, 16, False), format(n, 'x'))
 
 class TestQuantity(unittest.TestCase):
     @staticmethod

@@ -7,6 +7,24 @@ from ..guards import is_dict_like
 
 _T = TypeVar('_T')
 
+_base36_upper_digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+_base36_lower_digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+
+def int_to_str(n: int, base: int, upper_case: bool=False):
+    """Convert the integer to a given base"""
+    digits = _base36_upper_digits if upper_case else _base36_lower_digits
+    assert 2 <= base <= len(digits), f"The {base=} is not in between 2 and {len(digits)}"
+    # Shortcut for single digit case.
+    if 0 <= n < base:
+        return digits[n]
+    sign = n < 0
+    n = abs(n)
+    r = ""
+    while n:
+        (n, d) = divmod(n, base)
+        r = digits[d] + r
+    return '-' + r if sign else r
+
 class Quantity(FridBasic):
     """Data for a dimensional quantity with value-unit pairs.
 
