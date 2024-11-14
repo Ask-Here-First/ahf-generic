@@ -10,9 +10,9 @@ _T = TypeVar('_T')
 _base36_upper_digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 _base36_lower_digits = "0123456789abcdefghijklmnopqrstuvwxyz"
 
-def int_to_str(n: int, base: int, upper_case: bool=False) -> str:
+def int_to_str(n: int, /, base: int, upper: bool=False) -> str:
     """Convert the integer `n` to a string with the given `base` between 2 and 36."""
-    digits = _base36_upper_digits if upper_case else _base36_lower_digits
+    digits = _base36_upper_digits if upper else _base36_lower_digits
     assert 2 <= base <= len(digits), f"The {base=} is not in between 2 and {len(digits)}"
     # Shortcut for single digit case.
     if 0 <= n < base:
@@ -25,7 +25,7 @@ def int_to_str(n: int, base: int, upper_case: bool=False) -> str:
         r = digits[d] + r
     return '-' + r if sign else r
 
-def str_to_int(s: str, base: int) -> int:
+def str_to_int(s: str, /, base: int) -> int:
     """Convert the integer string `s` with the given base between 2 and 36 to an integer."""
     assert 2 <= base <= 36, f"The {base=} is not in between 2 and 36"
     s = s.strip()
