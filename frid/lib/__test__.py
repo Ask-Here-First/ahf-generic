@@ -1,7 +1,7 @@
 import random, unittest
 
 from .dicts import CaseDict
-from .quant import int_to_str, Quantity
+from .quant import int_to_str, str_to_int, Quantity
 from .texts import StringEscapeDecode, StringEscapeEncode
 from .texts import str_decode_nonprints, str_encode_nonprints, str_find_any, str_scan_sub
 
@@ -11,6 +11,22 @@ class TestIntToStr(unittest.TestCase):
         self.assertEqual(int_to_str(36, 36, False), "10")
         self.assertEqual(int_to_str(3600, 36, True), "2S0")
         self.assertEqual(int_to_str(3600, 36, False), "2s0")
+        self.assertEqual(int_to_str(-36, 36, True), "-10")
+        self.assertEqual(int_to_str(-36, 36, False), "-10")
+        self.assertEqual(int_to_str(-3600, 36, True), "-2S0")
+        self.assertEqual(int_to_str(-3600, 36, False), "-2s0")
+        self.assertEqual(str_to_int("10", 36), 36)
+        self.assertEqual(str_to_int("+2s0", 36), 3600)
+        self.assertEqual(str_to_int("2S0", 36), 3600)
+        self.assertEqual(str_to_int("-10", 36), -36)
+        self.assertEqual(str_to_int("-2s0", 36), -3600)
+        self.assertEqual(str_to_int("-2S0", 36), -3600)
+        with self.assertRaises(ValueError):
+            str_to_int("3Z0", 32)
+        with self.assertRaises(ValueError):
+            str_to_int("3?0", 36)
+        with self.assertRaises(ValueError):
+            str_to_int("--30", 36)
         for _ in range(256):
             n = random.randint(-10000, 1000)
             self.assertEqual(int_to_str(n, 10, True), str(n))
@@ -21,6 +37,11 @@ class TestIntToStr(unittest.TestCase):
             self.assertEqual(int_to_str(n, 8, False), format(n, 'o'))
             self.assertEqual(int_to_str(n, 16, True), format(n, 'X'))
             self.assertEqual(int_to_str(n, 16, False), format(n, 'x'))
+            self.assertEqual(str_to_int(str(n), 10), n)
+            self.assertEqual(str_to_int(format(n, 'b'), 2), n)
+            self.assertEqual(str_to_int(format(n, 'o'), 8), n)
+            self.assertEqual(str_to_int(format(n, 'X'), 16), n)
+            self.assertEqual(str_to_int(format(n, 'x'), 16), n)
 
 class TestQuantity(unittest.TestCase):
     @staticmethod

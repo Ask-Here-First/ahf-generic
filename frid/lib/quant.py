@@ -10,8 +10,8 @@ _T = TypeVar('_T')
 _base36_upper_digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 _base36_lower_digits = "0123456789abcdefghijklmnopqrstuvwxyz"
 
-def int_to_str(n: int, base: int, upper_case: bool=False):
-    """Convert the integer to a given base"""
+def int_to_str(n: int, base: int, upper_case: bool=False) -> str:
+    """Convert the integer `n` to a string with the given `base` between 2 and 36."""
     digits = _base36_upper_digits if upper_case else _base36_lower_digits
     assert 2 <= base <= len(digits), f"The {base=} is not in between 2 and {len(digits)}"
     # Shortcut for single digit case.
@@ -24,6 +24,40 @@ def int_to_str(n: int, base: int, upper_case: bool=False):
         (n, d) = divmod(n, base)
         r = digits[d] + r
     return '-' + r if sign else r
+
+def str_to_int(s: str, base: int) -> int:
+    """Convert the integer string `s` with the given base between 2 and 36 to an integer."""
+    assert 2 <= base <= 36, f"The {base=} is not in between 2 and 36"
+    s = s.strip()
+    # Get the sign
+    sign = False
+    if s:
+        c = s[0]
+        if c == '-':
+            sign = True
+            s = s[1:]
+        elif c == '+':
+            s = s[1:]
+    # Parse the value
+    v = 0
+    for c in s:
+        if c.isspace():
+            continue
+        m = ord(c)
+        if 48 <= m <= 57:
+            d = m - 48
+        elif 65 <= m <= 90:
+            d = m - 55
+        elif 97 <= m <= 122:
+            d = m - 87
+        else:
+            d = -1
+        if 0 <= d < base:
+            v *= base
+            v += d
+        else:
+            raise ValueError(f"Inalid integer string '{s}' for {base=}: bad char '{c}'")
+    return -v if sign else v
 
 class Quantity(FridBasic):
     """Data for a dimensional quantity with value-unit pairs.
