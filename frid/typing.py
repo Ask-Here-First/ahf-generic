@@ -421,6 +421,8 @@ class FridError(FridMixin, Exception):
         args = [repr(x) for x in self.args]
         if (cause := kwds.get('cause')):
             args.append("cause=" + repr(cause))
+        if (venue := kwds.get('venue')):
+            args.append("venue=" + str(venue))
         return self.__class__.__name__ + '(' + ','.join(args) + ')'
     def __repr__(self) -> str:
         kwds = self.frid_dict(False)

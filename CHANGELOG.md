@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- `HttpError.to_str()` will now add "venue" field if it is provided.
+
 ## [0.5.5]-2024-11-15
 
 ### Added
@@ -87,6 +93,7 @@
 
 The base version of this changelog.
 
+[Unreleased]: ../../compare/v0.5.5...HEAD
 [0.5.5]: ../../compare/v0.5.4...v0.5.5
 [0.5.4]: ../../compare/v0.5.3...v0.5.4
 [0.5.3]: ../../compare/v0.5.2...v0.5.3
