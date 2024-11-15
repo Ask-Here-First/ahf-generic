@@ -5,8 +5,8 @@ from .quant import int_to_str, str_to_int, Quantity
 from .texts import StringEscapeDecode, StringEscapeEncode
 from .texts import str_decode_nonprints, str_encode_nonprints, str_find_any, str_scan_sub
 
-class TestIntToStr(unittest.TestCase):
-    def test_int_to_str(self):
+class TestIntStrConversion(unittest.TestCase):
+    def test_int_str(self):
         self.assertEqual(int_to_str(36, 36, True), "10")
         self.assertEqual(int_to_str(36, 36, False), "10")
         self.assertEqual(int_to_str(3600, 36, True), "2S0")
@@ -27,6 +27,21 @@ class TestIntToStr(unittest.TestCase):
             str_to_int("3?0", 36)
         with self.assertRaises(ValueError):
             str_to_int("--30", 36)
+
+        self.assertEqual(int_to_str(123456, 10, group=(1, '_')), "1_2_3_4_5_6")
+        self.assertEqual(int_to_str(123456, 10, group=(2, '_')), "12_34_56")
+        self.assertEqual(int_to_str(123456, 10, group=(3, ',')), "123,456")
+        self.assertEqual(int_to_str(123456, 10, group=(4, ';')), "12;3456")
+        self.assertEqual(int_to_str(123456, 10, group=(5, '/')), "1/23456")
+        self.assertEqual(int_to_str(123456, 10, group=(6, ':')), "123456")
+        with self.assertRaises(ValueError):
+            str_to_int("123_456", 10, allow=',')
+        self.assertEqual(str_to_int("123_456", 10, allow='_'), 123456)
+        self.assertEqual(str_to_int("12,3456", 10, allow=','), 123456)
+        self.assertEqual(str_to_int("123,4_56", 10, allow=',_'), 123456)
+        with self.assertRaises(ValueError):
+            str_to_int("123_456", 10, allow=',')
+
         for _ in range(256):
             n = random.randint(-10000, 1000)
             self.assertEqual(int_to_str(n, 10, True), str(n))
@@ -42,6 +57,14 @@ class TestIntToStr(unittest.TestCase):
             self.assertEqual(str_to_int(format(n, 'o'), 8), n)
             self.assertEqual(str_to_int(format(n, 'X'), 16), n)
             self.assertEqual(str_to_int(format(n, 'x'), 16), n)
+            for group in [None, (3, '_'), (3, ',')]:
+                for base in (2, 7, 11, 33, 36):
+                    for upper in (True, False):
+                        self.assertEqual(str_to_int(
+                            int_to_str(n, base, upper=upper, group=group),
+                            base, allow=(group[1] if group else '')
+                        ), n)
+
 
 class TestQuantity(unittest.TestCase):
     @staticmethod

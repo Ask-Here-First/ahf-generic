@@ -10,8 +10,13 @@ _T = TypeVar('_T')
 _base36_upper_digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 _base36_lower_digits = "0123456789abcdefghijklmnopqrstuvwxyz"
 
-def int_to_str(n: int, /, base: int, upper: bool=False) -> str:
-    """Convert the integer `n` to a string with the given `base` between 2 and 36."""
+def int_to_str(n: int, /, base: int, upper: bool=False,
+               *, group: tuple[int,str]|None=None) -> str:
+    """Convert the integer `n` to a string with the given `base` between 2 and 36.
+    - `upper`: True for upper case and false False for lower case; only useful if `base > 10`.
+    - `group`: a tuple of a positive integer and a string for number grouping separators.
+    If `group=(3,',')`, the number `123456` will be converted to `123_456`.
+    """
     digits = _base36_upper_digits if upper else _base36_lower_digits
     assert 2 <= base <= len(digits), f"The {base=} is not in between 2 and {len(digits)}"
     # Shortcut for single digit case.
@@ -20,13 +25,20 @@ def int_to_str(n: int, /, base: int, upper: bool=False) -> str:
     sign = n < 0
     n = abs(n)
     r = ""
+    c = 0
     while n:
         (n, d) = divmod(n, base)
+        if group is not None and c and c % group[0] == 0:
+            r = group[1] + r
+        c += 1
         r = digits[d] + r
+
     return '-' + r if sign else r
 
-def str_to_int(s: str, /, base: int) -> int:
-    """Convert the integer string `s` with the given base between 2 and 36 to an integer."""
+def str_to_int(s: str, /, base: int, *, allow: str="") -> int:
+    """Convert the integer string `s` with the given base between 2 and 36 to an integer.
+    - `allow`: the list of character allowed to be the seperators in the number.
+    """
     assert 2 <= base <= 36, f"The {base=} is not in between 2 and 36"
     s = s.strip()
     # Get the sign
@@ -35,13 +47,13 @@ def str_to_int(s: str, /, base: int) -> int:
         c = s[0]
         if c == '-':
             sign = True
-            s = s[1:]
+            s = s[1:].lstrip()
         elif c == '+':
-            s = s[1:]
+            s = s[1:].lstrip()
     # Parse the value
     v = 0
     for c in s:
-        if c.isspace():
+        if c in allow:
             continue
         m = ord(c)
         if 48 <= m <= 57:
