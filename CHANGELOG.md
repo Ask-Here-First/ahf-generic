@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.5]-2024-11-15
+
+### Added
+
+- `parse_http_body()` and `build_http_body()` are now available in `frid.web`.
+- `mime_type=form` is supported for `build_http_body()` as well as
+  `HttpMixin.set_response()`.
+- Support encoding argument (other than the default `utf-8`) by
+  `build_http_body()` and `HttpMixin.set_response()`.
+
+### Changed
+
+- Additional stacktrace printing in `frid.web.asgid`.
+
 ## [0.5.4]-2024-11-14
 
 ### Added
@@ -73,6 +87,7 @@
 
 The base version of this changelog.
 
+[0.5.5]: ../../compare/v0.5.4...v0.5.5
 [0.5.4]: ../../compare/v0.5.3...v0.5.4
 [0.5.3]: ../../compare/v0.5.2...v0.5.3
 [0.5.2]: ../../compare/v0.5.1...v0.5.2
