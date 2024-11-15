@@ -246,6 +246,7 @@ class AsgiWebApp(ApiRouteManager):
             # msg =  route.get_log_str(request, client=scope['client'])
             return HttpError(504, "Timeout: " + msg_str, cause=exc)
         except HttpError as exc:
+            traceback.print_exc()
             return exc
         except Exception as exc:
             traceback.print_exc()

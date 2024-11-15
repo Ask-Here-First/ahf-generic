@@ -1,12 +1,12 @@
 import os, json, itertools
 from collections.abc import AsyncIterable, Iterable, Mapping
 from typing import Any, Literal
-from urllib.parse import unquote
+from urllib.parse import quote_plus, unquote
 from email.message import Message
 
 from ..typing import MISSING, BlobTypes, FridValue, MissingType
 from ..typing import FridError
-from ..guards import is_frid_value
+from ..guards import is_dict_like, is_frid_value
 from ..lib.dicts import CaseDict
 from .._loads import load_frid_str
 from .._dumps import dump_frid_str
@@ -79,8 +79,8 @@ def parse_url_query(qs: str|None) -> tuple[list[tuple[str,str]|str],dict[str,Fri
         kwargs[key] = parse_url_value(v)
     return (qsargs, kwargs)
 
-def parse_http_body(http_body: bytes, mime_type: str|None,
-                    encoding: str) -> tuple[FridValue,ShortMimeLabel|None]:
+def parse_http_body(http_body: bytes, mime_type: str|None=None,
+                    encoding: str='utf-8') -> tuple[FridValue,ShortMimeLabel|None]:
     """Parse the HTTP body using mime_type as hints.
     - Returns a pair of parsed data and a short MIME label if it is of
       a compatible content type.
@@ -109,7 +109,8 @@ def parse_http_body(http_body: bytes, mime_type: str|None,
                     pass
     return (data, mime_label)
 
-def build_http_body(http_data: FridValue, mime_type: str|None=None) -> tuple[bytes,str]:
+def build_http_body(http_data: FridValue, mime_type: str|None=None,
+                    encoding: str='utf-8') -> tuple[bytes,str]:
     """Build HTTP body from the data, using Python type and `mime_type` as hints.
     - `mime_type` can be a short label, but usually it is not set (=None).
     - For now we always use UTF-8 encoding; user has no way to set to other encoding.
@@ -121,7 +122,7 @@ def build_http_body(http_data: FridValue, mime_type: str|None=None) -> tuple[byt
             body = http_data
             mime_label: ShortMimeLabel = 'blob'
         elif isinstance(http_data, str):
-            body = http_data.encode()
+            body = http_data.encode(encoding)
             mime_label = 'text'
             # Detecting HTML. The whole string may be very long，so we just get the end portions
             if http_data[-64:].rstrip().lower().endswith("</html>"):
@@ -133,25 +134,39 @@ def build_http_body(http_data: FridValue, mime_type: str|None=None) -> tuple[byt
                     mime_label = 'html'
         else:
             # For all other data types without mime, dump as JSON with extended escape sequence
-            body = dump_frid_str(http_data, json_level=1, escape_seq=DEF_ESCAPE_SEQ).encode()
+            body = dump_frid_str(
+                http_data, json_level=1, escape_seq=DEF_ESCAPE_SEQ
+            ).encode(encoding)
             mime_label = 'json'
         return (body, mime_label_type[mime_label])
+    if isinstance(http_data, BlobTypes):
+        return (bytes(http_data), mime_label_type.get(mime_type, mime_type))
+    if isinstance(http_data, str):
+        return (http_data.encode(encoding), mime_label_type.get(mime_type, mime_type))
     match mime_type_label.get(mime_type, mime_type):
         case 'json':
-            body = json.dumps(http_data).encode() # TODO do escape
+            body = json.dumps(http_data).encode(encoding) # TODO do escape
         case 'json5':
-            body = dump_frid_str(http_data, json_level=5).encode()
+            body = dump_frid_str(http_data, json_level=5).encode(encoding)
         case 'frid':
-            body = dump_frid_str(http_data).encode()
+            body = dump_frid_str(http_data).encode(encoding)
+        case 'form':
+            if not isinstance(http_data, Mapping):
+                raise ValueError(f"Form data does not support type {type(http_data)}")
+            if is_dict_like(http_data, str):
+                body = '&'.join(quote_plus(k) + '=' + quote_plus(v)
+                                for k, v in http_data.items()).encode(encoding)
+            else:
+                raise ValueError(f"Form data is not a map with string values {type(http_data)}")
         case 'yaml':
             raise ValueError("YAML is not supported")
         case _:   # including text and blob
             if isinstance(http_data, str):
-                body = http_data.encode()
+                body = http_data.encode(encoding)
             elif isinstance(http_data, bytes):
                 body = http_data
             else:
-                body = dump_frid_str(http_data).encode()
+                body = dump_frid_str(http_data).encode(encoding)
     # Convert all labels to type
     mime_type = mime_label_type.get(mime_type, mime_type)
     return (body, mime_type)
@@ -206,7 +221,7 @@ class HttpMixin:
         items = headers.items() if isinstance(headers, Mapping|Message) else headers
         http_head: CaseDict[str,str] = CaseDict()
         for key, val in items:
-            # Convert them into string
+            # Convert them into string -- note that headers are UTF-8 encoded
             if isinstance(key, bytes):
                 key = key.decode()
             elif not isinstance(key, str):
@@ -236,29 +251,30 @@ class HttpMixin:
                    http_body=rawdata, http_data=http_data, **kwargs)
 
     @staticmethod
-    async def _streaming(stream: AsyncIterable[FridValue|tuple[str,FridValue]]):
+    async def _streaming(stream: AsyncIterable[FridValue|tuple[str,FridValue]],
+                         encoding: str='utf-8'):
         """This is an agent iterator that convert data to string."""
         async for item in stream:
             prefix = b''
             if isinstance(item, tuple) and len(item) == 2:
                 (event, item) = item
                 if isinstance(event, str):
-                    prefix = b"event: " + event.encode() + b"\n"
+                    prefix = b"event: " + event.encode(encoding) + b"\n"
             if item is None:
                 if prefix:
                     yield prefix + b'\n'
             elif is_frid_value(item):
                 yield prefix + b"data: " + dump_frid_str(
                     item, json_level=5, escape_seq=DEF_ESCAPE_SEQ
-                ).encode() + b"\n\n"
+                ).encode(encoding) + b"\n\n"
             else:
                 if not prefix:
                     prefix = b"event: other\n"
                 yield prefix + b'\n'.join(
-                    b"data: " + x.encode() for x in str(item).splitlines()
+                    b"data: " + x.encode(encoding) for x in str(item).splitlines()
                 ) + b"\n\n"
 
-    def set_response(self) -> 'HttpMixin':
+    def set_response(self, encoding: str='utf-8') -> 'HttpMixin':
         """Update other HTTP fields according to http_data.
         - Returns `self` for chaining, so one can just do
           `var = HttpMixin(...).set_response()`
@@ -283,17 +299,19 @@ class HttpMixin:
                     self.ht_status = 204
                 return self
             if isinstance(self.http_data, AsyncIterable):
-                self.http_body = self._streaming(self.http_data)
+                self.http_body = self._streaming(self.http_data, encoding)
                 # Directly set the content type here
                 mime_type = self.mime_type or "text/event-stream"
             else:
-                (self.http_body, mime_type) = build_http_body(self.http_data, self.mime_type)
+                (self.http_body, mime_type) = build_http_body(
+                    self.http_data, self.mime_type, encoding
+                )
         else:
             mime_type = self.mime_type
         # Set Content-Type using mime_type or mime_label if it is missing in http_head
         if 'Content-Type' not in self.http_head and mime_type:
             if mime_type_label.get(mime_type) not in (None, 'blob'):
-                mime_type += "; charset=utf-8"  # All non blob labels are of text format
+                mime_type += "; charset=" + encoding  # All non blob labels are of text format
             self.http_head['Content-Type'] = mime_type
         # Update the status with 200
         if not self.ht_status:
@@ -318,9 +336,9 @@ class HttpError(HttpMixin, FridError):
     """
     def __init__(self, ht_status: int, *args, **kwargs):
         super().__init__(*args, ht_status=ht_status, **kwargs)
-    def set_response(self) -> 'HttpError':
+    def set_response(self, encoding: str='utf-8') -> 'HttpError':
         self.http_data = self.frid_dict()  # Only show the keyword part of this error
-        super().set_response()
+        super().set_response(encoding)
         return self
     def frid_args(self) -> tuple[str|BlobTypes|float,...]:
         return (self.ht_status, *FridError.frid_args(self))

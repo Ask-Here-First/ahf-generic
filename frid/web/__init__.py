@@ -143,11 +143,12 @@ is removed and the call is tried again.
   headers.
 """
 
-from .mixin import parse_url_query, HttpMixin, HttpError
+from .mixin import parse_url_query, parse_http_body, build_http_body, HttpMixin, HttpError
 from .route import HttpInput, echo_router
 from .files import FileRouter
 
 __all__ = [
-    'parse_url_query', 'HttpMixin', 'HttpError', 'HttpInput', 'echo_router', 'FileRouter'
+    'parse_url_query', 'parse_http_body', 'build_http_body',
+    'HttpMixin', 'HttpError', 'HttpInput', 'echo_router', 'FileRouter'
 ]
 
