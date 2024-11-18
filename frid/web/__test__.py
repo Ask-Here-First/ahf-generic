@@ -12,7 +12,7 @@ from .._loads import load_frid_str
 from .._dumps import dump_frid_str
 from ..typing import FridValue, MissingType, MISSING, get_func_name
 
-from .route import HttpInput, echo_router
+from .route import HttpInput, EchoRouter
 from .httpd import run_http_server
 from .wsgid import run_wsgi_server_with_gunicorn, run_wsgi_server_with_simple
 from .asgid import WebsocketTextIterator, WebsocketBlobIterator
@@ -76,7 +76,7 @@ class TestWebAppHelper(unittest.TestCase):
         cls.server = server
         cls.process = Process(target=server, args=(
             {
-                '/echo': echo_router, '/test/': TestRouter(),
+                '/echo': EchoRouter, '/test/': TestRouter(),
                 '/wss1/': WebsocketRouter1, '/wss2': WebsocketRouter2,
             },
             {str(Path(__file__).absolute().parent): ''},
@@ -176,27 +176,26 @@ class TestWebAppHelper(unittest.TestCase):
         return out
 
     def run_echo_test(self):
-        test = echo_router
-        self.assertEqual(self._remove_env(self.load_page("/echo")), self._remove_env(test()))
-        self.assertEqual(self._remove_env(self.load_page("/echo/4")), test(4))
-        self.assertEqual(self._remove_env(self.load_page("/echo/a/3?b=4&c=x")),
-                         self._remove_env(test("a", 3, b=4, c="x")))
+        self.assertEqual(self._remove_env(self.load_page("/echo")),
+                         self._remove_env(EchoRouter()()))
+        self.assertEqual(self._remove_env(self.load_page("/echo/4")),
+                         self._remove_env(EchoRouter(4)()))
         self.assertEqual(self._remove_env(self.load_page("/echo?a=+")),
-                         self._remove_env(test(a=True)))
+                         self._remove_env(EchoRouter(a=True)()))
         self.assertEqual(self._remove_env(self.load_page("/echo/a/3?b=4&c=x")),
-                         self._remove_env(test("a", 3, b=4, c="x")))
+                         self._remove_env(EchoRouter("a", 3, b=4, c="x")()))
         self.assertEqual(self._remove_env(self.load_page("/echo", {"x": 1, "y": 2})),
-                         self._remove_env(test(_data={"x": 1, "y": 2}, _call="set")))
+                         self._remove_env(EchoRouter()({"x": 1, "y": 2})))
         self.assertEqual(self._remove_env(
             self.load_page("/echo/a/3?b=4&c=x", {"x": 1, "y": 2}, method='PUT')
-        ), self._remove_env(test("a", 3, b=4, c="x", _data={"x": 1, "y": 2}, _call="put")))
+        ), self._remove_env(EchoRouter("a", 3, b=4, c="x")({"x": 1, "y": 2}, "put")))
         self.assertEqual(self._remove_env(
             self.load_page("/echo/a", method='DELETE')
-        ), self._remove_env(test("a", _call="del")))
+        ), self._remove_env(EchoRouter("a")(None, "del")))
         self.assertEqual(self._remove_env(
             self.load_page("/echo/a/3?b=4&c=x", {"x": 1, "y": 2}, method='PATCH')
         ), self._remove_env(
-            test("a", 3, b=4, c="x", _data={"x": 1, "y": 2}, _call="add")
+            EchoRouter("a", 3, b=4, c="x")({"x": 1, "y": 2}, "add")
         ))
 
     def run_file_test(self):

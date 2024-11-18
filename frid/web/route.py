@@ -197,28 +197,20 @@ class ApiRoute:
                     break
         return HttpError(status, "Crashed: " + self.get_log_str(req, client), cause=exc)
     def _get_vpargs(self, data: _T|MissingType) -> tuple[FridValue|_T,...]:
-        vpargs = () if self.no_args else tuple(self.vpargs)
-        data_arg = None if data is MISSING else data
+        body = None if data is MISSING else data
         match self.numfpa:
             case 0:
-                return vpargs
+                return () if self.no_args else tuple(self.vpargs)
             case 1:
-                return (data_arg, *vpargs)
+                return (body,) if self.no_args else (body, *self.vpargs)
             case 2:
-                return (_call_op_type_map[self.method], data_arg, *vpargs)
+                op_type = _call_op_type_map.get(self.method, self.method)
+                return (body, op_type) if self.no_args else (op_type, body, *self.vpargs)
             case _:
                 raise ValueError(f"Invalid value of numfpa={self.numfpa}")
     def _get_kwargs(self, data: _T|MissingType) -> Mapping[str,_T|FridValue]:
         # Only when the router is directly callable we need the extra parameters
-        if self.router is not self.action:
-            return {} if self.no_args else self.kwargs
-        out: dict[str,_T|FridValue] = {} if self.no_args else dict(self.kwargs)
-        call = _call_op_type_map.get(self.method)
-        if self.numfpa <= 1 and call is not None and call != 'get':
-            out['_call'] = call
-        if self.numfpa == 0 and data is not MISSING:
-            out['_data'] = data
-        return out
+        return {} if self.no_args else self.kwargs
     def get_log_str(self, req: HttpMixin, client: str|None=None):
         if isinstance(req.http_data, AsyncIterable):
             data = get_type_name(req.http_data)
@@ -352,7 +344,15 @@ class ApiRouteManager:
                 medial = ""
                 suffix = path[len(prefix):]
             # Always pass a single data pbject for non-HTTP route
-            numfpa = 0 if method in HTTP_SUPPORTED_METHODS else 1
+            match method:
+                case 'GET':
+                    numfpa = 0
+                case 'POST' | ':ws:':  # Websocket gets a special two way iterator
+                    numfpa = 1
+                case 'PUT' | 'PATCH' | 'DELETE':
+                    numfpa = 2
+                case _:
+                    numfpa = 0
         else:
             return HttpError(403, f"[{prefix}]: the router is not callable: {type(router)}")
         # Parse the query string
@@ -617,28 +617,32 @@ class ApiRouteManager:
             kwargs['client'] = str(client)
         return kwargs
 
-def echo_router(*args, _data: FridValue|MissingType=MISSING,
-                _call: str='get', _http: HttpInput={}, **kwds):
-    args = list(args)
-    if _call == 'get':
-        if not kwds:
-            return args  # Args can be empty
-        if not args:
-            return kwds
-        return {'.call': "get", '.args': args, '.kwds': kwds, '.http': _http}
-    if isinstance(_data, Mapping):
-        out = dict(_data)
-    else:
-        out = {}
-        if _data is not MISSING:
-            out['.data'] = _data
-    out['.call'] = _call
-    out['.http'] = _http
-    if args:
-        out['.args'] = args
-    if kwds:
-        out['.kwds'] = kwds
-    return out
+class EchoRouter:
+    def __init__(self, *args, _http: HttpInput={}, **kwds):
+        self._args = args
+        self._kwds = kwds
+        self._http = _http
+    def __call__(self, data:  FridValue|MissingType=MISSING, op_type: CallOpType|None=None):
+        args = list(self._args)
+        if data is MISSING:
+            if not self._kwds:
+                return args  # Args can be empty
+            if not args:
+                return self._kwds
+            return {'.call': "get", '.args': args, '.kwds': self._kwds, '.http': self._http}
+        if isinstance(data, Mapping):
+            out = dict(data)
+        else:
+            out = {}
+            if data is not MISSING:
+                out['.data'] = data
+        out['.call'] = 'set' if op_type is None else op_type
+        out['.http'] = self._http
+        if args:
+            out['.args'] = args
+        if self._kwds:
+            out['.kwds'] = self._kwds
+        return out
 
 def load_command_line_args() -> tuple[dict[str,str],str|list[str]|dict[str,str]|None,str,int]:
     if len(sys.argv) < 2:

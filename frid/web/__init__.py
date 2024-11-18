@@ -24,8 +24,8 @@ The three fragments concatenate into the full URL path without the query string.
 
 The framework maintains a set of routers. Each router object is associated
 with a prefix string. There are two kinds of routers:
-- Object routers - the prefix of an object router must end with a `/`.
-- Functor routers - the prefix of an functor reouter must not end with a `/`,
+- Method routers - the prefix of a method router must end with a `/`.
+- Functor routers - the prefix of an functor router must not end with a `/`,
   but a matching prefix, if not the entire URL path, must be followed by a '/'
   in the URL path.
 
@@ -43,7 +43,7 @@ callable. The path medial is always empty unless the URL path is the root
 `"/"` and the matching prefix is empty; in this case the path medial is `/`
 (and the path suffix is empty).
 
-An object router is a class object with many methods, and some methods
+A method router is a class object with many methods, and some methods
 represents actions. We first extract the path medial string following
 the path prefix to before the next `/` (or to the end).
 
@@ -58,7 +58,7 @@ callable attributes in the router object, depending on the HTTP method:
 - For all HTTP methods, if none of the above attribute is found, try to
   find `run_MEDIAL`.
 
-If none of the above attributes are found in the object router, we set
+If none of the above attributes are found in the method router, we set
 path medial to be an empty string (i.e., with `MEDIAL=''`), then repeat the
 search for methods as above to find the callable attributes `get_`, `post_`,
 `run_` and alike. If this results in a match, then the path medial is an empty.
@@ -70,7 +70,7 @@ The found attribute that matches to the medial and HTTP method is the action.
 The remaining string after the path medial is the path suffix.
 By the way how prefix and medial are matched, the path suffix must either
 starts with a `/` and starts right after a `/`. The latter happens only
-for an object router with an empty medial.
+for a method router with an empty medial.
 
 When parsing the suffix, the leading `/`, if any, is removed first.
 The suffix is then split into multiple items with `/`.
@@ -85,37 +85,74 @@ the case, a http 307 is issued to remove extra `/`s.
 
 ## How actions are called
 
-The action is called with a fixed positional arguments (fpargs), followed by
-the variable positional arguments (vpargs) coming from the path suffix,
-then by a list of keyword arguments coming from the URL query string.
+How actions are called depends if the router is a class type object or
+a class instance object, and if the router is a method router or a functor
+router.
 
-For object router, the number of fix positional arguments depends on the name
+Note that for all cases, the URL provides the following arguments:
+
+- Variable positional arguyments (`vpargs`) which comes from the path suffix,
+  and
+- Keywoard arguments (`kwargs`) which comes from the query.
+
+Also, whenever `kwargs` is used a keyword argument named `_http` with a `dict`
+value is first added to the keyword arguments as an additional keyword argument
+along with the other arguments of `kwargs`. If the action does not accept
+this additional argument, (i.e., a `TypeError` is raised when calling), then
+`_http` keyword argument is removed from `kwargs` and the same call is tried
+again.
+
+### For a method router which is a class instance object
+
+The action is called with fixed positional arguments (`fpargs`), followed by
+`vpargs` coming from the path suffix, then keyword arguments `kwargs` coming
+from URL query string; in other words, the action is called in this way:
+`action(*fpargs, *vpargs, **kwargs)`.
+
+For a method router, the number of fix positional arguments depends on the name
 of object methods:
 - For `get_*`, `del_*`, `delete_*` methods, there is no fixed positional
-  argument.
+  argument, i.e., `fpvargs=()`.
 - For `set_*`, `post_*`, `put_*`, `add_*`, and `patch_*`, the request body
-  parsed as enhanced JSON to `FridValue` is passed as  one and only fixed
-  positional argument.
+  parsed as enhanced JSON to `FridValue` is passed as one and only fixed
+  positional argument, i.e., `fpargs=(HTTP_DATA,)`.
 - For `run_*`, two fixed positional arguments are passed; the first is a
-  string of the following: `get` for HTTP GET, `set` for HTTP POST,
+  string of one of the following: `get` for HTTP GET, `set` for HTTP POST,
   `put` for HTTP PUT, `add` for HTTP PATCH, and `del` for HTTP DELETE;
   the second is the processed request body as a `FridValue`, or `None`
-  if the body is missing.
+  if the body is missing; in other words,
+  `fpargs=('get'|'set'|'put'|'add'|'del', HTTP_DATA)`.
 
-For functor router, the action is the router, which is called with zero fixed
-positional arguments. However, additional keyword arguments are added,
-depending on the HTTP method:
-- For HTTP GET, no extra keyword argument is added.
-- For other HTTP methods, a keyword argument with key `_call` and value being
-  one of `get`, `set`, `put`, `add` or `del` (just like the first argument
-  of `run_*` method in the router object as above).
-- For HTTP POST, PUT, and PATCH, the processed HTTP body (a `FridValue`)
-  is passed with the key `_data`.
+### For a method router which is a class type object
 
-Also, a keyword argument named `_http` with a `dict` value is passed as an
-additional keyword argument. If the action does not accept this argument,
-(i.e., a `TypeError` is raised when calling), the `_http` keyword argument
-is removed and the call is tried again.
+The constructor of the class type is first called to instantiate an class
+instance, with arguments `(*vpargs, **kwargs)`. In other words, all arguments
+coming from the URL is passed to the constructor instead of methods.
+Then a method of the instance is called in the same way as described with above,
+but only with the arguments `(*fpargs)` (so either zero, one or two arguments).
+
+### For a functor router which is a class instance object
+
+For functor router that is an class object, only GET is supported.
+The functor is called with `(*vpargs, **kwargs)`.
+
+### For a method router which is a class instance object
+
+The constructor of the class type is first called to instantiate an class
+instance, with arguments `(*vpargs, **kwargs)`. Then the instance is called
+as a functor as follows:
+
+- For `GET`, the functor is called with zero argument.
+- For `POST`, the functor is called with only one argument, the post data.
+- For other HTTP method, the functor is called with two arguments:
+  the first is the data (or None without HTTP body), and the second
+  is an operation type string: `put` for HTTP PUT, `add` for HTTP PATCH, and
+  `del` for HTTP DELETE.
+
+Note that the order in the last case is switched compared with `run_` method
+for method routers; this is because the reversed order allow same `__call__`
+method to handle all three cases and the `vpargs` from URL path is not
+interfering like with the class instance routers).
 
 ## How to generate HTTP response
 
@@ -144,11 +181,13 @@ is removed and the call is tried again.
 """
 
 from .mixin import parse_url_query, parse_http_body, build_http_body, HttpMixin, HttpError
-from .route import HttpInput, echo_router
+from .route import HttpInput, EchoRouter
 from .files import FileRouter
+
+echo_router = EchoRouter  # To be removed in 0.6.0
 
 __all__ = [
     'parse_url_query', 'parse_http_body', 'build_http_body',
-    'HttpMixin', 'HttpError', 'HttpInput', 'echo_router', 'FileRouter'
+    'HttpMixin', 'HttpError', 'HttpInput', 'EchoRouter', 'FileRouter'
 ]
 
