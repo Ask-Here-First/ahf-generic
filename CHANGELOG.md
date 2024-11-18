@@ -1,10 +1,17 @@
 # Changelog
 
-## [Unreleased]
+## [0.5.6]-2024-11-18
+
+### Added
+
+- `int_to_str()` and `str_to_int()`: support number grouping with separators.
 
 ### Changed
 
 - `HttpError.to_str()` will now add "venue" field if it is provided.
+- `frid.web`: How the functor router is called is changed: a functor router
+  that is an class instance object can only be called for HTTP GET; a functor
+  router that is an class type object can be called with all HTTP methods.
 
 ## [0.5.5]-2024-11-15
 
@@ -93,7 +100,7 @@
 
 The base version of this changelog.
 
-[Unreleased]: ../../compare/v0.5.5...HEAD
+[0.5.6]: ../../compare/v0.5.5...v0.5.6
 [0.5.5]: ../../compare/v0.5.4...v0.5.5
 [0.5.4]: ../../compare/v0.5.3...v0.5.4
 [0.5.3]: ../../compare/v0.5.2...v0.5.3
