@@ -75,5 +75,7 @@ def run_http_server(routes: dict[str,Any], assets: str|dict[str,str]|list[str]|N
             info(f"[HTTP server] Completed service at {host}:{port}.")
 
 if __name__ == '__main__':
+    from ..lib import set_root_logging
+    set_root_logging()
     from .route import load_command_line_args
     run_http_server(*load_command_line_args())

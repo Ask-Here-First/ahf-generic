@@ -110,5 +110,7 @@ def run_wsgi_server_with_simple(
 run_wsgi_server = run_wsgi_server_with_gunicorn
 
 if __name__ == '__main__':
+    from ..lib import set_root_logging
+    set_root_logging()
     from .route import load_command_line_args
     run_wsgi_server(*load_command_line_args())

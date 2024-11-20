@@ -482,5 +482,7 @@ def run_asgi_server_with_uvicorn(
 run_asgi_server = run_asgi_server_with_uvicorn
 
 if __name__ == '__main__':
+    from ..lib import set_root_logging
+    set_root_logging()
     from .route import load_command_line_args
     run_asgi_server(*load_command_line_args())

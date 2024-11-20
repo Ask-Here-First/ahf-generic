@@ -664,8 +664,8 @@ def load_command_line_args() -> tuple[dict[str,str],str|list[str]|dict[str,str]|
                 name = '/' + name
             routes[name] = value
         else:
-            if assets is not None:
+            if assets:
                 print(f"The root directory is already specified: {assets}", file=sys.stderr)
                 sys.exit(1)
-            assets.add(item)
+            assets.append(item)
     return (routes, assets, host, port)
