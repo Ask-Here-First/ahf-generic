@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.7]-2024-11-19
+
+### Fixed
+
+- `http.web` fixes for command-line handling.
+- `http.web`: the FileRouter now accepts and drops non-empty query string.
+
+### Added
+
+- The webserver command-lines in `http.web.????d` now sets up the logging
+  and checks the envvar `FRID_LOG_LEVEL`.
+
 ## [0.5.6]-2024-11-18
 
 ### Added
