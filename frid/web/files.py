@@ -86,7 +86,8 @@ class FileRouter:
             return (data, self._get_mime_type(zip_path[idx:]))
         return (data, self._other_mime_type)
 
-    def __call__(self, *path):
+    def __call__(self, *path, **kwargs):
+        # There could be query string for static files used by frontend code; we must allow it
         if any(p.startswith('.') for p in path):
             raise HttpError(400, f"Path items cannot start with .: '{'/'.join(path)}'")
         for root in self._roots:
