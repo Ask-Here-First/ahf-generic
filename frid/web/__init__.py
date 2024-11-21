@@ -52,16 +52,17 @@ callable attributes in the router object, depending on the HTTP method:
 
 - For HTTP GET: `get_MEDIAL`,
 - For HTTP POST: `set_MEDIAL` or `post_MEDIAL`, in this order,
+- For HTTP GET and POST: `add_MEDIAL`, if none of above attributes are found,
 - for HTTP PUT: `put_MEDIAL`,
 - For HTTP DELETE, `del_MEDIAL` or `delete_MEDIAL`, in this order,
 - For HTTP PATCH, `add_MEDIAL` or `patch_MEDIAL`, in this order,
-- For all HTTP methods, if none of the above attribute is found, try to
-  find `run_MEDIAL`.
+- For all HTTP methods, if none of the above attributes is found, try to
+  find `use_MEDIAL`.
 
 If none of the above attributes are found in the method router, we set
 path medial to be an empty string (i.e., with `MEDIAL=''`), then repeat the
 search for methods as above to find the callable attributes `get_`, `post_`,
-`run_` and alike. If this results in a match, then the path medial is an empty.
+`use_` and alike. If this results in a match, then the path medial is an empty.
 
 The found attribute that matches to the medial and HTTP method is the action.
 
@@ -116,12 +117,12 @@ of object methods:
 - For `set_*`, `post_*`, `put_*`, `add_*`, and `patch_*`, the request body
   parsed as enhanced JSON to `FridValue` is passed as one and only fixed
   positional argument, i.e., `fpargs=(HTTP_DATA,)`.
-- For `run_*`, two fixed positional arguments are passed; the first is a
-  string of one of the following: `get` for HTTP GET, `set` for HTTP POST,
-  `put` for HTTP PUT, `add` for HTTP PATCH, and `del` for HTTP DELETE;
-  the second is the processed request body as a `FridValue`, or `None`
-  if the body is missing; in other words,
-  `fpargs=('get'|'set'|'put'|'add'|'del', HTTP_DATA)`.
+- For `use_*`, two fixed positional arguments are passed; the first is a
+  the processed request body as a `FridValue`, or `None` if the body is
+  missing; and the second is a string of one of the following:
+  `get` for HTTP GET, `set` for HTTP POST, `put` for HTTP PUT,
+  `add` for HTTP PATCH, and `del` for HTTP DELETE; in other words,
+  `fpargs=(HTTP_DATA, 'get'|'set'|'put'|'add'|'del')`.
 
 ### For a method router which is a class type object
 
@@ -148,11 +149,6 @@ as a functor as follows:
   the first is the data (or None without HTTP body), and the second
   is an operation type string: `put` for HTTP PUT, `add` for HTTP PATCH, and
   `del` for HTTP DELETE.
-
-Note that the order in the last case is switched compared with `run_` method
-for method routers; this is because the reversed order allow same `__call__`
-method to handle all three cases and the `vpargs` from URL path is not
-interfering like with the class instance routers).
 
 ## How to generate HTTP response
 
@@ -184,10 +180,7 @@ from .mixin import parse_url_query, parse_http_body, build_http_body, HttpMixin,
 from .route import HttpInput, EchoRouter
 from .files import FileRouter
 
-echo_router = EchoRouter  # To be removed in 0.6.0
-
 __all__ = [
     'parse_url_query', 'parse_http_body', 'build_http_body',
     'HttpMixin', 'HttpError', 'HttpInput', 'EchoRouter', 'FileRouter'
 ]
-

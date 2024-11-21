@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.0]
+
+### Added
+
+- In `frid.web`, adding `ask_` prefix to handle both HTTP GET and POST by
+  the same method, but not other HTTP requests.
+
+### Changed
+
+- Changing catchall methods from `run_` prefix to `use_` prefix
+  (following express.js).
+- Also swap the order of the two fixed positional arguments for `use_*()`;
+  now data goes first and then the optype argument; if data is missing,
+  the first argument is None.
+
+### Removed
+
+- Removed `echo_router`, previously as an alternative name of `EchoRouter`.
+
 ## [0.5.7]-2024-11-19
 
 ### Fixed
