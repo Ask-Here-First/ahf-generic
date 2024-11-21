@@ -197,15 +197,18 @@ class ApiRoute:
                     break
         return HttpError(status, "Crashed: " + self.get_log_str(req, client), cause=exc)
     def _get_vpargs(self, data: _T|MissingType) -> tuple[FridValue|_T,...]:
+        # Using None for MISSING; callee will not be able to distinguish no body vs null body
+        # For example, with get_or_post_ prefix, POST with no/null data is the same as GET
         body = None if data is MISSING else data
+        vpargs = () if self.no_args else tuple(self.vpargs)
         match self.numfpa:
             case 0:
-                return () if self.no_args else tuple(self.vpargs)
+                return vpargs
             case 1:
-                return (body,) if self.no_args else (body, *self.vpargs)
+                return (body, *vpargs)
             case 2:
                 op_type = _call_op_type_map.get(self.method, self.method)
-                return (body, op_type) if self.no_args else (op_type, body, *self.vpargs)
+                return (body, op_type, *vpargs)
             case _:
                 raise ValueError(f"Invalid value of numfpa={self.numfpa}")
     def _get_kwargs(self, data: _T|MissingType) -> Mapping[str,_T|FridValue]:
@@ -248,21 +251,23 @@ class ApiRouteManager:
     in zip files, allowing overlay between them.
     """
     _route_prefixes: Mapping[MethodKind,Sequence[str]] = {
-        'HEAD': ['get_', 'run_'],
-        'GET': ['get_', 'run_'],
-        'POST': ['set_', 'post_', 'run_'],
-        'PUT': ['put_', 'run_'],
-        'PATCH': ['add_', 'patch_', 'run_'],
-        'DELETE': ['del_', 'delete_', 'run_'],
+        'HEAD': ['get_', 'ask_', 'get_or_post_', 'use_'],
+        'GET': ['get_', 'ask_', 'get_or_post_', 'use_'],
+        'POST': ['set_', 'post_', 'ask_', 'get_or_post_', 'use_'],
+        'PUT': ['put_', 'use_'],
+        'PATCH': ['add_', 'fix_', 'patch_', 'use_'],
+        'DELETE': ['del_', 'delete_', 'use_'],
     }
     _num_fixed_args: Mapping[str,Literal[0,1,2]] = {
-        'get_': 0, 'set_': 1, 'put_': 1, 'add_': 1, 'del_': 0, 'run_': 2,
-        'post_': 1, 'patch_': 1, 'delete_': 0,
+        'get_': 0, 'set_': 1, 'put_': 1, 'add_': 1, 'del_': 0, 'ask_': 1, 'use_': 2,
+        'post_': 1, 'patch_': 1, 'delete_': 0, 'get_or_post_': 1,
     }
     _rprefix_revmap: Mapping[str,Sequence[MethodKind]] = {
         'get_': ['GET'], 'set_': ['POST'], 'put_': ['PUT'], 'add_': ['PATCH'],
-        'del_': ['DELETE'], 'run_': ['GET', 'HEAD', 'POST', 'PUT', 'PATCH'],
+        'del_': ['DELETE'], 'ask_': ['GET', 'POST'],
+        'use_': ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
         'post_': ['PUT'], 'patch_': ['PATCH'], 'delete_': ['DELETE'],
+        'get_or_post_': ['GET', 'POST'],
     }
     _common_headers = {
         'Cache-Control': "no-cache",

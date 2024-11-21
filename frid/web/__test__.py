@@ -27,10 +27,13 @@ class TestRouter:
         return [data, list(args), kwds]
     def del_echo(self, *args, _http={}, **kwds):
         return {'status': "ok", **kwds, '.args': list(args)}
-    def run_echo(self, optype, data, *args, _http={}, **kwds):
+    def use_echo(self, data, optype, *args, _http={}, **kwds):
         return {'optype': optype, '.data': data, '.kwds': kwds, '.args': list(args)}
     def get_(self, *args, _http={}, **kwds):
         return [*args, kwds]
+    def ask_(self, data, *args, _http={}, **kwds):
+        return {'op': 'ask-put' if data is None else 'ask-get',
+                '.data': data, '.kwds': kwds, '.args': list(args)}
     def put_(self, data, *args, _http={}, **kwds):
         return {'optype': 'put', '.data': data, '.kwds': kwds, '.args': list(args)}
 
@@ -152,10 +155,12 @@ class TestWebAppHelper(unittest.TestCase):
         )
         self.assertEqual(
             self.load_page("/test/echo?b=4&c=x", {"x": 1, "y": 2}, method='PATCH'),
-            test.run_echo('add', {"x": 1, "y": 2}, b=4, c="x")
+            test.use_echo({"x": 1, "y": 2}, 'add',  b=4, c="x")
         )
         self.assertEqual(self.load_page("/test/other/a/3?b=4&c=x"),
                          test.get_("other", "a", 3, b=4, c="x"))
+        self.assertEqual(self.load_page("/test/other/a/3?b=2&c=y", {"x": 0, "y": 3}),
+                         test.ask_({"x": 0, "y": 3}, "other", "a", 3, b=2, c="y"))
         self.assertEqual(self.load_page("/test/other", {"x": 1, "y": 2}, method='PUT'),
                          test.put_({"x": 1, "y": 2}, "other"))
         with self.assertRaises(urllib.error.HTTPError) as ctx:
