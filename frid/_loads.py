@@ -651,20 +651,17 @@ class FridLoader:
             if not name:
                 break
             self.skip_whitespace()
-            if self.offset >= self.length:
-                self.error(f"Unexpected ending after '{name}' of a map")
-            token = self.peek_fixed_size(1)
+            if self.offset >= self.length or (token := self.peek_fixed_size(1)) in stop:
+                if kwds:
+                    self.error("Unnamed argument following keyword argument")
+                args.append(name)
+                break
             if token == sep[0]:
                 self.skip_fixed_size(1)
                 if kwds:
                     self.error("Unnamed argument following keyword argument")
                 args.append(name)
                 continue
-            if token in stop:
-                if kwds:
-                    self.error("Unnamed argument following keyword argument")
-                args.append(name)
-                break
             if token != sep[1]:
                 self.error(f"Expect '{sep[1]}' after key '{name}' of a map")
             if not isinstance(name, str):
