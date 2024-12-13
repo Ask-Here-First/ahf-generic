@@ -10,7 +10,7 @@ from ..typing import Unpack   # Python 3.11 only feature
 from ..typing import FridNameArgs, FridValue, MissingType, MISSING
 from ..typing import get_type_name, get_func_name
 from ..guards import is_frid_value
-from ..lib import CaseDict
+from ..lib import CaseDict, warn
 from .._basic import frid_redact
 from .._dumps import dump_args_str
 from .._utils import load_module_data
@@ -309,10 +309,44 @@ class ApiRouteManager:
         elif assets is not None:
             self._registry[''] = FileRouter(*assets)
         if routes is not None:
-            self._registry.update(
-                (k, (load_module_data(v) if isinstance(v, str) else v))
-                for k, v in routes.items()
-            )
+            # self._registry.update(
+            #     (k, (load_module_data(v) if isinstance(v, str) else v))
+            #     for k, v in routes.items()
+            # )
+            for k, v in routes.items():
+                if isinstance(v, str):
+                    v = load_module_data(v)
+                if self.is_valid_route(v):
+                    self._registry[k] = v
+        self._note_routes()
+    @staticmethod
+    def is_valid_route(route) -> bool:
+        if callable(route):
+            return True
+        cls = route if inspect.isclass(route) else type(route)
+        if not inspect.isbuiltin(cls):
+            return True
+        warn(f"Invalid route with type {cls}")
+        return False
+    def register_route(self, prefix: str, route: Any|None) -> bool:
+        """Dynamically register a `route` at the given `prefix`."""
+        if route is not None:
+            if not self.is_valid_route(route):
+                return False
+            old_route = self._registry.get(prefix)
+            self._registry[prefix] = route
+            info(f"Registered the route of {get_type_name(route)} for {prefix=}")
+            if old_route is None:
+                info(f"... replacing the old route of {get_type_name(old_route)}")
+        else:
+            old_route = self._registry.pop(prefix, None)
+            if old_route is None:
+                info(f"No route registration for {prefix=}")
+                return False
+            info(f"Unregistered the route of {get_type_name(old_route)} for {prefix=}")
+        self._note_routes()
+        return True
+    def _note_routes(self):
         info("Current routes:")
         for k, v in self._registry.items():
             if isinstance(v, FileRouter):
