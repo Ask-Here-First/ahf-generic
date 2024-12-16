@@ -336,7 +336,7 @@ class ApiRouteManager:
             old_route = self._registry.get(prefix)
             self._registry[prefix] = route
             info(f"Registered the route of {get_type_name(route)} for {prefix=}")
-            if old_route is None:
+            if old_route is not None:
                 info(f"... replacing the old route of {get_type_name(old_route)}")
         else:
             old_route = self._registry.pop(prefix, None)
