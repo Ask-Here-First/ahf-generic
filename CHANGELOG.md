@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.1]-2024-12-15
+
+### Added
+
+- `frid.web` now can dynamically add and remove routes.
+
+### Fixed
+
+- The previous fix for a parsing issue in `FridLoader.scan_naked_args()` was
+  incomplete; additional fixes is necessary for other cases.
+
 ## [0.6.0]-2024-11-21
 
 ### Added
@@ -131,6 +142,7 @@
 
 The base version of this changelog.
 
+[0.6.0]: ../../compare/v0.6.0...v0.6.1
 [0.6.0]: ../../compare/v0.5.7...v0.6.0
 [0.5.7]: ../../compare/v0.5.6...v0.5.7
 [0.5.6]: ../../compare/v0.5.5...v0.5.6
